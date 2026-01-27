@@ -101,7 +101,10 @@ export async function GET(request: NextRequest) {
 async function loadConnectionData(
   projectPath?: string | null
 ): Promise<ConnectionsApiResponse["data"] | null> {
-  const root = projectPath || process.cwd().replace(/\/web$/, "");
+  // Priority: query param > env var > NavGator directory
+  const root = projectPath ||
+    process.env.NAVGATOR_PROJECT_PATH ||
+    process.cwd().replace(/\/web$/, "");
 
   // Try to load from NavGator storage
   const connectionsDir = path.join(root, ".claude", "architecture", "connections");

@@ -177,8 +177,10 @@ export async function POST(request: NextRequest) {
 async function loadScanData(
   projectPath?: string | null
 ): Promise<PromptsApiResponse["data"] | null> {
-  // Determine project root
-  const root = projectPath || process.cwd().replace(/\/web$/, "");
+  // Priority: query param > env var > NavGator directory
+  const root = projectPath ||
+    process.env.NAVGATOR_PROJECT_PATH ||
+    process.cwd().replace(/\/web$/, "");
 
   // Try to load from NavGator storage
   const storagePaths = [
@@ -225,7 +227,10 @@ async function loadScanData(
 async function runNavGatorScan(
   projectPath?: string
 ): Promise<PromptScanResult | null> {
-  const root = projectPath || process.cwd().replace(/\/web$/, "");
+  // Priority: query param > env var > NavGator directory
+  const root = projectPath ||
+    process.env.NAVGATOR_PROJECT_PATH ||
+    process.cwd().replace(/\/web$/, "");
 
   try {
     // Try running navgator CLI

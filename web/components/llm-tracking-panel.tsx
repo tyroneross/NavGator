@@ -24,6 +24,9 @@ import {
   RefreshCw,
   Loader2,
   Info,
+  GitBranch,
+  ArrowDown,
+  Circle,
 } from "lucide-react";
 import { usePrompts } from "@/lib/hooks";
 import type { LLMCall, Prompt } from "@/lib/types";
@@ -215,6 +218,10 @@ export function LLMTrackingPanel() {
             <TabsTrigger value="prompts" className="gap-2">
               <MessageSquare className="h-4 w-4" />
               Prompts
+            </TabsTrigger>
+            <TabsTrigger value="flow" className="gap-2">
+              <GitBranch className="h-4 w-4" />
+              AI Flow
             </TabsTrigger>
           </TabsList>
 
@@ -666,7 +673,278 @@ export function LLMTrackingPanel() {
             </Card>
           </div>
         </TabsContent>
+
+        <TabsContent value="flow" className="mt-4">
+          <AIFlowDiagram prompts={prompts} calls={calls} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// =============================================================================
+// AI FLOW DIAGRAM COMPONENT
+// =============================================================================
+
+interface AIFlowDiagramProps {
+  prompts: Prompt[];
+  calls: LLMCall[];
+}
+
+interface FlowNode {
+  id: string;
+  name: string;
+  file: string;
+  type: "input" | "process" | "output";
+  category?: string;
+  purpose?: string;
+  prompts: Prompt[];
+}
+
+function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
+  // Group prompts by file and categorize them
+  const groupedByFile = prompts.reduce((acc, prompt) => {
+    const file = prompt.file;
+    if (!acc[file]) {
+      acc[file] = [];
+    }
+    acc[file].push(prompt);
+    return acc;
+  }, {} as Record<string, Prompt[]>);
+
+  // Categorize files into flow stages based on naming patterns and prompt types
+  const categorizeFile = (file: string, filePrompts: Prompt[]): "input" | "process" | "output" => {
+    const lowerFile = file.toLowerCase();
+
+    // Input/routing patterns
+    if (
+      lowerFile.includes("router") ||
+      lowerFile.includes("query") ||
+      lowerFile.includes("classify") ||
+      lowerFile.includes("input") ||
+      lowerFile.includes("parse")
+    ) {
+      return "input";
+    }
+
+    // Output patterns
+    if (
+      lowerFile.includes("summar") ||
+      lowerFile.includes("output") ||
+      lowerFile.includes("response") ||
+      lowerFile.includes("format") ||
+      lowerFile.includes("render")
+    ) {
+      return "output";
+    }
+
+    // Check prompt purposes/categories
+    const hasInput = filePrompts.some(p =>
+      p.purpose?.toLowerCase().includes("classif") ||
+      p.purpose?.toLowerCase().includes("rout") ||
+      p.category?.toLowerCase().includes("input")
+    );
+    if (hasInput) return "input";
+
+    const hasOutput = filePrompts.some(p =>
+      p.purpose?.toLowerCase().includes("summar") ||
+      p.purpose?.toLowerCase().includes("format") ||
+      p.category?.toLowerCase().includes("output")
+    );
+    if (hasOutput) return "output";
+
+    return "process";
+  };
+
+  // Build flow nodes
+  const flowNodes: FlowNode[] = Object.entries(groupedByFile).map(([file, filePrompts]) => {
+    const type = categorizeFile(file, filePrompts);
+    const fileName = file.split("/").pop() || file;
+
+    return {
+      id: file,
+      name: fileName.replace(/\.(ts|js|tsx|jsx|py)$/, ""),
+      file,
+      type,
+      category: filePrompts[0]?.category,
+      purpose: filePrompts[0]?.purpose,
+      prompts: filePrompts,
+    };
+  });
+
+  // Sort by type order: input -> process -> output
+  const typeOrder = { input: 0, process: 1, output: 2 };
+  flowNodes.sort((a, b) => typeOrder[a.type] - typeOrder[b.type]);
+
+  // Group by type for display
+  const inputNodes = flowNodes.filter(n => n.type === "input");
+  const processNodes = flowNodes.filter(n => n.type === "process");
+  const outputNodes = flowNodes.filter(n => n.type === "output");
+
+  const typeColors = {
+    input: "border-info bg-info/10 text-info",
+    process: "border-primary bg-primary/10 text-primary",
+    output: "border-chart-3 bg-chart-3/10 text-chart-3",
+  };
+
+  const typeLabels = {
+    input: "Input / Routing",
+    process: "Processing / Analysis",
+    output: "Output / Summary",
+  };
+
+  if (prompts.length === 0) {
+    return (
+      <Card className="border-border bg-card">
+        <CardContent className="flex flex-col items-center justify-center py-16">
+          <GitBranch className="h-12 w-12 text-muted-foreground/50" />
+          <p className="mt-4 text-muted-foreground">No AI prompts detected</p>
+          <p className="mt-1 text-xs text-muted-foreground/80">
+            Run <code className="rounded bg-secondary px-1.5">navgator scan --prompts</code> to detect AI flows
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Flow Legend */}
+      <div className="flex items-center gap-6 text-xs">
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-full border-2 border-info bg-info/30" />
+          <span className="text-muted-foreground">Input/Routing</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-full border-2 border-primary bg-primary/30" />
+          <span className="text-muted-foreground">Processing</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="h-3 w-3 rounded-full border-2 border-chart-3 bg-chart-3/30" />
+          <span className="text-muted-foreground">Output/Summary</span>
+        </div>
+      </div>
+
+      {/* Flow Diagram */}
+      <Card className="border-border bg-card">
+        <CardContent className="p-6">
+          <div className="relative flex flex-col items-center gap-2">
+            {/* User Input */}
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2">
+              <Circle className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">User Input</span>
+            </div>
+
+            {inputNodes.length > 0 && (
+              <>
+                <ArrowDown className="h-5 w-5 text-muted-foreground" />
+                <FlowStage
+                  label={typeLabels.input}
+                  nodes={inputNodes}
+                  colorClass={typeColors.input}
+                />
+              </>
+            )}
+
+            {processNodes.length > 0 && (
+              <>
+                <ArrowDown className="h-5 w-5 text-muted-foreground" />
+                <FlowStage
+                  label={typeLabels.process}
+                  nodes={processNodes}
+                  colorClass={typeColors.process}
+                />
+              </>
+            )}
+
+            {outputNodes.length > 0 && (
+              <>
+                <ArrowDown className="h-5 w-5 text-muted-foreground" />
+                <FlowStage
+                  label={typeLabels.output}
+                  nodes={outputNodes}
+                  colorClass={typeColors.output}
+                />
+              </>
+            )}
+
+            <ArrowDown className="h-5 w-5 text-muted-foreground" />
+
+            {/* Response */}
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary px-4 py-2">
+              <Circle className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium text-foreground">Response</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Detailed File List */}
+      <Card className="border-border bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-medium">
+            Files with AI Prompts ({Object.keys(groupedByFile).length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-[300px]">
+            <div className="space-y-2">
+              {flowNodes.map((node) => (
+                <div
+                  key={node.id}
+                  className={`rounded-lg border p-3 ${typeColors[node.type]}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-medium">{node.name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {node.prompts.length} prompt{node.prompts.length !== 1 ? "s" : ""}
+                      </Badge>
+                    </div>
+                    <Badge variant="outline" className="text-xs capitalize">
+                      {node.type}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 font-mono text-xs opacity-70">{node.file}</p>
+                  {node.purpose && (
+                    <p className="mt-2 text-xs">{node.purpose}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface FlowStageProps {
+  label: string;
+  nodes: FlowNode[];
+  colorClass: string;
+}
+
+function FlowStage({ label, nodes, colorClass }: FlowStageProps) {
+  return (
+    <div className="w-full max-w-2xl">
+      <div className="mb-2 text-center text-xs font-medium text-muted-foreground">
+        {label}
+      </div>
+      <div className={`rounded-lg border-2 p-4 ${colorClass}`}>
+        <div className="flex flex-wrap justify-center gap-3">
+          {nodes.map((node) => (
+            <div
+              key={node.id}
+              className="flex items-center gap-2 rounded-md bg-background/50 px-3 py-1.5"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span className="font-mono text-xs">{node.name}</span>
+              <span className="text-xs opacity-60">({node.prompts.length})</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

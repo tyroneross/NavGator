@@ -10,10 +10,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useState } from "react"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useState, useEffect } from "react"
+import { useStatus } from "@/lib/hooks"
 
 export function Header() {
   const [isScanning, setIsScanning] = useState(false)
+  const { status, isLoading: isStatusLoading } = useStatus({ autoFetch: true })
 
   const handleScan = async () => {
     setIsScanning(true)
@@ -45,18 +53,27 @@ export function Header() {
 
         <div className="hidden items-center gap-1 text-sm text-muted-foreground md:flex">
           <span>/</span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-foreground">
-                my-project
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuItem>my-project</DropdownMenuItem>
-              <DropdownMenuItem>another-project</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-foreground">
+                  {isStatusLoading ? (
+                    <span className="animate-pulse">Loading...</span>
+                  ) : (
+                    status?.project_name || "No Project"
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-md">
+                <p className="font-mono text-xs">{status?.project_path || "No project path"}</p>
+                {status?.last_scan_formatted && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Last scan: {status.last_scan_formatted}
+                  </p>
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 

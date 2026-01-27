@@ -23,7 +23,8 @@ export type ComponentType =
   | 'database'       // PostgreSQL, MongoDB, Redis, Supabase
   | 'queue'          // BullMQ, Celery, SQS, RabbitMQ
   | 'infra'          // Railway, Vercel, Docker, K8s
-  | 'service'        // Stripe, OpenAI, Twilio, external APIs
+  | 'service'        // Stripe, Twilio, external APIs (non-AI)
+  | 'llm'            // AI/LLM services: OpenAI, Claude, Groq, Anthropic
   // Code-level components
   | 'api-endpoint'   // /api/users, /api/orders
   | 'db-table'       // users, orders, products tables

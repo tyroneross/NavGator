@@ -13,9 +13,12 @@ import {
   AlertTriangle,
   Activity,
   Brain,
+  Loader2,
+  Info,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { useStatus, useComponents, usePrompts } from "@/lib/hooks"
 import type { View } from "@/app/page"
 
 interface StatusOverviewProps {
@@ -23,27 +26,29 @@ interface StatusOverviewProps {
   onNavigate: (view: View) => void
 }
 
-const stats = [
-  { label: "Components", value: "15", icon: Boxes, trend: "+2", view: "components" as View },
-  { label: "Connections", value: "23", icon: GitBranch, trend: "+5", view: "connections" as View },
-  { label: "LLM Calls", value: "8", icon: Brain, trend: "+3", view: "llm" as View },
-  { label: "Health", value: "Good", icon: CheckCircle2, status: "success", view: "settings" as View },
-]
+const typeIcons: Record<string, typeof Package> = {
+  npm: Package,
+  pip: Package,
+  cargo: Package,
+  service: Cloud,
+  database: Database,
+  queue: Server,
+  infra: Server,
+  framework: Boxes,
+  prompt: Brain,
+}
 
-const componentsByType = [
-  { type: "npm", count: 8, icon: Package, color: "text-chart-1" },
-  { type: "service", count: 4, icon: Cloud, color: "text-chart-2" },
-  { type: "database", count: 2, icon: Database, color: "text-chart-3" },
-  { type: "infra", count: 1, icon: Server, color: "text-chart-4" },
-]
-
-const recentComponents = [
-  { name: "Stripe", type: "service", layer: "external", connections: 3 },
-  { name: "PostgreSQL", type: "database", layer: "data", connections: 8 },
-  { name: "BullMQ", type: "queue", layer: "backend", connections: 5 },
-  { name: "Next.js", type: "framework", layer: "frontend", connections: 12 },
-  { name: "Redis", type: "database", layer: "data", connections: 4 },
-]
+const typeColors: Record<string, string> = {
+  npm: "text-chart-1",
+  pip: "text-chart-1",
+  cargo: "text-chart-1",
+  service: "text-chart-2",
+  database: "text-chart-3",
+  queue: "text-chart-4",
+  infra: "text-chart-5",
+  framework: "text-primary",
+  prompt: "text-info",
+}
 
 const quickActions = [
   { label: "Run Full Scan", description: "Analyze entire codebase", icon: Activity, view: "settings" as View },
@@ -52,14 +57,97 @@ const quickActions = [
 ]
 
 export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverviewProps) {
+  const { status, isLoading: statusLoading, error: statusError } = useStatus({ autoFetch: true })
+  const { components, summary: componentsSummary, isLoading: componentsLoading } = useComponents({ autoFetch: true })
+  const { prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
+
+  const isLoading = statusLoading || componentsLoading || promptsLoading
+
+  // Build stats from real data
+  const stats = [
+    {
+      label: "Components",
+      value: status?.stats.total_components?.toString() || "0",
+      icon: Boxes,
+      trend: componentsSummary?.outdatedCount ? `${componentsSummary.outdatedCount} outdated` : undefined,
+      view: "components" as View,
+    },
+    {
+      label: "Connections",
+      value: status?.stats.total_connections?.toString() || "0",
+      icon: GitBranch,
+      view: "connections" as View,
+    },
+    {
+      label: "LLM Calls",
+      value: prompts.length.toString(),
+      icon: Brain,
+      view: "llm" as View,
+    },
+    {
+      label: "Health",
+      value: status?.stats.vulnerable_count === 0 ? "Good" : "Issues",
+      icon: CheckCircle2,
+      status: status?.stats.vulnerable_count === 0 ? "success" : "warning",
+      view: "settings" as View,
+    },
+  ]
+
+  // Build components by type from real data
+  const componentsByType = Object.entries(status?.stats.components_by_type || {})
+    .map(([type, count]) => ({
+      type,
+      count,
+      icon: typeIcons[type] || Package,
+      color: typeColors[type] || "text-muted-foreground",
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+
+  // Get top connected components from real data
+  const recentComponents = components
+    .map((c) => ({
+      name: c.name,
+      type: c.type,
+      layer: c.layer,
+      connections: c.connections,
+    }))
+    .sort((a, b) => b.connections - a.connections)
+    .slice(0, 5)
+  // Show loading state
+  if (isLoading && !status) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // Show empty state if no scan data
+  const hasData = status && status.stats.total_components > 0
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Architecture Status</h1>
         <p className="text-sm text-muted-foreground">
-          Overview of your project architecture and connections
+          {status?.project_name
+            ? `Overview of ${status.project_name} architecture and connections`
+            : "Overview of your project architecture and connections"}
         </p>
       </div>
+
+      {!hasData && (
+        <div className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 p-4">
+          <Info className="h-5 w-5 text-info" />
+          <div>
+            <p className="text-sm font-medium text-info">No scan data found</p>
+            <p className="text-xs text-info/80">
+              Run <code className="rounded bg-info/20 px-1.5 py-0.5">navgator setup</code> to scan your project.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stats Grid - Clickable Navigation */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -84,6 +172,11 @@ export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverview
                     {stat.status === "success" && (
                       <Badge variant="secondary" className="bg-success/10 text-success">
                         Healthy
+                      </Badge>
+                    )}
+                    {stat.status === "warning" && (
+                      <Badge variant="secondary" className="bg-warning/10 text-warning">
+                        Issues
                       </Badge>
                     )}
                     <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
@@ -132,36 +225,42 @@ export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverview
             </button>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {componentsByType.map((item) => (
-                <button
-                  key={item.type}
-                  onClick={() => onNavigate("components")}
-                  className="group flex w-full items-center gap-3 rounded-md p-2 transition-colors hover:bg-secondary"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary transition-colors group-hover:bg-primary/10">
-                    <item.icon className={`h-4 w-4 ${item.color}`} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-card-foreground capitalize">
-                        {item.type}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">{item.count}</span>
-                        <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+            {componentsByType.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No components scanned yet
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {componentsByType.map((item) => (
+                  <button
+                    key={item.type}
+                    onClick={() => onNavigate("components")}
+                    className="group flex w-full items-center gap-3 rounded-md p-2 transition-colors hover:bg-secondary"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary transition-colors group-hover:bg-primary/10">
+                      <item.icon className={`h-4 w-4 ${item.color}`} />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-card-foreground capitalize">
+                          {item.type}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">{item.count}</span>
+                          <ChevronRight className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        </div>
+                      </div>
+                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${Math.min(100, (item.count / Math.max(...componentsByType.map(c => c.count), 1)) * 100)}%` }}
+                        />
                       </div>
                     </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all"
-                        style={{ width: `${(item.count / 8) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -171,33 +270,39 @@ export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverview
             <CardTitle className="text-base font-medium">Top Connected Components</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {recentComponents.map((component) => (
-                <button
-                  key={component.name}
-                  onClick={() => onSelectComponent(component.name)}
-                  className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10">
-                      <span className="text-xs font-medium text-primary">
-                        {component.name.slice(0, 2).toUpperCase()}
-                      </span>
+            {recentComponents.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No components scanned yet
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentComponents.map((component) => (
+                  <button
+                    key={component.name}
+                    onClick={() => onSelectComponent(component.name)}
+                    className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left transition-colors hover:bg-secondary"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded bg-primary/10">
+                        <span className="text-xs font-medium text-primary">
+                          {component.name.slice(0, 2).toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-card-foreground">{component.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {component.type} · {component.layer}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-card-foreground">{component.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {component.type} · {component.layer}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">{component.connections}</span>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">{component.connections}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

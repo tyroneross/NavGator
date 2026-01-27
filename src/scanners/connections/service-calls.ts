@@ -22,13 +22,13 @@ import {
 interface ServicePattern {
   serviceName: string;
   patterns: RegExp[];
-  componentType: 'service' | 'database' | 'queue';
+  componentType: 'service' | 'database' | 'queue' | 'llm';
   layer: 'external' | 'database' | 'queue';
   purpose: string;
 }
 
 const SERVICE_PATTERNS: ServicePattern[] = [
-  // AI Services
+  // AI/LLM Services - These get their own 'llm' type for visibility
   {
     serviceName: 'Claude (Anthropic)',
     patterns: [
@@ -36,8 +36,9 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /anthropic\.completions\.create/,
       /new Anthropic\(/,
       /from anthropic import/,
+      /AnthropicAI/,
     ],
-    componentType: 'service',
+    componentType: 'llm',
     layer: 'external',
     purpose: 'Claude AI API',
   },
@@ -50,9 +51,55 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /from openai import/,
       /OpenAIApi\(/,
     ],
-    componentType: 'service',
+    componentType: 'llm',
     layer: 'external',
     purpose: 'OpenAI API',
+  },
+  {
+    serviceName: 'Groq',
+    patterns: [
+      /new Groq\(/,
+      /groq\.chat\.completions\.create/,
+      /from groq import/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Groq LLM API',
+  },
+  {
+    serviceName: 'Cohere',
+    patterns: [
+      /new Cohere\(/,
+      /cohere\.generate/,
+      /cohere\.chat/,
+      /from cohere import/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Cohere API',
+  },
+  {
+    serviceName: 'Gemini (Google)',
+    patterns: [
+      /GenerativeModel\(/,
+      /gemini-pro/,
+      /from google\.generativeai/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Google Gemini API',
+  },
+  {
+    serviceName: 'LangChain',
+    patterns: [
+      /ChatOpenAI\(/,
+      /ChatAnthropic\(/,
+      /from langchain/,
+      /@langchain/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'LangChain framework',
   },
 
   // Payment Services
@@ -163,6 +210,52 @@ const SERVICE_PATTERNS: ServicePattern[] = [
 ];
 
 // =============================================================================
+// FALSE POSITIVE DETECTION
+// =============================================================================
+
+/**
+ * Check if a line is example/mock code (string literal containing code)
+ * These patterns catch things like: code: "await stripe.paymentIntents.create({...})"
+ */
+function isExampleCode(line: string): boolean {
+  // Check if the match is inside a string literal that looks like example code
+  const examplePatterns = [
+    /code:\s*["'`].*["'`]/, // code: "..." or code: '...'
+    /example:\s*["'`]/,     // example: "..."
+    /snippet:\s*["'`]/,     // snippet: "..."
+    /sample:\s*["'`]/,      // sample: "..."
+    /mock:\s*["'`]/,        // mock: "..."
+    /["'`]await\s+\w+\.\w+\.\w+\([^)]*\)["'`]/, // "await stripe.paymentIntents.create(...)"
+    /["'`][^"'`]*\.\.\.[^"'`]*["'`]/, // Contains "..." ellipsis (example placeholder)
+  ];
+
+  return examplePatterns.some(pattern => pattern.test(line));
+}
+
+/**
+ * Check if a file should be excluded from scanning
+ */
+function shouldExcludeFile(file: string, projectRoot: string): boolean {
+  const excludePatterns = [
+    // NavGator's own source (when scanning other projects)
+    /NavGator\/src\//,
+    /NavGator\/web\//,
+    // Test/mock data directories
+    /\/__tests__\//,
+    /\/test\//,
+    /\/tests\//,
+    /\/mocks?\//,
+    /\/fixtures?\//,
+    /\.test\.(ts|tsx|js|jsx)$/,
+    /\.spec\.(ts|tsx|js|jsx)$/,
+    /\.mock\.(ts|tsx|js|jsx)$/,
+  ];
+
+  const fullPath = path.join(projectRoot, file);
+  return excludePatterns.some(pattern => pattern.test(fullPath) || pattern.test(file));
+}
+
+// =============================================================================
 // SCANNING
 // =============================================================================
 
@@ -177,13 +270,27 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
   // Find all source files
   const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
     cwd: projectRoot,
-    ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '__pycache__/**', 'venv/**'],
+    ignore: [
+      'node_modules/**',
+      'dist/**',
+      'build/**',
+      '.next/**',
+      '__pycache__/**',
+      'venv/**',
+      '**/node_modules/**',
+      '**/.git/**',
+    ],
   });
 
   // Track which services we've found
   const foundServices = new Map<string, ArchitectureComponent>();
 
   for (const file of sourceFiles) {
+    // Skip files that should be excluded (NavGator's own code, test files, etc.)
+    if (shouldExcludeFile(file, projectRoot)) {
+      continue;
+    }
+
     const filePath = path.join(projectRoot, file);
 
     // Skip if not a file (could be a directory matching the glob pattern)
@@ -205,6 +312,11 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
     for (const pattern of SERVICE_PATTERNS) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+
+        // Skip example/mock code patterns
+        if (isExampleCode(line)) {
+          continue;
+        }
 
         for (const regex of pattern.patterns) {
           if (regex.test(line)) {
@@ -327,10 +439,24 @@ export async function scanPromptLocations(projectRoot: string): Promise<ScanResu
 
   const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
     cwd: projectRoot,
-    ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '__pycache__/**', 'venv/**'],
+    ignore: [
+      'node_modules/**',
+      'dist/**',
+      'build/**',
+      '.next/**',
+      '__pycache__/**',
+      'venv/**',
+      '**/node_modules/**',
+      '**/.git/**',
+    ],
   });
 
   for (const file of sourceFiles) {
+    // Skip files that should be excluded (NavGator's own code, test files, etc.)
+    if (shouldExcludeFile(file, projectRoot)) {
+      continue;
+    }
+
     const filePath = path.join(projectRoot, file);
 
     // Skip if not a file (could be a directory matching the glob pattern)
@@ -352,6 +478,11 @@ export async function scanPromptLocations(projectRoot: string): Promise<ScanResu
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const context = lines.slice(Math.max(0, i - 2), i + 3).join('\n');
+
+      // Skip example/mock code patterns
+      if (isExampleCode(line)) {
+        continue;
+      }
 
       for (const pattern of promptPatterns) {
         if (pattern.test(context)) {

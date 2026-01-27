@@ -1,102 +1,141 @@
 ---
 name: Architecture Awareness
-description: This skill should be used when the user asks about "what packages", "what framework", "dependencies", "tech stack", "what version", "upgrade", "update packages", "add library", "install", "architecture", "what uses", "what calls", "impact of changing", or discusses technology choices and connections. Provides architecture-first workflow that checks current stack and connections before making changes.
+description: Use this skill BEFORE making architectural changes. Triggers on "what packages", "what framework", "dependencies", "tech stack", "what version", "upgrade", "update packages", "add library", "install", "architecture", "what uses", "what calls", "impact of changing", database changes, API modifications, service integrations, or refactoring discussions.
 version: 1.0.0
 ---
 
 # Architecture Awareness Workflow
 
-This skill integrates architecture tracking into development workflows.
-
 **Core principle:** Know your stack before you change it.
 
-## When to Activate
+## CRITICAL: When to Check NavGator
 
-- User asks about project dependencies or tech stack
-- User wants to add, upgrade, or remove packages
-- User is making changes that could affect other parts of the system
-- User asks "what uses X" or "what calls Y"
-- User wants to know impact of a change
+### ALWAYS check NavGator impact BEFORE modifying:
 
-## Architecture-First Approach
+1. **Database schemas/models**
+   ```bash
+   navgator impact "users-table"  # See which APIs touch this table
+   ```
 
-Before making architecture changes, check what's affected:
+2. **API endpoints**
+   ```bash
+   navgator connections "api-endpoint"  # See frontend components that call it
+   ```
 
+3. **External service integrations** (Stripe, OpenAI, Twilio, etc.)
+   ```bash
+   navgator impact "Stripe"  # See all files using this service
+   ```
+
+4. **Queue workers/job handlers**
+   ```bash
+   navgator connections "bullmq"  # See what triggers and is triggered by queues
+   ```
+
+5. **Shared utilities** (lib/, utils/, helpers/)
+   ```bash
+   navgator impact "utility-name"  # These often have wide impact
+   ```
+
+## Quick Reference
+
+| Situation | Command | Why |
+|-----------|---------|-----|
+| Before changing DB schema | `navgator impact <table>` | Find all APIs that need updating |
+| Before modifying API | `navgator connections <endpoint>` | Find frontend code to update |
+| Before touching service code | `navgator impact <service>` | Find all usage locations |
+| After npm install | `navgator scan --quick` | Update package tracking |
+| After migrations | `navgator scan` | Update schema connections |
+| Starting new session | `navgator status` | Check if data is fresh |
+
+## Workflow Examples
+
+### Example 1: Changing a Database Table
+
+**Before:**
 ```bash
-# Check what's affected by a component
-npx @tyroneross/navgator impact "<component-name>"
+navgator impact "users"
+```
+This shows:
+- Which API endpoints read/write this table
+- Which services depend on user data
+- File:line locations to update
+
+**Then:** Make your changes knowing what else needs updating.
+
+**After:**
+```bash
+navgator scan
 ```
 
-### Decision Tree
+### Example 2: Adding a New Service Integration
 
-1. **Adding new package:**
-   - Check compatibility with existing stack
-   - Identify where it will be used
-   - After install, run quick scan to update memory
+```bash
+# Check current architecture
+navgator status
 
-2. **Upgrading package:**
-   - Check for breaking changes
-   - Identify all files that use this package
-   - Plan upgrade path
+# Add the package
+npm install stripe
 
-3. **Changing database schema:**
-   - Run `/nav-impact <table-name>`
-   - List all API endpoints affected
-   - Plan API updates before schema change
+# Update architecture
+navgator scan --quick
 
-4. **Modifying API endpoint:**
-   - Run `/nav-connections <endpoint>`
-   - List all frontend components that call it
-   - Plan frontend updates
+# Start implementing - NavGator now tracks your Stripe calls
+```
 
-5. **Changing queue/worker:**
-   - Check what prompts/handlers are triggered
-   - Verify downstream effects
+### Example 3: Refactoring an API Endpoint
 
-## Key Commands
+```bash
+# Before refactoring
+navgator connections "api/users"
+
+# Shows:
+# - Frontend components calling this endpoint
+# - Services that depend on it
+# - Exact file:line references
+
+# Now you know what else needs updating when you change the API contract
+```
+
+## Session Start Checklist
+
+When starting work on a project:
+
+1. Check if architecture data exists: `navgator status`
+2. If missing or stale (>24h): `navgator setup` or `navgator scan`
+3. Before any architectural change: `navgator impact <component>`
+
+## What NavGator Tracks
+
+**Components:**
+- Packages (npm, pip, cargo, go, gem, composer)
+- Frameworks (Next.js, React, Django, FastAPI)
+- Databases (PostgreSQL, MongoDB, Redis, Supabase)
+- Queues (BullMQ, Celery, SQS)
+- Infrastructure (Railway, Vercel, Docker)
+- External Services (Stripe, OpenAI, Twilio)
+
+**Connections:**
+- API → Database (which endpoints touch which tables)
+- Frontend → API (which components call which endpoints)
+- Queue → Handler (which jobs trigger which code)
+- Service calls (where external APIs are used, with file:line)
+
+## Commands
 
 | Command | Use When |
 |---------|----------|
-| `/nav-scan` | Starting work, architecture unknown |
-| `/nav-status` | Quick overview of stack |
-| `/nav-impact <X>` | Before changing component X |
-| `/nav-connections <X>` | Understanding how X is connected |
-| `/nav-check` | Checking for outdated/vulnerable packages |
+| `navgator setup` | First time scanning a project |
+| `navgator scan` | Refresh after changes |
+| `navgator scan --quick` | After package install |
+| `navgator status` | Check scan freshness |
+| `navgator impact <X>` | Before modifying component X |
+| `navgator connections <X>` | Understanding how X is connected |
+| `navgator diagram` | Generate visual architecture |
+| `navgator ui` | Launch visual dashboard |
 
-## Integration Points
+## Key Principle
 
-### Before Package Install
-```bash
-# Check if package conflicts with existing stack
-npx @tyroneross/navgator check-compat "<package-name>"
-```
+**Don't modify architecture-critical code without checking impact first.**
 
-### After Code Changes
-If you modified API endpoints, database queries, or queue handlers, the PostToolUse hook will remind you to update architecture memory.
-
-### During Debugging
-When investigating errors, check `/nav-connections` to understand the full flow:
-- Which API called the failing function?
-- What database table was being accessed?
-- What external service was involved?
-
-## Example Workflows
-
-### Workflow: Adding Stripe Integration
-
-1. Check current architecture: `/nav-status`
-2. Add Stripe package: `npm install stripe`
-3. PostToolUse hook detects install
-4. Scan updates: `npx @tyroneross/navgator scan --quick`
-5. As you implement, connections are tracked:
-   - API endpoint → Stripe service
-   - Frontend → API endpoint
-
-### Workflow: Database Migration
-
-1. Check impact: `/nav-impact users-table`
-2. Review affected APIs and their file locations
-3. Plan changes to each API endpoint
-4. Execute migration
-5. Update APIs (NavGator guides you through each file:line)
-6. Rescan to verify: `/nav-scan`
+The few seconds to run `navgator impact` can save hours of debugging missed updates.

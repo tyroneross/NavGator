@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Target,
   ArrowDownToLine,
@@ -10,232 +10,131 @@ import {
   AlertTriangle,
   CheckCircle2,
   Search,
+  Loader2,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import type { Component, Connection } from "@/lib/types"
 
 interface ImpactAnalysisProps {
   componentName: string | null
   onSelectComponent: (name: string) => void
 }
 
-const componentData: Record<
-  string,
-  {
-    type: string
-    layer: string
-    purpose: string
-    incoming: Array<{
-      file: string
-      symbol: string
-      line: number
-      code: string
-    }>
-    outgoing: Array<{
-      target: string
-      symbol: string
-      line: number
-      code: string
-    }>
-  }
-> = {
-  Stripe: {
-    type: "service",
-    layer: "external",
-    purpose: "Payment processing",
-    incoming: [
-      {
-        file: "src/api/payments.ts",
-        symbol: "createPaymentIntent",
-        line: 45,
-        code: "await stripe.paymentIntents.create({...})",
-      },
-      {
-        file: "src/api/subscriptions.ts",
-        symbol: "createSubscription",
-        line: 23,
-        code: "await stripe.subscriptions.create({...})",
-      },
-      {
-        file: "src/webhooks/stripe.ts",
-        symbol: "handleWebhook",
-        line: 12,
-        code: "stripe.webhooks.constructEvent(...)",
-      },
-    ],
-    outgoing: [],
-  },
-  PostgreSQL: {
-    type: "database",
-    layer: "data",
-    purpose: "Primary data store",
-    incoming: [
-      {
-        file: "src/api/users.ts",
-        symbol: "getUser",
-        line: 15,
-        code: "prisma.user.findUnique({...})",
-      },
-      {
-        file: "src/api/users.ts",
-        symbol: "createUser",
-        line: 32,
-        code: "prisma.user.create({...})",
-      },
-      {
-        file: "src/api/posts.ts",
-        symbol: "getPosts",
-        line: 8,
-        code: "prisma.post.findMany({...})",
-      },
-      {
-        file: "src/api/posts.ts",
-        symbol: "createPost",
-        line: 25,
-        code: "prisma.post.create({...})",
-      },
-      {
-        file: "src/api/comments.ts",
-        symbol: "getComments",
-        line: 12,
-        code: "prisma.comment.findMany({...})",
-      },
-      {
-        file: "src/api/auth.ts",
-        symbol: "validateSession",
-        line: 18,
-        code: "prisma.session.findUnique({...})",
-      },
-      {
-        file: "src/jobs/cleanup.ts",
-        symbol: "cleanupExpired",
-        line: 8,
-        code: "prisma.session.deleteMany({...})",
-      },
-      {
-        file: "src/api/analytics.ts",
-        symbol: "trackEvent",
-        line: 22,
-        code: "prisma.event.create({...})",
-      },
-    ],
-    outgoing: [],
-  },
-  BullMQ: {
-    type: "queue",
-    layer: "backend",
-    purpose: "Job queue processing",
-    incoming: [
-      {
-        file: "src/api/payments.ts",
-        symbol: "queuePaymentJob",
-        line: 78,
-        code: "paymentQueue.add('process', {...})",
-      },
-      {
-        file: "src/api/notifications.ts",
-        symbol: "queueNotification",
-        line: 15,
-        code: "notificationQueue.add('send', {...})",
-      },
-      {
-        file: "src/api/reports.ts",
-        symbol: "scheduleReport",
-        line: 42,
-        code: "reportQueue.add('generate', {...})",
-      },
-    ],
-    outgoing: [
-      {
-        target: "SendGrid",
-        symbol: "processEmailJob",
-        line: 25,
-        code: "sgMail.send({...})",
-      },
-      {
-        target: "Stripe",
-        symbol: "processPaymentJob",
-        line: 45,
-        code: "stripe.charges.create({...})",
-      },
-    ],
-  },
-  "Next.js": {
-    type: "framework",
-    layer: "frontend",
-    purpose: "React framework",
-    incoming: [],
-    outgoing: [
-      {
-        target: "src/api/users.ts",
-        symbol: "getServerSideProps",
-        line: 12,
-        code: "fetch('/api/users')",
-      },
-      {
-        target: "src/api/posts.ts",
-        symbol: "getStaticProps",
-        line: 28,
-        code: "fetch('/api/posts')",
-      },
-    ],
-  },
-  Redis: {
-    type: "database",
-    layer: "data",
-    purpose: "Caching layer",
-    incoming: [
-      {
-        file: "src/lib/cache.ts",
-        symbol: "getCached",
-        line: 12,
-        code: "redis.get(key)",
-      },
-      {
-        file: "src/lib/cache.ts",
-        symbol: "setCached",
-        line: 22,
-        code: "redis.set(key, value)",
-      },
-      {
-        file: "src/api/rate-limit.ts",
-        symbol: "checkLimit",
-        line: 8,
-        code: "redis.incr(`rate:${ip}`)",
-      },
-      {
-        file: "src/api/sessions.ts",
-        symbol: "storeSession",
-        line: 18,
-        code: "redis.setex(`session:${id}`, ...)",
-      },
-    ],
-    outgoing: [],
-  },
+interface ComponentWithConnections {
+  component: Component
+  incoming: Connection[]
+  outgoing: Connection[]
 }
-
-const allComponents = [
-  "Stripe",
-  "PostgreSQL",
-  "BullMQ",
-  "Next.js",
-  "Redis",
-  "OpenAI",
-  "Anthropic",
-  "SendGrid",
-  "Vercel",
-]
 
 export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnalysisProps) {
   const [search, setSearch] = useState("")
+  const [components, setComponents] = useState<Component[]>([])
+  const [connections, setConnections] = useState<Connection[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const data = componentName ? componentData[componentName] : null
+  // Fetch components and connections from API
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true)
+      setError(null)
+      try {
+        const [compRes, connRes] = await Promise.all([
+          fetch("/api/components?refresh=true"),
+          fetch("/api/connections?refresh=true"),
+        ])
 
-  const filteredComponents = allComponents.filter((c) =>
-    c.toLowerCase().includes(search.toLowerCase())
+        const compData = await compRes.json()
+        const connData = await connRes.json()
+
+        if (compData.success && compData.data?.components) {
+          setComponents(compData.data.components)
+        }
+        if (connData.success && connData.data?.connections) {
+          setConnections(connData.data.connections)
+        }
+
+        if (compData.error) {
+          setError(compData.error)
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load data")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
+
+  // Build component data with connections
+  const getComponentData = (name: string): ComponentWithConnections | null => {
+    const component = components.find(c => c.name === name)
+    if (!component) return null
+
+    // Find connections TO this component (incoming)
+    const incoming = connections.filter(conn =>
+      conn.toComponent === name ||
+      conn.to?.includes(component.id) ||
+      conn.to === name
+    )
+
+    // Find connections FROM this component (outgoing)
+    const outgoing = connections.filter(conn =>
+      conn.fromComponent === name ||
+      conn.from?.includes(component.id) ||
+      conn.from === name
+    )
+
+    return { component, incoming, outgoing }
+  }
+
+  const filteredComponents = components.filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase())
   )
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="ml-3 text-muted-foreground">Loading components...</span>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error && components.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Impact Analysis</h1>
+          <p className="text-sm text-muted-foreground">
+            Select a component to see what would be affected by changes
+          </p>
+        </div>
+        <Card className="bg-card border-warning/50">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-warning mt-0.5" />
+              <div>
+                <p className="font-medium text-card-foreground">No scan data found</p>
+                <p className="text-sm text-muted-foreground mt-1">{error}</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Run <code className="bg-secondary px-1.5 py-0.5 rounded text-xs">navgator scan</code> in your project to generate architecture data.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const data = componentName ? getComponentData(componentName) : null
 
   if (!componentName || !data) {
     return (
@@ -257,25 +156,33 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
           />
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {filteredComponents.map((name) => (
-            <button
-              key={name}
-              onClick={() => onSelectComponent(name)}
-              className="flex items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-secondary"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                <Target className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="font-medium text-card-foreground">{name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {componentData[name]?.type || "component"} · {componentData[name]?.layer || "unknown"}
-                </p>
-              </div>
-            </button>
-          ))}
-        </div>
+        {filteredComponents.length === 0 ? (
+          <Card className="bg-card">
+            <CardContent className="p-6 text-center">
+              <p className="text-muted-foreground">No components found</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredComponents.map((comp) => (
+              <button
+                key={comp.id}
+                onClick={() => onSelectComponent(comp.name)}
+                className="flex items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-secondary"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="font-medium text-card-foreground">{comp.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {comp.type} · {comp.layer}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -304,7 +211,7 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            {data.type} · {data.layer} · {data.purpose}
+            {data.component.type} · {data.component.layer} · {data.component.purpose || "No description"}
           </p>
         </div>
         <button
@@ -374,16 +281,18 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
                 >
                   <div className="flex items-center gap-2">
                     <FileCode className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-mono text-sm text-foreground">{conn.file}</span>
+                    <span className="font-mono text-sm text-foreground">{conn.from}</span>
                     <span className="text-xs text-muted-foreground">:{conn.line}</span>
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                     <Code2 className="h-3.5 w-3.5" />
                     <span className="font-medium text-foreground">{conn.symbol}</span>
                   </div>
-                  <pre className="mt-2 rounded bg-background p-2 font-mono text-xs text-muted-foreground overflow-x-auto">
-                    {conn.code}
-                  </pre>
+                  {conn.code && (
+                    <pre className="mt-2 rounded bg-background p-2 font-mono text-xs text-muted-foreground overflow-x-auto">
+                      {conn.code}
+                    </pre>
+                  )}
                 </div>
               ))}
             </div>
@@ -411,12 +320,12 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
               {data.outgoing.map((conn, idx) => (
                 <button
                   key={idx}
-                  onClick={() => onSelectComponent(conn.target)}
+                  onClick={() => conn.toComponent && onSelectComponent(conn.toComponent)}
                   className="w-full rounded-lg border border-border bg-secondary/30 p-3 text-left transition-colors hover:bg-secondary/50"
                 >
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-primary/10 text-primary">
-                      {conn.target}
+                      {conn.toComponent || conn.to}
                     </Badge>
                     <span className="text-xs text-muted-foreground">:{conn.line}</span>
                   </div>
@@ -424,12 +333,23 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
                     <Code2 className="h-3.5 w-3.5" />
                     <span className="font-medium text-foreground">{conn.symbol}</span>
                   </div>
-                  <pre className="mt-2 rounded bg-background p-2 font-mono text-xs text-muted-foreground overflow-x-auto">
-                    {conn.code}
-                  </pre>
+                  {conn.code && (
+                    <pre className="mt-2 rounded bg-background p-2 font-mono text-xs text-muted-foreground overflow-x-auto">
+                      {conn.code}
+                    </pre>
+                  )}
                 </button>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No connections */}
+      {data.incoming.length === 0 && data.outgoing.length === 0 && (
+        <Card className="bg-card">
+          <CardContent className="p-6 text-center">
+            <p className="text-muted-foreground">No connections found for this component</p>
           </CardContent>
         </Card>
       )}

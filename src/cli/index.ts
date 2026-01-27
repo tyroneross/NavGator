@@ -559,18 +559,23 @@ program
   .command('ui')
   .description('Launch the NavGator dashboard in your browser')
   .option('-p, --port <port>', 'Port to serve on', '3333')
+  .option('--path <path>', 'Project path to analyze (defaults to current directory)')
   .option('--no-open', 'Don\'t open browser automatically')
   .action(async (options) => {
     try {
       const port = parseInt(options.port, 10);
+      const projectPath = options.path
+        ? (await import('path')).resolve(options.path)
+        : process.cwd();
 
       console.log('');
       console.log('🐊 NavGator Dashboard');
+      console.log(`   Project: ${projectPath}`);
       console.log('');
 
       const { port: actualPort } = await startUIServer({
         port,
-        projectPath: process.cwd(),
+        projectPath,
       });
 
       const url = `http://localhost:${actualPort}`;

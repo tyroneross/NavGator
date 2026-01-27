@@ -1,26 +1,57 @@
 {
   "hooks": {
     "SessionStart": [
-    {
-      "matcher": "",
-      "hooks": [
-        {
-          "type": "prompt",
-          "prompt": "Check if architecture has been scanned recently. If the project has a .claude/architecture/ directory, check the index.json timestamp. If >24h since last scan or no scan exists, mention: 'Architecture not scanned recently. Run /nav-scan to map your stack.'"
-        }
-      ]
-    }
-  ],
-  "PostToolUse": [
-    {
-      "matcher": "Bash",
-      "hooks": [
-        {
-          "type": "prompt",
-          "prompt": "If the command was a package manager install/add/remove command (npm install, npm add, npm remove, yarn add, yarn remove, pnpm add, pnpm remove, pip install, pip uninstall, cargo add, cargo remove, go get, gem install, composer require), note that the architecture memory should be updated. You can run 'npx @tyroneross/navgator scan --quick' to update just the changed packages."
-        }
-      ]
-    }
-  ]
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if NavGator architecture data exists and is fresh:\n1. Look for .claude/architecture/index.json\n2. If missing: 'This project hasn't been scanned. Run `navgator setup` to map the architecture.'\n3. If >24h old: 'Architecture data is stale. Consider running `navgator scan` to refresh.'\n4. If fresh: Note the component and connection counts for context.\n\nWhen architecture data exists, you should consult it BEFORE making changes to:\n- Database schemas or queries\n- API endpoints\n- External service integrations (Stripe, OpenAI, etc.)\n- Queue workers or job handlers\n- Shared utilities used across the codebase"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before modifying this file, check if it involves architecture-critical code:\n\n1. **Database/ORM files** (prisma, drizzle, sequelize, models/): Run `navgator impact <table-name>` to see affected APIs\n2. **API routes** (api/, routes/, controllers/): Run `navgator connections <endpoint>` to see frontend callers\n3. **External services** (stripe, openai, twilio, sendgrid): Run `navgator impact <service>` to see all usage locations\n4. **Queue/worker files** (workers/, jobs/, queues/): Check what triggers these and what they affect\n5. **Shared utilities** (lib/, utils/, helpers/): These often have wide impact\n\nIf the file matches any of these patterns and NavGator data exists, briefly note what else might need updating."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if this command affects architecture:\n\n1. **Package install/remove** (npm install, yarn add, pip install, cargo add, go get):\n   → Run `navgator scan --quick` to update package tracking\n\n2. **Database migrations** (prisma migrate, drizzle push, alembic, knex migrate):\n   → Run `navgator scan` to update schema connections\n\n3. **New service setup** (stripe, supabase, firebase init):\n   → Run `navgator scan` to detect new service connections\n\nIf the command matches, remind about updating architecture data."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If you just modified an architecture-critical file (API route, database model, service integration, queue handler), note that the architecture connections may have changed. After completing the current task, consider running `navgator scan` to update the connection map."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Before finishing, if you made significant architectural changes during this session (new APIs, database changes, service integrations, refactored connections), remind the user: 'You may want to run `navgator scan` to update the architecture map with these changes.'"
+          }
+        ]
+      }
+    ]
   }
 }

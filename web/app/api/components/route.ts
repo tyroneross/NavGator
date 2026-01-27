@@ -105,7 +105,10 @@ export async function GET(request: NextRequest) {
 async function loadComponentData(
   projectPath?: string | null
 ): Promise<ComponentsApiResponse["data"] | null> {
-  const root = projectPath || process.cwd().replace(/\/web$/, "");
+  // Priority: query param > env var > NavGator directory
+  const root = projectPath ||
+    process.env.NAVGATOR_PROJECT_PATH ||
+    process.cwd().replace(/\/web$/, "");
 
   // Try to load from NavGator storage
   const componentsDir = path.join(root, ".claude", "architecture", "components");
@@ -170,6 +173,7 @@ function mapType(type: string): Component["type"] {
     infra: "infra",
     framework: "framework",
     prompt: "prompt",
+    llm: "llm",
   };
   return typeMap[type] || "npm";
 }

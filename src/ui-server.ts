@@ -133,6 +133,7 @@ function generateDashboardHTML(projectPath: string): string {
       gap: 4px;
       margin-left: 32px;
     }
+    /* IBR-style buttons: min 44px touch targets, clear hierarchy */
     .nav-btn {
       background: transparent;
       border: none;
@@ -143,9 +144,11 @@ function generateDashboardHTML(projectPath: string): string {
       font-size: 14px;
       font-weight: 500;
       transition: all 0.15s;
+      min-height: 36px;
+      min-width: 44px;
     }
     .nav-btn:hover { color: #e5e5e5; background: #262626; }
-    .nav-btn.active { color: #22c55e; background: #22c55e15; }
+    .nav-btn.active { color: #22c55e; background: transparent; border-bottom: 2px solid #22c55e; border-radius: 0; }
     .header-right {
       margin-left: auto;
       display: flex;
@@ -210,7 +213,22 @@ function generateDashboardHTML(projectPath: string): string {
     }
     .list li:hover { background: #1f1f1f; }
     .list li:last-child { border-bottom: none; }
+    /* IBR-style badges: text color only (Calm Precision) */
     .badge {
+      font-size: 12px;
+      font-weight: 500;
+      padding: 2px 0;
+    }
+    .badge.npm { color: #a78bfa; }
+    .badge.service { color: #60a5fa; }
+    .badge.database { color: #4ade80; }
+    .badge.queue { color: #fbbf24; }
+    .badge.infra { color: #f472b6; }
+    .badge.prompt { color: #22d3ee; }
+    .badge.llm { color: #f472b6; font-weight: 600; }
+    .badge.framework { color: #818cf8; }
+    /* Count badges need subtle background for tap target */
+    .badge-count {
       background: #262626;
       padding: 3px 10px;
       border-radius: 4px;
@@ -218,12 +236,6 @@ function generateDashboardHTML(projectPath: string): string {
       color: #a3a3a3;
       font-weight: 500;
     }
-    .badge.npm { background: #7c3aed20; color: #a78bfa; }
-    .badge.service { background: #3b82f620; color: #60a5fa; }
-    .badge.database { background: #22c55e20; color: #4ade80; }
-    .badge.queue { background: #f59e0b20; color: #fbbf24; }
-    .badge.infra { background: #ec489920; color: #f472b6; }
-    .badge.prompt { background: #06b6d420; color: #22d3ee; }
     .section { margin-bottom: 24px; }
     .section-header {
       display: flex;
@@ -302,8 +314,28 @@ function generateDashboardHTML(projectPath: string): string {
       border-left: 3px solid #22c55e;
     }
     .connection-item.incoming { border-left-color: #3b82f6; }
+    .connection-item.llm { border-left-color: #f472b6; }
     .connection-item .file { font-family: monospace; font-size: 12px; color: #a3a3a3; }
     .connection-item .type { font-size: 11px; color: #525252; margin-top: 4px; }
+    /* Code block styling for showing actual code */
+    .code-block {
+      background: #0a0a0a;
+      border: 1px solid #262626;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-top: 8px;
+      font-family: 'SF Mono', Monaco, 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #a3a3a3;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .code-block .line-num { color: #525252; margin-right: 12px; user-select: none; }
+    .code-block .keyword { color: #c678dd; }
+    .code-block .string { color: #98c379; }
+    .code-block .function { color: #61afef; }
     .hidden { display: none; }
     .project-path { font-size: 12px; color: #525252; margin-left: 8px; font-family: monospace; }
     @media (max-width: 768px) {
@@ -433,6 +465,17 @@ function generateDashboardHTML(projectPath: string): string {
 
       const lastScan = status.last_scan ? new Date(status.last_scan).toLocaleString() : 'Never';
 
+      // Sort types to show LLM prominently
+      const typeOrder = ['llm', 'database', 'queue', 'framework', 'infra', 'service', 'npm', 'prompt'];
+      const sortedTypes = Object.entries(byType).sort((a, b) => {
+        const aIdx = typeOrder.indexOf(a[0]);
+        const bIdx = typeOrder.indexOf(b[0]);
+        if (aIdx === -1 && bIdx === -1) return b[1] - a[1];
+        if (aIdx === -1) return 1;
+        if (bIdx === -1) return -1;
+        return aIdx - bIdx;
+      });
+
       return \`
         <div class="grid">
           <div class="card">
@@ -455,8 +498,11 @@ function generateDashboardHTML(projectPath: string): string {
           <div class="card">
             <h2>Components by Type</h2>
             <ul class="list">
-              \${Object.entries(byType).sort((a,b) => b[1] - a[1]).map(([type, count]) => \`
-                <li><span>\${type}</span><span class="badge \${type}">\${count}</span></li>
+              \${sortedTypes.map(([type, count]) => \`
+                <li data-filter="\${type}" style="cursor: pointer;">
+                  <span class="badge \${type}" style="font-size: 14px;">\${type === 'llm' ? '🤖 LLM/AI' : type}</span>
+                  <span class="badge-count">\${count}</span>
+                </li>
               \`).join('')}
             </ul>
           </div>
@@ -464,7 +510,7 @@ function generateDashboardHTML(projectPath: string): string {
             <h2>Connections by Type</h2>
             <ul class="list">
               \${Object.entries(connByType).sort((a,b) => b[1] - a[1]).map(([type, count]) => \`
-                <li><span>\${type.replace(/-/g, ' ')}</span><span class="badge">\${count}</span></li>
+                <li><span>\${type.replace(/-/g, ' ')}</span><span class="badge-count">\${count}</span></li>
               \`).join('')}
             </ul>
           </div>
@@ -532,11 +578,11 @@ function generateDashboardHTML(projectPath: string): string {
                   return \`
                     <tr data-component="\${c.component_id}">
                       <td><strong>\${c.name}</strong></td>
-                      <td><span class="badge \${c.type}">\${c.type}</span></td>
+                      <td><span class="badge \${c.type}">\${c.type === 'llm' ? '🤖 LLM' : c.type}</span></td>
                       <td>\${c.role?.layer || '-'}</td>
                       <td>\${c.version || '-'}</td>
                       <td style="color: #737373; font-size: 13px;">\${c.role?.purpose || '-'}</td>
-                      <td><span class="badge">\${connCount}</span></td>
+                      <td><span class="badge-count">\${connCount}</span></td>
                     </tr>
                   \`;
                 }).join('')}
@@ -689,7 +735,7 @@ function generateDashboardHTML(projectPath: string): string {
       render();
     }
 
-    // Show component detail panel
+    // Show component detail panel with code snippets
     function showComponentDetail(componentId) {
       const comp = components.find(c => c.component_id === componentId);
       if (!comp) return;
@@ -697,13 +743,24 @@ function generateDashboardHTML(projectPath: string): string {
       const incoming = connections.filter(c => c.to?.component_id === componentId);
       const outgoing = connections.filter(c => c.from?.component_id === componentId);
 
+      // Helper to escape HTML
+      const escapeHtml = (str) => str?.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') || '';
+
+      // Helper to highlight code syntax
+      const highlightCode = (code) => {
+        if (!code) return '';
+        return escapeHtml(code)
+          .replace(/(const|let|var|function|async|await|import|from|export|new|return)/g, '<span class="keyword">$1</span>')
+          .replace(/(['"\`][^'"\`]*['"\`])/g, '<span class="string">$1</span>');
+      };
+
       document.getElementById('detailTitle').textContent = comp.name;
       document.getElementById('detailContent').innerHTML = \`
         <div class="detail-section">
           <h4>Details</h4>
           <div class="detail-item">
             <div class="label">Type</div>
-            <div class="value"><span class="badge \${comp.type}">\${comp.type}</span></div>
+            <div class="value"><span class="badge \${comp.type}">\${comp.type === 'llm' ? '🤖 LLM/AI' : comp.type}</span></div>
           </div>
           <div class="detail-item">
             <div class="label">Layer</div>
@@ -714,32 +771,42 @@ function generateDashboardHTML(projectPath: string): string {
         </div>
 
         <div class="detail-section">
-          <h4>Incoming Connections (\${incoming.length})</h4>
-          \${incoming.length === 0 ? '<p style="color: #404040;">None</p>' : ''}
-          \${incoming.slice(0, 10).map(c => \`
-            <div class="connection-item incoming">
+          <h4>Usage Locations (\${incoming.length})</h4>
+          <p style="color: #525252; font-size: 12px; margin-bottom: 12px;">Code that uses this component:</p>
+          \${incoming.length === 0 ? '<p style="color: #404040;">No usages detected</p>' : ''}
+          \${incoming.slice(0, 8).map(c => \`
+            <div class="connection-item incoming \${comp.type}">
               <div class="file">\${c.code_reference?.file}:\${c.code_reference?.line_start}</div>
-              <div class="type">\${c.connection_type}</div>
+              <div class="type">\${c.connection_type} · \${c.code_reference?.symbol || 'unknown'}</div>
+              \${c.code_reference?.code_snippet ? \`
+                <div class="code-block">
+                  <span class="line-num">\${c.code_reference.line_start}</span>\${highlightCode(c.code_reference.code_snippet)}
+                </div>
+              \` : ''}
             </div>
           \`).join('')}
-          \${incoming.length > 10 ? '<p style="color: #525252;">+ ' + (incoming.length - 10) + ' more</p>' : ''}
+          \${incoming.length > 8 ? '<p style="color: #525252; margin-top: 12px;">+ ' + (incoming.length - 8) + ' more locations</p>' : ''}
         </div>
 
         <div class="detail-section">
-          <h4>Outgoing Connections (\${outgoing.length})</h4>
-          \${outgoing.length === 0 ? '<p style="color: #404040;">None</p>' : ''}
-          \${outgoing.slice(0, 10).map(c => {
+          <h4>Dependencies (\${outgoing.length})</h4>
+          <p style="color: #525252; font-size: 12px; margin-bottom: 12px;">What this component depends on:</p>
+          \${outgoing.length === 0 ? '<p style="color: #404040;">No dependencies detected</p>' : ''}
+          \${outgoing.slice(0, 8).map(c => {
             const target = components.find(comp => comp.component_id === c.to?.component_id);
             return \`
               <div class="connection-item">
                 <div class="file">\${target?.name || c.to?.component_id}</div>
                 <div class="type">\${c.connection_type}</div>
+                \${c.code_reference?.code_snippet ? \`
+                  <div class="code-block">\${highlightCode(c.code_reference.code_snippet)}</div>
+                \` : ''}
               </div>
             \`;
           }).join('')}
         </div>
 
-        <button class="refresh-btn" style="width: 100%; margin-top: 16px;" onclick="selectedComponent='\${componentId}';currentView='impact';document.querySelector('[data-view=impact]').click();closeDetail();">
+        <button class="refresh-btn" style="width: 100%; margin-top: 16px; min-height: 44px;" onclick="selectedComponent='\${componentId}';currentView='impact';document.querySelector('[data-view=impact]').click();closeDetail();">
           View Full Impact Analysis →
         </button>
       \`;

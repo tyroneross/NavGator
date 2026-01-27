@@ -61,7 +61,7 @@ export interface Prompt {
 export interface Component {
   id: string;
   name: string;
-  type: "npm" | "pip" | "cargo" | "go" | "gem" | "composer" | "service" | "database" | "queue" | "infra" | "framework" | "prompt";
+  type: "npm" | "pip" | "cargo" | "go" | "gem" | "composer" | "service" | "database" | "queue" | "infra" | "framework" | "prompt" | "llm";
   layer: "frontend" | "backend" | "data" | "shared" | "external" | "hosting";
   version?: string;
   purpose?: string;
@@ -148,6 +148,32 @@ export interface ConnectionsApiResponse {
     connections: Connection[];
     summary: ConnectionsSummary;
   };
+  error?: string;
+  source: "scan" | "cache" | "mock";
+}
+
+// =============================================================================
+// STATUS
+// =============================================================================
+
+export interface ProjectStatus {
+  project_path: string;
+  project_name: string;
+  last_scan: number | null;
+  last_scan_formatted: string | null;
+  stats: {
+    total_components: number;
+    total_connections: number;
+    components_by_type: Record<string, number>;
+    connections_by_type: Record<string, number>;
+    outdated_count: number;
+    vulnerable_count: number;
+  };
+}
+
+export interface StatusApiResponse {
+  success: boolean;
+  data?: ProjectStatus;
   error?: string;
   source: "scan" | "cache" | "mock";
 }
