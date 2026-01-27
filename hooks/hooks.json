@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "Check if architecture has been scanned recently. If the project has a .claude/architecture/ directory, check the index.json timestamp. If >24h since last scan or no scan exists, mention: 'Architecture not scanned recently. Run /nav-scan to map your stack.'"
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "If the command was a package manager install/add/remove command (npm install, npm add, npm remove, yarn add, yarn remove, pnpm add, pnpm remove, pip install, pip uninstall, cargo add, cargo remove, go get, gem install, composer require), note that the architecture memory should be updated. You can run 'npx @tyroneross/navgator scan --quick' to update just the changed packages."
+        }
+      ]
+    }
+  ]
+  }
+}

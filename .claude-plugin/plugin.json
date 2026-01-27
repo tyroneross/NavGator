@@ -1,0 +1,10 @@
+{
+  "name": "navgator",
+  "version": "0.1.0",
+  "description": "Architecture connection tracker - know your stack before you change it",
+  "author": {
+    "name": "Tyrone Ross"
+  },
+  "homepage": "https://github.com/tyroneross/navgator",
+  "license": "MIT"
+}

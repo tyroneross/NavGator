@@ -1,0 +1,79 @@
+{
+  "name": "@tyroneross/navgator",
+  "version": "0.1.0",
+  "description": "Architecture connection tracker for Claude Code - know your stack before you change it",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "navgator": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./scanner": {
+      "types": "./dist/scanner.d.ts",
+      "import": "./dist/scanner.js"
+    },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "import": "./dist/setup.js"
+    }
+  },
+  "files": [
+    "dist",
+    "commands",
+    "skills",
+    "hooks",
+    "agents",
+    ".claude-plugin",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && npm run build:fixshebang",
+    "build:fixshebang": "node -e \"const fs=require('fs');const f='dist/cli/index.js';let c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!')){c='#!/usr/bin/env node\\n'+c;fs.writeFileSync(f,c);}\"",
+    "dev": "tsc --watch",
+    "start": "node dist/cli/index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "lint": "eslint src/**/*.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "postinstall": "node -e \"console.log('\\n🐊 NavGator installed! Run: navgator setup\\n')\"",
+    "link:local": "npm run build && npm link"
+  },
+  "keywords": [
+    "claude-code",
+    "architecture",
+    "dependencies",
+    "devtools",
+    "cli",
+    "connections",
+    "impact-analysis"
+  ],
+  "author": "Tyrone Ross",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tyroneross/navgator"
+  },
+  "homepage": "https://github.com/tyroneross/navgator#readme",
+  "bugs": {
+    "url": "https://github.com/tyroneross/navgator/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "glob": "^10.3.10"
+  },
+  "optionalDependencies": {
+    "ts-morph": "^22.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  }
+}
