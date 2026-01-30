@@ -157,6 +157,13 @@ export function getHashesPath(config: NavGatorConfig, projectRoot?: string): str
   return path.join(getStoragePath(config, projectRoot), 'hashes.json');
 }
 
+/**
+ * Get path to summary file
+ */
+export function getSummaryPath(config: NavGatorConfig, projectRoot?: string): string {
+  return path.join(getStoragePath(config, projectRoot), 'SUMMARY.md');
+}
+
 // =============================================================================
 // DIRECTORY INITIALIZATION
 // =============================================================================

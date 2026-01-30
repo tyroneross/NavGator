@@ -30,6 +30,7 @@ import {
   getGraphPath,
   getSnapshotsPath,
   getHashesPath,
+  getSummaryPath,
   ensureStorageDirectories,
   isValidComponentId,
   isValidConnectionId,
@@ -430,6 +431,148 @@ export async function buildGraph(
   await fs.promises.writeFile(graphPath, JSON.stringify(graph, null, 2), 'utf-8');
 
   return graph;
+}
+
+// =============================================================================
+// SUMMARY GENERATION (Tier 1 - Hot Context for LLMs)
+// =============================================================================
+
+const AI_PROVIDER_NAMES = new Set([
+  'openai', '@anthropic-ai/sdk', '@langchain/core', '@langchain/openai',
+  '@langchain/anthropic', '@langchain/groq', 'groq-sdk', 'langsmith',
+  '@mistralai/mistralai', 'replicate', '@huggingface/inference',
+  '@google/generative-ai', '@vercel/ai', 'ai', 'cohere-ai',
+]);
+
+/**
+ * Build a concise markdown summary with pointers to detail files.
+ * This is the "hot context" an LLM reads first on cold start.
+ */
+export async function buildSummary(
+  config?: NavGatorConfig,
+  projectRoot?: string
+): Promise<string> {
+  const cfg = config || getConfig();
+  const root = projectRoot || process.cwd();
+  const components = await loadAllComponents(cfg, root);
+  const connections = await loadAllConnections(cfg, root);
+
+  const now = new Date().toISOString();
+  const aiComponents = components.filter(
+    (c) => AI_PROVIDER_NAMES.has(c.name) || c.type === 'llm' || c.type === 'service'
+  );
+
+  // Group components by layer
+  const byLayer = new Map<string, typeof components>();
+  for (const c of components) {
+    const layer = c.role.layer;
+    if (!byLayer.has(layer)) byLayer.set(layer, []);
+    byLayer.get(layer)!.push(c);
+  }
+
+  // Build markdown
+  const lines: string[] = [];
+  lines.push('# Architecture Summary');
+  lines.push(`> NavGator auto-generated | Scanned: ${now}`);
+  lines.push(`> ${components.length} components | ${connections.length} connections | ${aiComponents.length} AI providers`);
+  lines.push('');
+
+  // Components by layer
+  lines.push('## Components');
+  lines.push('');
+  const layerOrder = ['frontend', 'backend', 'database', 'queue', 'infra', 'external'];
+  for (const layer of layerOrder) {
+    const group = byLayer.get(layer);
+    if (!group || group.length === 0) continue;
+    lines.push(`### ${layer.charAt(0).toUpperCase() + layer.slice(1)} (${group.length})`);
+    for (const c of group) {
+      const ver = c.version ? ` v${c.version}` : '';
+      lines.push(`- **${c.name}**${ver} — ${c.role.purpose} \`components/${c.component_id}.json\``);
+    }
+    lines.push('');
+  }
+
+  // AI/LLM routing table
+  if (aiComponents.length > 0 || connections.some((c) => c.connection_type === 'service-call')) {
+    lines.push('## AI/LLM Routing');
+    lines.push('| Provider | File | Line | Purpose | Detail |');
+    lines.push('|----------|------|------|---------|--------|');
+    const aiConnections = connections.filter((c) => {
+      const targetComp = components.find((comp) => comp.component_id === c.to.component_id);
+      return targetComp && (AI_PROVIDER_NAMES.has(targetComp.name) || targetComp.type === 'llm' || targetComp.type === 'service');
+    });
+    for (const conn of aiConnections) {
+      const target = components.find((comp) => comp.component_id === conn.to.component_id);
+      const file = conn.code_reference?.file || conn.from.location?.file || '—';
+      const line = conn.code_reference?.line_start || conn.from.location?.line || '—';
+      const purpose = conn.description || target?.role.purpose || '—';
+      lines.push(`| ${target?.name || '?'} | ${file} | ${line} | ${purpose} | \`connections/${conn.connection_id}.json\` |`);
+    }
+    // Also list AI components with no connections yet
+    for (const c of aiComponents) {
+      const hasConn = connections.some((conn) => conn.to.component_id === c.component_id);
+      if (!hasConn) {
+        const configFile = c.source.config_files?.[0] || '—';
+        lines.push(`| ${c.name} | ${configFile} | — | ${c.role.purpose} | \`components/${c.component_id}.json\` |`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Top connections (cap at 20)
+  if (connections.length > 0) {
+    const maxConns = Math.min(connections.length, 20);
+    lines.push(`## Connections (${connections.length > 20 ? `top 20 of ${connections.length}` : connections.length})`);
+    for (let i = 0; i < maxConns; i++) {
+      const conn = connections[i];
+      const fromComp = components.find((c) => c.component_id === conn.from.component_id);
+      const toComp = components.find((c) => c.component_id === conn.to.component_id);
+      const file = conn.code_reference?.file || '';
+      const line = conn.code_reference?.line_start ? `:${conn.code_reference.line_start}` : '';
+      lines.push(`- ${fromComp?.name || '?'} → ${toComp?.name || '?'} (${conn.connection_type}) ${file}${line}`);
+    }
+    lines.push('');
+  }
+
+  // Delta — compare with previous summary
+  const summaryPath = getSummaryPath(cfg, root);
+  if (fs.existsSync(summaryPath)) {
+    try {
+      const prev = await fs.promises.readFile(summaryPath, 'utf-8');
+      const prevNames = new Set<string>();
+      for (const match of prev.matchAll(/^- \*\*(.+?)\*\*/gm)) {
+        prevNames.add(match[1]);
+      }
+      const currentNames = new Set(components.map((c) => c.name));
+      const added = components.filter((c) => !prevNames.has(c.name));
+      const removed = [...prevNames].filter((n) => !currentNames.has(n));
+
+      if (added.length > 0 || removed.length > 0) {
+        lines.push('## Changes Since Last Scan');
+        for (const c of added) {
+          lines.push(`- Added: \`${c.name}\` (${c.role.layer})`);
+        }
+        for (const name of removed) {
+          lines.push(`- Removed: \`${name}\``);
+        }
+        lines.push('');
+      }
+    } catch {
+      // First scan or parse error — skip delta
+    }
+  }
+
+  // Detail pointers
+  lines.push('## Detail Pointers');
+  lines.push(`- Full index: \`index.json\``);
+  lines.push(`- Connection graph: \`graph.json\``);
+  lines.push(`- All components: \`components/\` (${components.length} files)`);
+  lines.push(`- All connections: \`connections/\` (${connections.length} files)`);
+  lines.push('');
+
+  const content = lines.join('\n');
+  await fs.promises.writeFile(summaryPath, content, 'utf-8');
+  return content;
 }
 
 /**

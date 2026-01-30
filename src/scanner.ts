@@ -23,6 +23,7 @@ import {
   storeConnections,
   buildIndex,
   buildGraph,
+  buildSummary,
   clearStorage,
   computeFileHashes,
   saveHashes,
@@ -252,9 +253,10 @@ export async function scan(
   await storeComponents(uniqueComponents, config, root);
   await storeConnections(allConnections, config, root);
 
-  // Build index and graph
+  // Build index, graph, and summary
   await buildIndex(config, root);
   await buildGraph(config, root);
+  await buildSummary(config, root);
 
   // ==========================================================================
   // Phase 5: Save File Hashes
