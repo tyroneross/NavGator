@@ -24,6 +24,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "commands",
     "skills",
     "hooks",
@@ -40,7 +41,7 @@
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
-    "postinstall": "node -e \"console.log('\\n🐊 NavGator installed! Run: navgator setup\\n')\"",
+    "postinstall": "node scripts/postinstall.cjs",
     "link:local": "npm run build && npm link"
   },
   "keywords": [

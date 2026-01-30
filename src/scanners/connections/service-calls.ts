@@ -37,6 +37,9 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /new Anthropic\(/,
       /from anthropic import/,
       /AnthropicAI/,
+      /import\s+Anthropic\s+from\s+['"]@anthropic-ai\/sdk['"]/,
+      /require\(['"]@anthropic-ai\/sdk['"]\)/,
+      /ChatAnthropic\(/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -47,9 +50,14 @@ const SERVICE_PATTERNS: ServicePattern[] = [
     patterns: [
       /openai\.chat\.completions\.create/,
       /openai\.completions\.create/,
+      /openai\.embeddings\.create/,
       /new OpenAI\(/,
       /from openai import/,
       /OpenAIApi\(/,
+      /import\s+OpenAI\s+from\s+['"]openai['"]/,
+      /require\(['"]openai['"]\)/,
+      /ChatOpenAI\(/,
+      /wrapOpenAI\(/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -61,6 +69,10 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /new Groq\(/,
       /groq\.chat\.completions\.create/,
       /from groq import/,
+      /import\s+Groq\s+from\s+['"]groq-sdk['"]/,
+      /require\(['"]groq-sdk['"]\)/,
+      /ChatGroq\(/,
+      /from\s+['"]@langchain\/groq['"]/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -84,22 +96,87 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /GenerativeModel\(/,
       /gemini-pro/,
       /from google\.generativeai/,
+      /ChatGoogleGenerativeAI\(/,
+      /from\s+['"]@langchain\/google-genai['"]/,
     ],
     componentType: 'llm',
     layer: 'external',
     purpose: 'Google Gemini API',
   },
   {
+    serviceName: 'Vercel AI SDK',
+    patterns: [
+      /from\s+['"]ai['"]/,
+      /from\s+['"]@ai-sdk\//,
+      /import\s+\{[^}]*generateText[^}]*\}/,
+      /import\s+\{[^}]*streamText[^}]*\}/,
+      /import\s+\{[^}]*generateObject[^}]*\}/,
+      /import\s+\{[^}]*useChat[^}]*\}/,
+      /import\s+\{[^}]*useCompletion[^}]*\}/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Vercel AI SDK',
+  },
+  {
     serviceName: 'LangChain',
     patterns: [
-      /ChatOpenAI\(/,
-      /ChatAnthropic\(/,
-      /from langchain/,
-      /@langchain/,
+      /from\s+['"]langchain/,
+      /from\s+['"]@langchain\//,
+      /require\(['"]langchain/,
+      /require\(['"]@langchain\//,
+      /ChatPromptTemplate\./,
+      /StructuredOutputParser\./,
+      /RunnableSequence\./,
     ],
     componentType: 'llm',
     layer: 'external',
     purpose: 'LangChain framework',
+  },
+  {
+    serviceName: 'LangSmith',
+    patterns: [
+      /from\s+['"]langsmith/,
+      /require\(['"]langsmith/,
+      /traceable\(/,
+      /LANGCHAIN_TRACING/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'LangSmith observability',
+  },
+  {
+    serviceName: 'Mistral',
+    patterns: [
+      /new MistralClient\(/,
+      /import\s+.*from\s+['"]@mistralai/,
+      /from mistralai import/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Mistral AI API',
+  },
+  {
+    serviceName: 'Replicate',
+    patterns: [
+      /new Replicate\(/,
+      /import\s+Replicate\s+from\s+['"]replicate['"]/,
+      /replicate\.run\(/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Replicate API',
+  },
+  {
+    serviceName: 'HuggingFace',
+    patterns: [
+      /HfInference\(/,
+      /from\s+['"]@huggingface\/inference['"]/,
+      /huggingface\.co\/api/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'HuggingFace Inference API',
   },
 
   // Payment Services
@@ -213,22 +290,70 @@ const SERVICE_PATTERNS: ServicePattern[] = [
 // FALSE POSITIVE DETECTION
 // =============================================================================
 
+// =============================================================================
+// ACCURACY GUARDRAILS
+// =============================================================================
+//
+// Strategy: Context-aware confidence scoring instead of LLM post-processing.
+// Inspired by ZeroFalse (arxiv:2510.02534) approach of enriching static analysis
+// with flow-sensitive context, but without the LLM dependency.
+//
+// Three layers:
+//   1. Line-level: Is the match in a comment, string literal, or example code?
+//   2. File-level: Is this a test, mock, docs, or generated file?
+//   3. Corroboration: Does an import/require for this service exist in the file?
+//
+// Each layer adjusts confidence. Only results >= 0.5 confidence are surfaced.
+// =============================================================================
+
+const MIN_CONFIDENCE = 0.5;
+
+/**
+ * Check if a match is inside a comment
+ */
+function isInComment(line: string, matchIndex: number): boolean {
+  const trimmed = line.trimStart();
+  // Single-line comment (JS/TS/Python)
+  if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*')) {
+    return true;
+  }
+  // Inline comment: check if // appears before the match
+  const commentStart = line.indexOf('//');
+  if (commentStart >= 0 && commentStart < matchIndex) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Check if a match is inside a string literal (not actual code)
+ */
+function isInStringLiteral(line: string, matchStart: number): boolean {
+  // Count unescaped quotes before the match position
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < matchStart && i < line.length; i++) {
+    const c = line[i];
+    const prev = i > 0 ? line[i - 1] : '';
+    if (c === "'" && prev !== '\\' && !inDouble) inSingle = !inSingle;
+    if (c === '"' && prev !== '\\' && !inSingle) inDouble = !inDouble;
+  }
+  return inSingle || inDouble;
+}
+
 /**
  * Check if a line is example/mock code (string literal containing code)
- * These patterns catch things like: code: "await stripe.paymentIntents.create({...})"
  */
 function isExampleCode(line: string): boolean {
-  // Check if the match is inside a string literal that looks like example code
   const examplePatterns = [
-    /code:\s*["'`].*["'`]/, // code: "..." or code: '...'
-    /example:\s*["'`]/,     // example: "..."
-    /snippet:\s*["'`]/,     // snippet: "..."
-    /sample:\s*["'`]/,      // sample: "..."
-    /mock:\s*["'`]/,        // mock: "..."
-    /["'`]await\s+\w+\.\w+\.\w+\([^)]*\)["'`]/, // "await stripe.paymentIntents.create(...)"
-    /["'`][^"'`]*\.\.\.[^"'`]*["'`]/, // Contains "..." ellipsis (example placeholder)
+    /code:\s*["'`].*["'`]/,
+    /example:\s*["'`]/,
+    /snippet:\s*["'`]/,
+    /sample:\s*["'`]/,
+    /mock:\s*["'`]/,
+    /["'`]await\s+\w+\.\w+\.\w+\([^)]*\)["'`]/,
+    /["'`][^"'`]*\.\.\.[^"'`]*["'`]/,
   ];
-
   return examplePatterns.some(pattern => pattern.test(line));
 }
 
@@ -237,10 +362,8 @@ function isExampleCode(line: string): boolean {
  */
 function shouldExcludeFile(file: string, projectRoot: string): boolean {
   const excludePatterns = [
-    // NavGator's own source (when scanning other projects)
     /NavGator\/src\//,
     /NavGator\/web\//,
-    // Test/mock data directories
     /\/__tests__\//,
     /\/test\//,
     /\/tests\//,
@@ -253,6 +376,85 @@ function shouldExcludeFile(file: string, projectRoot: string): boolean {
 
   const fullPath = path.join(projectRoot, file);
   return excludePatterns.some(pattern => pattern.test(fullPath) || pattern.test(file));
+}
+
+/**
+ * Check if a file is documentation, config, or generated code (lower confidence)
+ */
+function getFileConfidenceModifier(file: string): number {
+  // Documentation / non-code files — lower confidence
+  if (/\.(md|mdx|txt|rst|adoc)$/.test(file)) return -0.4;
+  if (/README|CHANGELOG|LICENSE/i.test(file)) return -0.4;
+  // Generated / compiled
+  if (/\.(d\.ts|map|min\.js)$/.test(file)) return -0.3;
+  if (/\/dist\/|\/build\/|\/generated\//.test(file)) return -0.3;
+  // Config files — sometimes legitimate (e.g., docker-compose)
+  if (/\.(json|ya?ml|toml|ini)$/.test(file)) return -0.1;
+  return 0;
+}
+
+/**
+ * Check if the file contains a corroborating import/require for a service.
+ * An import + a call site = high confidence. A call site without import = suspicious.
+ */
+function hasCorroboratingImport(fileContent: string, serviceName: string): boolean {
+  const importPatterns: Record<string, RegExp[]> = {
+    'Claude (Anthropic)': [/@anthropic-ai\/sdk/, /anthropic/],
+    'OpenAI': [/['"]openai['"]/, /@langchain\/openai/],
+    'Groq': [/groq-sdk/, /@langchain\/groq/],
+    'Stripe': [/['"]stripe['"]/],
+    'Supabase': [/@supabase\/supabase-js/],
+    'Firebase': [/firebase\//],
+    'BullMQ': [/['"]bullmq['"]/],
+    'Twilio': [/['"]twilio['"]/],
+    'SendGrid': [/@sendgrid\//],
+    'AWS S3': [/@aws-sdk\/client-s3/],
+    'Vercel AI SDK': [/['"]ai['"]/, /@ai-sdk\//],
+    'LangChain': [/langchain/, /@langchain\//],
+    'LangSmith': [/langsmith/],
+    'Cohere': [/['"]cohere['"]/],
+    'Gemini (Google)': [/google\.generativeai/, /@langchain\/google/],
+    'Mistral': [/@mistralai/],
+    'Replicate': [/['"]replicate['"]/],
+    'HuggingFace': [/@huggingface\//],
+  };
+
+  const patterns = importPatterns[serviceName];
+  if (!patterns) return true; // No import check available, don't penalize
+
+  return patterns.some(p => p.test(fileContent));
+}
+
+/**
+ * Compute final confidence for a match, applying all guardrail layers.
+ * Returns 0 if the match should be discarded entirely.
+ */
+function computeConfidence(
+  line: string,
+  matchIndex: number,
+  file: string,
+  fileContent: string,
+  serviceName: string,
+  baseConfidence: number = 0.9,
+): number {
+  let confidence = baseConfidence;
+
+  // Layer 1: Line-level checks
+  if (isInComment(line, matchIndex)) return 0;
+  if (isExampleCode(line)) return 0;
+  if (isInStringLiteral(line, matchIndex)) {
+    confidence -= 0.3;
+  }
+
+  // Layer 2: File-level checks
+  confidence += getFileConfidenceModifier(file);
+
+  // Layer 3: Corroboration — does the file import this service?
+  if (!hasCorroboratingImport(fileContent, serviceName)) {
+    confidence -= 0.2;
+  }
+
+  return Math.max(0, Math.min(1, confidence));
 }
 
 // =============================================================================
@@ -313,14 +515,24 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
 
-        // Skip example/mock code patterns
-        if (isExampleCode(line)) {
-          continue;
-        }
-
         for (const regex of pattern.patterns) {
-          if (regex.test(line)) {
-            // Create service component if not exists
+          const match = regex.exec(line);
+          if (match) {
+            // Compute confidence with all guardrail layers
+            const confidence = computeConfidence(
+              line,
+              match.index,
+              file,
+              content,
+              pattern.serviceName,
+            );
+
+            // Skip low-confidence matches
+            if (confidence < MIN_CONFIDENCE) {
+              continue;
+            }
+
+            // Create service component if not exists (use highest confidence seen)
             if (!foundServices.has(pattern.serviceName)) {
               const component: ArchitectureComponent = {
                 component_id: generateComponentId(pattern.componentType, pattern.serviceName),
@@ -334,7 +546,7 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
                 source: {
                   detection_method: 'auto',
                   config_files: [],
-                  confidence: 0.9,
+                  confidence,
                 },
                 connects_to: [],
                 connected_from: [],
@@ -345,9 +557,15 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
               };
               foundServices.set(pattern.serviceName, component);
               components.push(component);
+            } else {
+              // Update confidence if this match is higher
+              const existing = foundServices.get(pattern.serviceName)!;
+              if (confidence > existing.source.confidence) {
+                existing.source.confidence = confidence;
+              }
             }
 
-            // Create connection
+            // Create connection with computed confidence
             const serviceComponent = foundServices.get(pattern.serviceName)!;
             const functionName = extractFunctionName(lines, i);
 
@@ -374,7 +592,7 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
               },
               description: `Calls ${pattern.serviceName}`,
               detected_from: `Pattern: ${regex.source}`,
-              confidence: 0.85,
+              confidence,
               timestamp,
               last_verified: timestamp,
             };

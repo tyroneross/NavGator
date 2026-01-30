@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,74 +27,106 @@ import {
   Check,
   AlertCircle,
   Info,
+  Loader2,
 } from "lucide-react"
+import {
+  useSettings,
+  type ScanConfig,
+  type DetectionConfig,
+  type NotificationConfig,
+  type DisplayConfig,
+} from "@/lib/hooks"
 
-interface ScanConfig {
-  rootPath: string
-  excludePaths: string[]
-  includePatterns: string[]
-  scanDepth: number
-  watchMode: boolean
-  autoScanOnChange: boolean
+const DEFAULT_SCAN: ScanConfig = {
+  rootPath: "./src",
+  excludePaths: ["node_modules", ".git", "dist", "build", ".next"],
+  includePatterns: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
+  scanDepth: 10,
+  watchMode: false,
+  autoScanOnChange: true,
 }
 
-interface NotificationConfig {
-  enabled: boolean
-  onNewConnection: boolean
-  onBreakingChange: boolean
-  onSecurityIssue: boolean
-  slackWebhook: string
+const DEFAULT_DETECTION: DetectionConfig = {
+  npm: true,
+  database: true,
+  service: true,
+  queue: true,
+  cache: true,
+  storage: true,
+  auth: true,
+  llm: true,
+  staticAnalysis: true,
+  environmentVariables: true,
+  configFiles: true,
 }
 
-interface DisplayConfig {
-  theme: "dark" | "light" | "system"
-  compactMode: boolean
-  showLineNumbers: boolean
-  diagramDirection: "TB" | "LR"
-  maxVisibleConnections: number
+const DEFAULT_NOTIFICATIONS: NotificationConfig = {
+  enabled: true,
+  onNewConnection: false,
+  onBreakingChange: true,
+  onSecurityIssue: true,
+  slackWebhook: "",
+}
+
+const DEFAULT_DISPLAY: DisplayConfig = {
+  theme: "dark",
+  compactMode: false,
+  showLineNumbers: true,
+  diagramDirection: "TB",
+  maxVisibleConnections: 50,
 }
 
 export function SettingsPanel() {
+  const { settings, isLoading, isSaving, save } = useSettings({ autoFetch: true })
   const [saved, setSaved] = useState(false)
-  const [scanConfig, setScanConfig] = useState<ScanConfig>({
-    rootPath: "./src",
-    excludePaths: ["node_modules", ".git", "dist", "build", ".next"],
-    includePatterns: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
-    scanDepth: 10,
-    watchMode: false,
-    autoScanOnChange: true,
-  })
 
-  const [notificationConfig, setNotificationConfig] = useState<NotificationConfig>({
-    enabled: true,
-    onNewConnection: false,
-    onBreakingChange: true,
-    onSecurityIssue: true,
-    slackWebhook: "",
-  })
+  const [scanConfig, setScanConfig] = useState<ScanConfig>(DEFAULT_SCAN)
+  const [detectionConfig, setDetectionConfig] = useState<DetectionConfig>(DEFAULT_DETECTION)
+  const [notificationConfig, setNotificationConfig] = useState<NotificationConfig>(DEFAULT_NOTIFICATIONS)
+  const [displayConfig, setDisplayConfig] = useState<DisplayConfig>(DEFAULT_DISPLAY)
 
-  const [displayConfig, setDisplayConfig] = useState<DisplayConfig>({
-    theme: "dark",
-    compactMode: false,
-    showLineNumbers: true,
-    diagramDirection: "TB",
-    maxVisibleConnections: 50,
-  })
+  // Sync local state when settings load from API
+  useEffect(() => {
+    if (settings) {
+      setScanConfig(settings.scan)
+      setDetectionConfig(settings.detection)
+      setNotificationConfig(settings.notifications)
+      setDisplayConfig(settings.display)
+    }
+  }, [settings])
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  const handleSave = async () => {
+    const success = await save({
+      scan: scanConfig,
+      detection: detectionConfig,
+      notifications: notificationConfig,
+      display: displayConfig,
+    })
+    if (success) {
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    }
   }
 
-  const handleReset = () => {
-    setScanConfig({
-      rootPath: "./src",
-      excludePaths: ["node_modules", ".git", "dist", "build", ".next"],
-      includePatterns: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"],
-      scanDepth: 10,
-      watchMode: false,
-      autoScanOnChange: true,
+  const handleReset = async () => {
+    setScanConfig(DEFAULT_SCAN)
+    setDetectionConfig(DEFAULT_DETECTION)
+    setNotificationConfig(DEFAULT_NOTIFICATIONS)
+    setDisplayConfig(DEFAULT_DISPLAY)
+    await save({
+      scan: DEFAULT_SCAN,
+      detection: DEFAULT_DETECTION,
+      notifications: DEFAULT_NOTIFICATIONS,
+      display: DEFAULT_DISPLAY,
     })
+  }
+
+  if (isLoading && !settings) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (
@@ -111,9 +143,9 @@ export function SettingsPanel() {
             <RotateCcw className="h-4 w-4" />
             Reset
           </Button>
-          <Button size="sm" className="gap-2" onClick={handleSave}>
-            {saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-            {saved ? "Saved" : "Save Changes"}
+          <Button size="sm" className="gap-2" onClick={handleSave} disabled={isSaving}>
+            {saved ? <Check className="h-4 w-4" /> : isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saved ? "Saved" : isSaving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </div>
@@ -320,16 +352,16 @@ export function SettingsPanel() {
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { id: "npm", label: "NPM Packages", desc: "Detect package.json dependencies" },
-                    { id: "database", label: "Databases", desc: "PostgreSQL, MySQL, MongoDB, etc." },
-                    { id: "service", label: "External Services", desc: "APIs, webhooks, third-party services" },
-                    { id: "queue", label: "Message Queues", desc: "Redis, RabbitMQ, SQS, etc." },
-                    { id: "cache", label: "Caching", desc: "Redis, Memcached, CDN caches" },
-                    { id: "storage", label: "File Storage", desc: "S3, GCS, local filesystem" },
-                    { id: "auth", label: "Authentication", desc: "OAuth, JWT, session providers" },
-                    { id: "llm", label: "LLM Calls", desc: "AI/ML model invocations" },
-                  ].map((item) => (
+                  {([
+                    { id: "npm" as const, label: "NPM Packages", desc: "Detect package.json dependencies" },
+                    { id: "database" as const, label: "Databases", desc: "PostgreSQL, MySQL, MongoDB, etc." },
+                    { id: "service" as const, label: "External Services", desc: "APIs, webhooks, third-party services" },
+                    { id: "queue" as const, label: "Message Queues", desc: "Redis, RabbitMQ, SQS, etc." },
+                    { id: "cache" as const, label: "Caching", desc: "Redis, Memcached, CDN caches" },
+                    { id: "storage" as const, label: "File Storage", desc: "S3, GCS, local filesystem" },
+                    { id: "auth" as const, label: "Authentication", desc: "OAuth, JWT, session providers" },
+                    { id: "llm" as const, label: "LLM Calls", desc: "AI/ML model invocations" },
+                  ] as const).map((item) => (
                     <div
                       key={item.id}
                       className="flex items-start justify-between rounded-lg border border-border bg-secondary/50 p-3"
@@ -338,7 +370,12 @@ export function SettingsPanel() {
                         <Label>{item.label}</Label>
                         <p className="text-xs text-muted-foreground">{item.desc}</p>
                       </div>
-                      <Switch defaultChecked />
+                      <Switch
+                        checked={detectionConfig[item.id]}
+                        onCheckedChange={(v) =>
+                          setDetectionConfig((c) => ({ ...c, [item.id]: v }))
+                        }
+                      />
                     </div>
                   ))}
                 </div>
@@ -360,7 +397,12 @@ export function SettingsPanel() {
                       Analyze imports, function calls, and type references
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={detectionConfig.staticAnalysis}
+                    onCheckedChange={(v) =>
+                      setDetectionConfig((c) => ({ ...c, staticAnalysis: v }))
+                    }
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
@@ -369,7 +411,12 @@ export function SettingsPanel() {
                       Detect service URLs from env vars
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={detectionConfig.environmentVariables}
+                    onCheckedChange={(v) =>
+                      setDetectionConfig((c) => ({ ...c, environmentVariables: v }))
+                    }
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
@@ -378,7 +425,12 @@ export function SettingsPanel() {
                       Parse docker-compose, terraform, k8s manifests
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch
+                    checked={detectionConfig.configFiles}
+                    onCheckedChange={(v) =>
+                      setDetectionConfig((c) => ({ ...c, configFiles: v }))
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>

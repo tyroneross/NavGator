@@ -7,7 +7,6 @@ import {
   Target,
   Share2,
   Settings,
-  HelpCircle,
   Brain,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -67,10 +66,6 @@ export function Sidebar({ activeView, setActiveView }: SidebarProps) {
             {activeView === "settings" && (
               <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sidebar-primary" />
             )}
-          </button>
-          <button className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground">
-            <HelpCircle className="h-4 w-4" />
-            Help
           </button>
         </div>
       </nav>

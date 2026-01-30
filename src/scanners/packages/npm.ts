@@ -81,10 +81,153 @@ interface PackageJson {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  workspaces?: string[] | { packages: string[] };
+}
+
+// =============================================================================
+// WORKSPACE / MONOREPO DETECTION
+// =============================================================================
+
+/**
+ * Detect workspace package paths from package.json workspaces field
+ * or pnpm-workspace.yaml
+ */
+async function resolveWorkspacePackages(projectRoot: string): Promise<string[]> {
+  const packagePaths: string[] = [];
+
+  // 1. Check pnpm-workspace.yaml
+  const pnpmWorkspacePath = path.join(projectRoot, 'pnpm-workspace.yaml');
+  if (fs.existsSync(pnpmWorkspacePath)) {
+    try {
+      const content = await fs.promises.readFile(pnpmWorkspacePath, 'utf-8');
+      // Parse simple YAML: extract lines under "packages:" that start with "- "
+      const lines = content.split('\n');
+      let inPackages = false;
+      for (const line of lines) {
+        if (/^packages:\s*$/.test(line.trim())) {
+          inPackages = true;
+          continue;
+        }
+        if (inPackages && /^\s+-\s+/.test(line)) {
+          const pattern = line.replace(/^\s+-\s+/, '').replace(/['"]/g, '').trim();
+          packagePaths.push(pattern);
+        } else if (inPackages && /^\S/.test(line)) {
+          break; // Next top-level key
+        }
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  // 2. Check package.json workspaces field
+  if (packagePaths.length === 0) {
+    const packageJsonPath = path.join(projectRoot, 'package.json');
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const content = await fs.promises.readFile(packageJsonPath, 'utf-8');
+        const pkg = JSON.parse(content) as PackageJson;
+        if (pkg.workspaces) {
+          const patterns = Array.isArray(pkg.workspaces)
+            ? pkg.workspaces
+            : pkg.workspaces.packages || [];
+          packagePaths.push(...patterns);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  }
+
+  if (packagePaths.length === 0) return [];
+
+  // 3. Resolve glob patterns to actual directories with package.json
+  const resolved: string[] = [];
+  for (const pattern of packagePaths) {
+    // Convert workspace glob to directory glob (e.g., "packages/*" → find dirs)
+    const globPattern = pattern.endsWith('/*') || pattern.endsWith('/**')
+      ? pattern
+      : `${pattern}/*`;
+
+    try {
+      const { glob: globFn } = await import('glob');
+      const matches = await globFn(globPattern, {
+        cwd: projectRoot,
+        ignore: ['**/node_modules/**'],
+      });
+      for (const match of matches) {
+        const pkgJson = path.join(projectRoot, match, 'package.json');
+        if (fs.existsSync(pkgJson)) {
+          resolved.push(path.join(projectRoot, match));
+        }
+      }
+    } catch {
+      // If glob fails, try direct path
+      const directPath = path.join(projectRoot, pattern.replace(/\/\*+$/, ''));
+      if (fs.existsSync(directPath) && fs.statSync(directPath).isDirectory()) {
+        const entries = fs.readdirSync(directPath);
+        for (const entry of entries) {
+          const subDir = path.join(directPath, entry);
+          if (fs.existsSync(path.join(subDir, 'package.json'))) {
+            resolved.push(subDir);
+          }
+        }
+      }
+    }
+  }
+
+  return resolved;
+}
+
+// =============================================================================
+// PACKAGE.JSON SCANNING
+// =============================================================================
+
+/**
+ * Scan a single package.json and return components
+ */
+async function scanSinglePackageJson(
+  packageJsonPath: string,
+  warnings: ScanWarning[]
+): Promise<ArchitectureComponent[]> {
+  const components: ArchitectureComponent[] = [];
+
+  let packageJson: PackageJson;
+  try {
+    const content = await fs.promises.readFile(packageJsonPath, 'utf-8');
+    packageJson = JSON.parse(content);
+  } catch (error) {
+    warnings.push({
+      type: 'parse_error',
+      message: `Failed to parse ${packageJsonPath}: ${error}`,
+      file: packageJsonPath,
+    });
+    return components;
+  }
+
+  const timestamp = Date.now();
+
+  if (packageJson.dependencies) {
+    for (const [name, version] of Object.entries(packageJson.dependencies)) {
+      components.push(
+        createComponentFromPackage(name, version, 'core', packageJsonPath, timestamp)
+      );
+    }
+  }
+
+  if (packageJson.devDependencies) {
+    for (const [name, version] of Object.entries(packageJson.devDependencies)) {
+      components.push(
+        createComponentFromPackage(name, version, 'dev', packageJsonPath, timestamp)
+      );
+    }
+  }
+
+  return components;
 }
 
 /**
- * Scan for npm packages in a project
+ * Scan for npm packages in a project (including monorepo workspaces)
  */
 export async function scanNpmPackages(projectRoot: string): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
@@ -96,46 +239,17 @@ export async function scanNpmPackages(projectRoot: string): Promise<ScanResult> 
     return { components, connections: [], warnings };
   }
 
-  let packageJson: PackageJson;
-  try {
-    const content = await fs.promises.readFile(packageJsonPath, 'utf-8');
-    packageJson = JSON.parse(content);
-  } catch (error) {
-    warnings.push({
-      type: 'parse_error',
-      message: `Failed to parse package.json: ${error}`,
-      file: packageJsonPath,
-    });
-    return { components, connections: [], warnings };
-  }
+  // Scan root package.json
+  const rootComponents = await scanSinglePackageJson(packageJsonPath, warnings);
+  components.push(...rootComponents);
 
-  const timestamp = Date.now();
-
-  // Process dependencies
-  if (packageJson.dependencies) {
-    for (const [name, version] of Object.entries(packageJson.dependencies)) {
-      const component = createComponentFromPackage(
-        name,
-        version,
-        'core',
-        packageJsonPath,
-        timestamp
-      );
-      components.push(component);
-    }
-  }
-
-  // Process devDependencies
-  if (packageJson.devDependencies) {
-    for (const [name, version] of Object.entries(packageJson.devDependencies)) {
-      const component = createComponentFromPackage(
-        name,
-        version,
-        'dev',
-        packageJsonPath,
-        timestamp
-      );
-      components.push(component);
+  // Scan workspace sub-packages (monorepo support)
+  const workspacePackages = await resolveWorkspacePackages(projectRoot);
+  if (workspacePackages.length > 0) {
+    for (const pkgDir of workspacePackages) {
+      const subPkgPath = path.join(pkgDir, 'package.json');
+      const subComponents = await scanSinglePackageJson(subPkgPath, warnings);
+      components.push(...subComponents);
     }
   }
 

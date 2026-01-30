@@ -13,7 +13,6 @@ import {
   MessageSquare,
   FileText,
   Clock,
-  DollarSign,
   Copy,
   Check,
   ChevronDown,
@@ -95,7 +94,6 @@ export function LLMTrackingPanel() {
 
   // Calculate stats from real data
   const totalCalls = calls.reduce((sum, c) => sum + c.callCount, 0);
-  const totalCost = calls.reduce((sum, c) => sum + (c.callCount / 1000) * c.estimatedCostPer1k, 0);
   const avgLatency = totalCalls > 0
     ? calls.reduce((sum, c) => sum + c.avgLatencyMs * c.callCount, 0) / totalCalls
     : 0;
@@ -137,7 +135,7 @@ export function LLMTrackingPanel() {
       )}
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <Card className="border-border bg-card">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -190,21 +188,6 @@ export function LLMTrackingPanel() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-chart-4/10">
-                <DollarSign className="h-5 w-5 text-chart-4" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Est. Cost (30d)</p>
-                <p className="text-2xl font-semibold text-foreground">
-                  ${totalCost.toFixed(2)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Main Content */}
@@ -492,17 +475,6 @@ export function LLMTrackingPanel() {
                       </pre>
                     </div>
 
-                    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3">
-                      <AlertTriangle className="h-4 w-4 text-warning" />
-                      <p className="text-sm text-warning">
-                        Est. cost: $
-                        {(
-                          (selectedCall.callCount / 1000) *
-                          selectedCall.estimatedCostPer1k
-                        ).toFixed(2)}{" "}
-                        (30d)
-                      </p>
-                    </div>
                   </div>
                 ) : (
                   <div className="flex h-[400px] items-center justify-center text-muted-foreground">
