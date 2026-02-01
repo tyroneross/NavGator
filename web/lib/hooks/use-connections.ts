@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { Connection, ConnectionsSummary, ConnectionsApiResponse } from "../types";
+import { useActiveProject } from "../project-context";
 
 interface UseConnectionsResult {
   connections: Connection[];
@@ -21,7 +22,9 @@ interface UseConnectionsOptions {
 }
 
 export function useConnections(options: UseConnectionsOptions = {}): UseConnectionsResult {
-  const { demoMode = false, autoFetch = true, projectPath } = options;
+  const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
+  const { activeProjectPath } = useActiveProject();
+  const projectPath = explicitPath || activeProjectPath || undefined;
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [summary, setSummary] = useState<ConnectionsSummary | null>(null);

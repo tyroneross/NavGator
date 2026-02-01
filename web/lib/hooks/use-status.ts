@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { ProjectStatus, StatusApiResponse } from "../types";
+import { useActiveProject } from "../project-context";
 
 interface UseStatusResult {
   status: ProjectStatus | null;
@@ -19,7 +20,9 @@ interface UseStatusOptions {
 }
 
 export function useStatus(options: UseStatusOptions = {}): UseStatusResult {
-  const { autoFetch = true, projectPath } = options;
+  const { autoFetch = true, projectPath: explicitPath } = options;
+  const { activeProjectPath } = useActiveProject();
+  const projectPath = explicitPath || activeProjectPath || undefined;
 
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);

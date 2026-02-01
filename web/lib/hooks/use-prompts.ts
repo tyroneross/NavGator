@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { LLMCall, Prompt, LLMTrackingSummary, PromptsApiResponse } from "../types";
+import { useActiveProject } from "../project-context";
 
 interface UsePromptsResult {
   calls: LLMCall[];
@@ -26,7 +27,9 @@ interface UsePromptsOptions {
 }
 
 export function usePrompts(options: UsePromptsOptions = {}): UsePromptsResult {
-  const { demoMode = false, autoFetch = true, projectPath } = options;
+  const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
+  const { activeProjectPath } = useActiveProject();
+  const projectPath = explicitPath || activeProjectPath || undefined;
 
   const [calls, setCalls] = useState<LLMCall[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);

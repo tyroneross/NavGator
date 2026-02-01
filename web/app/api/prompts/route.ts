@@ -19,9 +19,8 @@ import type { PromptsApiResponse } from "@/lib/types";
 
 const execAsync = promisify(exec);
 
-// Cache for scan results
-let cachedData: PromptsApiResponse["data"] | null = null;
-let cacheTimestamp = 0;
+// Cache for scan results (keyed by project path)
+const promptsCache = new Map<string, { data: PromptsApiResponse["data"]; timestamp: number }>();
 const CACHE_TTL = 60000; // 1 minute cache
 
 /**
@@ -48,11 +47,14 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const cacheKey = projectPath || "__default__";
+  const cached = promptsCache.get(cacheKey);
+
   // Check cache
-  if (!refresh && cachedData && Date.now() - cacheTimestamp < CACHE_TTL) {
+  if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return NextResponse.json<PromptsApiResponse>({
       success: true,
-      data: cachedData,
+      data: cached.data,
       source: "cache",
     });
   }
@@ -62,8 +64,7 @@ export async function GET(request: NextRequest) {
     const data = await loadScanData(projectPath);
 
     if (data) {
-      cachedData = data;
-      cacheTimestamp = Date.now();
+      promptsCache.set(cacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<PromptsApiResponse>({
         success: true,
@@ -139,8 +140,8 @@ export async function POST(request: NextRequest) {
 
     if (scanResult) {
       const data = transformScanResultWithDefaults(scanResult);
-      cachedData = data;
-      cacheTimestamp = Date.now();
+      const postCacheKey = projectPath || "__default__";
+      promptsCache.set(postCacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<PromptsApiResponse>({
         success: true,

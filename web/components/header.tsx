@@ -1,13 +1,14 @@
 "use client"
 
 import Image from "next/image"
-import { Search, RefreshCw, ChevronDown } from "lucide-react"
+import { Search, RefreshCw, ChevronDown, FolderOpen, Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -16,19 +17,57 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useState, useEffect } from "react"
-import { useStatus } from "@/lib/hooks"
+import { useState, useEffect, useRef } from "react"
 
-export function Header() {
+interface RegisteredProject {
+  path: string
+  name: string
+  hasArchitecture: boolean
+  componentCount: number
+  connectionCount: number
+  lastScanFormatted: string | null
+}
+
+interface HeaderProps {
+  activeProject: string | null
+  projectName: string | null
+  projectPath: string | null
+  projects: RegisteredProject[]
+  onSelectProject: (path: string) => void
+  onAddProject: (path: string) => Promise<void>
+  onRemoveProject: (path: string) => Promise<void>
+  isLoadingProjects: boolean
+}
+
+export function Header({
+  activeProject,
+  projectName,
+  projectPath,
+  projects,
+  onSelectProject,
+  onAddProject,
+  onRemoveProject,
+  isLoadingProjects,
+}: HeaderProps) {
   const [isScanning, setIsScanning] = useState(false)
-  const { status, isLoading: isStatusLoading } = useStatus({ autoFetch: true })
+  const [showAddInput, setShowAddInput] = useState(false)
+  const [addPath, setAddPath] = useState("")
+  const addInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (showAddInput && addInputRef.current) {
+      addInputRef.current.focus()
+    }
+  }, [showAddInput])
 
   const handleScan = async () => {
     setIsScanning(true)
     try {
-      // Trigger actual scan via API
-      await fetch("/api/scan", { method: "POST" })
-      // Refresh data after scan
+      await fetch("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: activeProject }),
+      })
       window.location.reload()
     } catch (error) {
       console.error("Scan failed:", error)
@@ -36,6 +75,16 @@ export function Header() {
       setIsScanning(false)
     }
   }
+
+  const handleAddProject = async () => {
+    if (!addPath.trim()) return
+    await onAddProject(addPath.trim())
+    onSelectProject(addPath.trim())
+    setAddPath("")
+    setShowAddInput(false)
+  }
+
+  const displayName = projectName || "No Project"
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-border bg-card px-4">
@@ -53,27 +102,101 @@ export function Header() {
 
         <div className="hidden items-center gap-1 text-sm text-muted-foreground md:flex">
           <span>/</span>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-foreground">
-                  {isStatusLoading ? (
-                    <span className="animate-pulse">Loading...</span>
-                  ) : (
-                    status?.project_name || "No Project"
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-md">
-                <p className="font-mono text-xs">{status?.project_path || "No project path"}</p>
-                {status?.last_scan_formatted && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Last scan: {status.last_scan_formatted}
-                  </p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-auto gap-1 px-2 py-1 text-foreground">
+                {isLoadingProjects ? (
+                  <span className="animate-pulse">Loading...</span>
+                ) : (
+                  displayName
                 )}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+              {projects.length === 0 && !showAddInput && (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  No projects registered
+                </div>
+              )}
+
+              {projects.map((project) => (
+                <DropdownMenuItem
+                  key={project.path}
+                  className="flex items-center justify-between gap-2 py-2"
+                  onSelect={() => onSelectProject(project.path)}
+                >
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className={`text-sm font-medium truncate ${
+                      project.path === activeProject ? "text-blue-700 dark:text-blue-400" : ""
+                    }`}>
+                      {project.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate">
+                      {project.hasArchitecture
+                        ? `${project.componentCount} components · ${project.lastScanFormatted || "never scanned"}`
+                        : "Not scanned yet"}
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 shrink-0 p-0 text-muted-foreground hover:text-red-600"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onRemoveProject(project.path)
+                    }}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuItem>
+              ))}
+
+              {projects.length > 0 && <DropdownMenuSeparator />}
+
+              {showAddInput ? (
+                <div className="flex items-center gap-1 px-2 py-1.5" onClick={(e) => e.stopPropagation()}>
+                  <Input
+                    ref={addInputRef}
+                    value={addPath}
+                    onChange={(e) => setAddPath(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddProject()
+                      if (e.key === "Escape") { setShowAddInput(false); setAddPath("") }
+                    }}
+                    placeholder="/path/to/project"
+                    className="h-7 text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0 px-2 text-xs"
+                    onClick={handleAddProject}
+                  >
+                    Add
+                  </Button>
+                </div>
+              ) : (
+                <DropdownMenuItem onSelect={() => setShowAddInput(true)}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add project
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {projectPath && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-md">
+                  <p className="font-mono text-xs">{projectPath}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 

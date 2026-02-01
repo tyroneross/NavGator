@@ -291,8 +291,8 @@ export function LLMTrackingPanel() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="flex flex-col">
-                    {filteredCalls.map((call) => (
-                      <div key={call.id}>
+                    {filteredCalls.map((call, idx) => (
+                      <div key={`${call.id}-${idx}`}>
                         <button
                           type="button"
                           onClick={() => {
@@ -498,9 +498,9 @@ export function LLMTrackingPanel() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="flex flex-col">
-                    {filteredPrompts.map((prompt) => (
+                    {filteredPrompts.map((prompt, idx) => (
                       <button
-                        key={prompt.id}
+                        key={`${prompt.id}-${idx}`}
                         type="button"
                         onClick={() => setSelectedPrompt(prompt)}
                         className={`flex w-full items-start gap-3 border-b border-border p-4 text-left transition-colors hover:bg-secondary/50 ${

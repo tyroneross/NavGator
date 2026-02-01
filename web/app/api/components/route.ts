@@ -9,9 +9,8 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { Component, ComponentsApiResponse, ComponentsSummary } from "@/lib/types";
 
-// Cache for component data
-let cachedData: ComponentsApiResponse["data"] | null = null;
-let cacheTimestamp = 0;
+// Cache for component data (keyed by project path)
+const componentsCache = new Map<string, { data: ComponentsApiResponse["data"]; timestamp: number }>();
 const CACHE_TTL = 60000; // 1 minute cache
 
 /**
@@ -32,11 +31,14 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const cacheKey = projectPath || "__default__";
+  const cached = componentsCache.get(cacheKey);
+
   // Check cache
-  if (!refresh && cachedData && Date.now() - cacheTimestamp < CACHE_TTL) {
+  if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return NextResponse.json<ComponentsApiResponse>({
       success: true,
-      data: cachedData,
+      data: cached.data,
       source: "cache",
     });
   }
@@ -45,8 +47,7 @@ export async function GET(request: NextRequest) {
     const data = await loadComponentData(projectPath);
 
     if (data) {
-      cachedData = data;
-      cacheTimestamp = Date.now();
+      componentsCache.set(cacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<ComponentsApiResponse>({
         success: true,

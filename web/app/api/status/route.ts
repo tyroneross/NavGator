@@ -9,9 +9,8 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { StatusApiResponse, ProjectStatus } from "@/lib/types";
 
-// Cache for status data
-let cachedData: ProjectStatus | null = null;
-let cacheTimestamp = 0;
+// Cache for status data (keyed by project path)
+const statusCache = new Map<string, { data: ProjectStatus; timestamp: number }>();
 const CACHE_TTL = 30000; // 30 second cache
 
 /**
@@ -22,11 +21,14 @@ export async function GET(request: NextRequest) {
   const refresh = searchParams.get("refresh") === "true";
   const projectPath = searchParams.get("path");
 
+  const cacheKey = projectPath || "__default__";
+  const cached = statusCache.get(cacheKey);
+
   // Check cache
-  if (!refresh && cachedData && Date.now() - cacheTimestamp < CACHE_TTL) {
+  if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return NextResponse.json<StatusApiResponse>({
       success: true,
-      data: cachedData,
+      data: cached.data,
       source: "cache",
     });
   }
@@ -35,8 +37,7 @@ export async function GET(request: NextRequest) {
     const data = await loadStatusData(projectPath);
 
     if (data) {
-      cachedData = data;
-      cacheTimestamp = Date.now();
+      statusCache.set(cacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<StatusApiResponse>({
         success: true,

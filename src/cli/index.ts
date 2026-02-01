@@ -22,12 +22,24 @@ import { ArchitectureLayer } from '../types.js';
 import { setup, fastSetup, isSetupComplete, formatSetupStatus } from '../setup.js';
 import { startUIServer } from '../ui-server.js';
 
+const NAVGATOR_LOGO = `
+  _   _             ____       _
+ | \\ | | __ ___   _/ ___| __ _| |_ ___  _ __
+ |  \\| |/ _\` \\ \\ / / |  _ / _\` | __/ _ \\| '__|
+ | |\\  | (_| |\\ V /| |_| | (_| | || (_) | |
+ |_| \\_|\\__,_| \\_/  \\____|\\__,_|\\__\\___/|_|
+
+  Architecture Connection Tracker
+  Know your stack before you change it
+`;
+
 const program = new Command();
 
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.1.0');
+  .version('0.1.0')
+  .addHelpText('beforeAll', NAVGATOR_LOGO);
 
 // =============================================================================
 // SETUP COMMAND (New - Initial Installation)
@@ -183,6 +195,37 @@ program
 
       console.log(`\nFiles scanned: ${result.stats.files_scanned}`);
       console.log(`Scan completed in ${result.stats.scan_duration_ms}ms`);
+
+      // Auto-register project in ~/.navgator/projects.json
+      try {
+        const os = await import('os');
+        const path = await import('path');
+        const registryDir = path.join(os.homedir(), '.navgator');
+        const registryPath = path.join(registryDir, 'projects.json');
+
+        await fs.promises.mkdir(registryDir, { recursive: true });
+
+        let registry: { version: number; projects: Array<{ path: string; name: string; addedAt: number; lastScan: number | null }> };
+        try {
+          registry = JSON.parse(await fs.promises.readFile(registryPath, 'utf-8'));
+        } catch {
+          registry = { version: 1, projects: [] };
+        }
+
+        const projectRoot = process.cwd();
+        const existing = registry.projects.find(p => p.path === projectRoot);
+        if (existing) {
+          existing.lastScan = Date.now();
+        } else {
+          const dirName = projectRoot.split(path.sep).pop() || 'project';
+          const name = dirName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).trim();
+          registry.projects.push({ path: projectRoot, name, addedAt: Date.now(), lastScan: Date.now() });
+        }
+
+        await fs.promises.writeFile(registryPath, JSON.stringify(registry, null, 2), 'utf-8');
+      } catch {
+        // Non-critical — don't fail the scan
+      }
     } catch (error) {
       console.error('Scan failed:', error);
       process.exit(1);

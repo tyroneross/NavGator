@@ -31,6 +31,9 @@ import {
   getSnapshotsPath,
   getHashesPath,
   getSummaryPath,
+  getSummaryFullPath,
+  getFileMapPath,
+  getPromptsPath,
   ensureStorageDirectories,
   isValidComponentId,
   isValidConnectionId,
@@ -434,6 +437,71 @@ export async function buildGraph(
 }
 
 // =============================================================================
+// FILE MAP (Tier 2 - O(1) file-to-component lookup)
+// =============================================================================
+
+/**
+ * Build a map of file paths → component IDs for fast lookup in hooks.
+ * Sources: component config_files + connection code_reference files + connection locations.
+ */
+export async function buildFileMap(
+  config?: NavGatorConfig,
+  projectRoot?: string
+): Promise<Record<string, string>> {
+  const cfg = config || getConfig();
+  const root = projectRoot || process.cwd();
+  const components = await loadAllComponents(cfg, root);
+  const connections = await loadAllConnections(cfg, root);
+
+  const fileMap: Record<string, string> = {};
+
+  // Index config files from components
+  for (const c of components) {
+    for (const f of c.source.config_files || []) {
+      fileMap[f] = c.component_id;
+    }
+  }
+
+  // Index source files from connections (code_reference, from.location, to.location)
+  for (const conn of connections) {
+    if (conn.code_reference?.file) {
+      // Map to the "from" component — this file uses/imports the dependency
+      fileMap[conn.code_reference.file] = conn.from.component_id;
+    }
+    if (conn.from.location?.file) {
+      fileMap[conn.from.location.file] = conn.from.component_id;
+    }
+    if (conn.to.location?.file) {
+      fileMap[conn.to.location.file] = conn.to.component_id;
+    }
+  }
+
+  const fileMapPath = getFileMapPath(cfg, root);
+  await fs.promises.writeFile(fileMapPath, JSON.stringify(fileMap, null, 2), 'utf-8');
+
+  return fileMap;
+}
+
+// =============================================================================
+// PROMPT STORAGE (Tier 2 - Full prompt content for on-demand loading)
+// =============================================================================
+
+/**
+ * Save prompt scan results to prompts.json
+ */
+export async function savePromptScan(
+  promptData: unknown,
+  config?: NavGatorConfig,
+  projectRoot?: string
+): Promise<void> {
+  const cfg = config || getConfig();
+  const root = projectRoot || process.cwd();
+  ensureStorageDirectories(cfg, root);
+  const promptsPath = getPromptsPath(cfg, root);
+  await fs.promises.writeFile(promptsPath, JSON.stringify(promptData, null, 2), 'utf-8');
+}
+
+// =============================================================================
 // SUMMARY GENERATION (Tier 1 - Hot Context for LLMs)
 // =============================================================================
 
@@ -450,7 +518,8 @@ const AI_PROVIDER_NAMES = new Set([
  */
 export async function buildSummary(
   config?: NavGatorConfig,
-  projectRoot?: string
+  projectRoot?: string,
+  promptScan?: { prompts: Array<{ name: string; location: { file: string; lineStart: number }; provider?: { provider: string; model?: string }; category?: string; messages: Array<{ role: string; content: string }> }>; summary: { totalPrompts: number } }
 ): Promise<string> {
   const cfg = config || getConfig();
   const root = projectRoot || process.cwd();
@@ -562,13 +631,157 @@ export async function buildSummary(
     }
   }
 
+  // Prompts section (pointers only — full content in prompts.json)
+  if (promptScan && promptScan.prompts.length > 0) {
+    lines.push(`## Prompts (${promptScan.prompts.length}) — full content: \`prompts.json\``);
+    lines.push('| Name | File | Line | Provider | Category |');
+    lines.push('|------|------|------|----------|----------|');
+    const maxPrompts = Math.min(promptScan.prompts.length, 20);
+    for (let i = 0; i < maxPrompts; i++) {
+      const p = promptScan.prompts[i];
+      const provider = p.provider?.provider || '—';
+      const model = p.provider?.model ? ` (${p.provider.model})` : '';
+      const cat = p.category || '—';
+      lines.push(`| ${p.name} | ${p.location.file} | ${p.location.lineStart} | ${provider}${model} | ${cat} |`);
+    }
+    if (promptScan.prompts.length > 20) {
+      lines.push(`| ... | | | ${promptScan.prompts.length - 20} more in prompts.json | |`);
+    }
+    lines.push('');
+  }
+
   // Detail pointers
   lines.push('## Detail Pointers');
   lines.push(`- Full index: \`index.json\``);
   lines.push(`- Connection graph: \`graph.json\``);
+  lines.push(`- File map: \`file_map.json\``);
+  if (promptScan && promptScan.prompts.length > 0) {
+    lines.push(`- Prompts: \`prompts.json\` (${promptScan.prompts.length} prompts, full content)`);
+  }
   lines.push(`- All components: \`components/\` (${components.length} files)`);
   lines.push(`- All connections: \`connections/\` (${connections.length} files)`);
   lines.push('');
+
+  const fullContent = lines.join('\n');
+  const lineCount = lines.length;
+  const COMPRESSION_THRESHOLD = 150;
+
+  if (lineCount > COMPRESSION_THRESHOLD) {
+    // Write full version to SUMMARY_FULL.md
+    const fullPath = getSummaryFullPath(cfg, root);
+    await fs.promises.writeFile(fullPath, fullContent, 'utf-8');
+
+    // Build compressed version: top 10 per layer, AI routing, top 10 connections
+    const compressed: string[] = [];
+    compressed.push('# Architecture Summary (Compressed)');
+    compressed.push('');
+    compressed.push('> **This is a compressed summary.** Full version: `SUMMARY_FULL.md`');
+    compressed.push('');
+    compressed.push(`> NavGator auto-generated | Scanned: ${now}`);
+    compressed.push(`> ${components.length} components | ${connections.length} connections | ${aiComponents.length} AI providers`);
+    compressed.push('');
+
+    // Components (top 10 per layer)
+    const hasLayerContent = layerOrder.some((l) => (byLayer.get(l)?.length || 0) > 0);
+    if (hasLayerContent) {
+      compressed.push('## Components (top 10 per layer)');
+      compressed.push('');
+      for (const layer of layerOrder) {
+        const group = byLayer.get(layer);
+        if (!group || group.length === 0) continue;
+        compressed.push(`### ${layer.charAt(0).toUpperCase() + layer.slice(1)} (${group.length})`);
+        const top = group.slice(0, 10);
+        for (const c of top) {
+          const ver = c.version ? ` v${c.version}` : '';
+          compressed.push(`- **${c.name}**${ver} — ${c.role.purpose} \`components/${c.component_id}.json\``);
+        }
+        if (group.length > 10) {
+          compressed.push(`- ... and ${group.length - 10} more (see SUMMARY_FULL.md)`);
+        }
+        compressed.push('');
+      }
+    }
+
+    // AI/LLM routing table (preserved in compressed version)
+    if (aiComponents.length > 0 || connections.some((c) => c.connection_type === 'service-call')) {
+      compressed.push('## AI/LLM Routing');
+      compressed.push('| Provider | File | Line | Purpose | Detail |');
+      compressed.push('|----------|------|------|---------|--------|');
+      const aiConnections = connections.filter((c) => {
+        const targetComp = components.find((comp) => comp.component_id === c.to.component_id);
+        return targetComp && (AI_PROVIDER_NAMES.has(targetComp.name) || targetComp.type === 'llm' || targetComp.type === 'service');
+      });
+      const maxAiConns = Math.min(aiConnections.length, 10);
+      for (let i = 0; i < maxAiConns; i++) {
+        const conn = aiConnections[i];
+        const target = components.find((comp) => comp.component_id === conn.to.component_id);
+        const file = conn.code_reference?.file || conn.from.location?.file || '—';
+        const line = conn.code_reference?.line_start || conn.from.location?.line || '—';
+        const purpose = conn.description || target?.role.purpose || '—';
+        compressed.push(`| ${target?.name || '?'} | ${file} | ${line} | ${purpose} | \`connections/${conn.connection_id}.json\` |`);
+      }
+      if (aiConnections.length > 10) {
+        compressed.push(`| ... | | | ${aiConnections.length - 10} more (see SUMMARY_FULL.md) | |`);
+      }
+      // AI components with no connections
+      for (const c of aiComponents) {
+        const hasConn = connections.some((conn) => conn.to.component_id === c.component_id);
+        if (!hasConn) {
+          const configFile = c.source.config_files?.[0] || '—';
+          compressed.push(`| ${c.name} | ${configFile} | — | ${c.role.purpose} | \`components/${c.component_id}.json\` |`);
+        }
+      }
+      compressed.push('');
+    }
+
+    // Connections (top 10)
+    if (connections.length > 0) {
+      const maxConns = Math.min(connections.length, 10);
+      compressed.push(`## Connections (top 10 of ${connections.length})`);
+      for (let i = 0; i < maxConns; i++) {
+        const conn = connections[i];
+        const fromComp = components.find((c) => c.component_id === conn.from.component_id);
+        const toComp = components.find((c) => c.component_id === conn.to.component_id);
+        const file = conn.code_reference?.file || '';
+        const line = conn.code_reference?.line_start ? `:${conn.code_reference.line_start}` : '';
+        compressed.push(`- ${fromComp?.name || '?'} → ${toComp?.name || '?'} (${conn.connection_type}) ${file}${line}`);
+      }
+      compressed.push('');
+    }
+
+    // Add prompts pointer if available
+    if (promptScan && promptScan.prompts.length > 0) {
+      compressed.push(`## Prompts (${promptScan.prompts.length}) — full content: \`prompts.json\``);
+      compressed.push('| Name | File | Provider |');
+      compressed.push('|------|------|----------|');
+      const maxP = Math.min(promptScan.prompts.length, 10);
+      for (let i = 0; i < maxP; i++) {
+        const p = promptScan.prompts[i];
+        const name = p.name || '?';
+        const file = p.location?.file ? `${p.location.file}:${p.location.lineStart}` : '?';
+        const provider = p.provider?.provider || 'unknown';
+        compressed.push(`| ${name} | ${file} | ${provider} |`);
+      }
+      if (promptScan.prompts.length > 10) {
+        compressed.push(`| ... | +${promptScan.prompts.length - 10} more in prompts.json | |`);
+      }
+      compressed.push('');
+    }
+
+    compressed.push('## Detail Pointers');
+    compressed.push('- **Full summary**: `SUMMARY_FULL.md`');
+    compressed.push(`- Full index: \`index.json\``);
+    compressed.push(`- Connection graph: \`graph.json\``);
+    compressed.push(`- File map: \`file_map.json\``);
+    compressed.push(`- Prompts: \`prompts.json\` (${promptScan?.prompts?.length || 0} prompts, full content)`);
+    compressed.push(`- All components: \`components/\` (${components.length} files)`);
+    compressed.push(`- All connections: \`connections/\` (${connections.length} files)`);
+    compressed.push('');
+
+    const compressedContent = compressed.join('\n');
+    await fs.promises.writeFile(summaryPath, compressedContent, 'utf-8');
+    return compressedContent;
+  }
 
   const content = lines.join('\n');
   await fs.promises.writeFile(summaryPath, content, 'utf-8');

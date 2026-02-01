@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { Component, ComponentsSummary, ComponentsApiResponse } from "../types";
+import { useActiveProject } from "../project-context";
 
 interface UseComponentsResult {
   components: Component[];
@@ -21,7 +22,9 @@ interface UseComponentsOptions {
 }
 
 export function useComponents(options: UseComponentsOptions = {}): UseComponentsResult {
-  const { demoMode = false, autoFetch = true, projectPath } = options;
+  const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
+  const { activeProjectPath } = useActiveProject();
+  const projectPath = explicitPath || activeProjectPath || undefined;
 
   const [components, setComponents] = useState<Component[]>([]);
   const [summary, setSummary] = useState<ComponentsSummary | null>(null);

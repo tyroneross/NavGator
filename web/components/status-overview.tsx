@@ -24,6 +24,7 @@ import type { View } from "@/app/page"
 interface StatusOverviewProps {
   onSelectComponent: (name: string) => void
   onNavigate: (view: View) => void
+  onNavigateToType?: (type: string) => void
 }
 
 const typeIcons: Record<string, typeof Package> = {
@@ -56,7 +57,7 @@ const quickActions = [
   { label: "Impact Analysis", description: "Check change effects", icon: AlertTriangle, view: "impact" as View },
 ]
 
-export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverviewProps) {
+export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType }: StatusOverviewProps) {
   const { status, isLoading: statusLoading, error: statusError } = useStatus({ autoFetch: true })
   const { components, summary: componentsSummary, isLoading: componentsLoading } = useComponents({ autoFetch: true })
   const { prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
@@ -234,7 +235,7 @@ export function StatusOverview({ onSelectComponent, onNavigate }: StatusOverview
                 {componentsByType.map((item) => (
                   <button
                     key={item.type}
-                    onClick={() => onNavigate("components")}
+                    onClick={() => onNavigateToType ? onNavigateToType(item.type) : onNavigate("components")}
                     className="group flex w-full items-center gap-3 rounded-md p-2 transition-colors hover:bg-secondary"
                   >
                     <div className="flex h-8 w-8 items-center justify-center rounded bg-secondary transition-colors group-hover:bg-primary/10">

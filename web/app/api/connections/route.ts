@@ -9,9 +9,8 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { Connection, ConnectionsApiResponse, ConnectionsSummary } from "@/lib/types";
 
-// Cache for connection data
-let cachedData: ConnectionsApiResponse["data"] | null = null;
-let cacheTimestamp = 0;
+// Cache for connection data (keyed by project path)
+const connectionsCache = new Map<string, { data: ConnectionsApiResponse["data"]; timestamp: number }>();
 const CACHE_TTL = 60000; // 1 minute cache
 
 /**
@@ -32,11 +31,14 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const cacheKey = projectPath || "__default__";
+  const cached = connectionsCache.get(cacheKey);
+
   // Check cache
-  if (!refresh && cachedData && Date.now() - cacheTimestamp < CACHE_TTL) {
+  if (!refresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return NextResponse.json<ConnectionsApiResponse>({
       success: true,
-      data: cachedData,
+      data: cached.data,
       source: "cache",
     });
   }
@@ -45,8 +47,7 @@ export async function GET(request: NextRequest) {
     const data = await loadConnectionData(projectPath);
 
     if (data) {
-      cachedData = data;
-      cacheTimestamp = Date.now();
+      connectionsCache.set(cacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<ConnectionsApiResponse>({
         success: true,

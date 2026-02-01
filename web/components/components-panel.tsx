@@ -29,6 +29,7 @@ import { useComponents } from "@/lib/hooks"
 
 interface ComponentsPanelProps {
   onSelectComponent: (name: string) => void
+  initialTypeFilter?: string | null
 }
 
 const typeIcons: Record<string, typeof Package> = {
@@ -49,10 +50,10 @@ const typeColors: Record<string, string> = {
   framework: "text-primary",
 }
 
-export function ComponentsPanel({ onSelectComponent }: ComponentsPanelProps) {
+export function ComponentsPanel({ onSelectComponent, initialTypeFilter }: ComponentsPanelProps) {
   const { components, isLoading, source, refresh } = useComponents({ autoFetch: true })
   const [search, setSearch] = useState("")
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([])
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(initialTypeFilter ? [initialTypeFilter] : [])
   const [selectedLayers, setSelectedLayers] = useState<string[]>([])
 
   const types = [...new Set(components.map((c) => c.type))]

@@ -164,6 +164,27 @@ export function getSummaryPath(config: NavGatorConfig, projectRoot?: string): st
   return path.join(getStoragePath(config, projectRoot), 'SUMMARY.md');
 }
 
+/**
+ * Get path to full (uncompressed) summary file
+ */
+export function getSummaryFullPath(config: NavGatorConfig, projectRoot?: string): string {
+  return path.join(getStoragePath(config, projectRoot), 'SUMMARY_FULL.md');
+}
+
+/**
+ * Get path to file map (file path → component ID)
+ */
+export function getFileMapPath(config: NavGatorConfig, projectRoot?: string): string {
+  return path.join(getStoragePath(config, projectRoot), 'file_map.json');
+}
+
+/**
+ * Get path to prompts file
+ */
+export function getPromptsPath(config: NavGatorConfig, projectRoot?: string): string {
+  return path.join(getStoragePath(config, projectRoot), 'prompts.json');
+}
+
 // =============================================================================
 // DIRECTORY INITIALIZATION
 // =============================================================================

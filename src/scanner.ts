@@ -23,7 +23,9 @@ import {
   storeConnections,
   buildIndex,
   buildGraph,
+  buildFileMap,
   buildSummary,
+  savePromptScan,
   clearStorage,
   computeFileHashes,
   saveHashes,
@@ -253,10 +255,16 @@ export async function scan(
   await storeComponents(uniqueComponents, config, root);
   await storeConnections(allConnections, config, root);
 
-  // Build index, graph, and summary
+  // Build index, graph, file map, and summary
   await buildIndex(config, root);
   await buildGraph(config, root);
-  await buildSummary(config, root);
+  await buildFileMap(config, root);
+  await buildSummary(config, root, promptScanResultHolder);
+
+  // Persist prompt scan results if available
+  if (promptScanResultHolder) {
+    await savePromptScan(promptScanResultHolder, config, root);
+  }
 
   // ==========================================================================
   // Phase 5: Save File Hashes
