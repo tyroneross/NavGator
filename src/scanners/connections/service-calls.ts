@@ -417,10 +417,11 @@ function hasCorroboratingImport(fileContent: string, serviceName: string): boole
     'Mistral': [/@mistralai/],
     'Replicate': [/['"]replicate['"]/],
     'HuggingFace': [/@huggingface\//],
+    'Celery': [/from celery/, /import celery/],
   };
 
   const patterns = importPatterns[serviceName];
-  if (!patterns) return true; // No import check available, don't penalize
+  if (!patterns) return false; // No import pattern defined — treat as uncorroborated
 
   return patterns.some(p => p.test(fileContent));
 }

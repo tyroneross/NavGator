@@ -19,7 +19,7 @@ if [ -z "$COMMAND" ]; then
 fi
 
 # Check if the command matches package manager install/add/remove patterns
-if echo "$COMMAND" | grep -qE '(npm (install|i|add|remove|uninstall)|yarn (add|remove)|pnpm (add|remove|install)|bun (add|remove|install)|pip install|pip3 install|pip uninstall|cargo (add|remove)|gem install|composer (require|remove))'; then
+if echo "$COMMAND" | grep -qE '(npm (install|i|add|remove|uninstall)|yarn (add|remove)|pnpm (add|remove|install)|bun (add|remove|install)|pip install|pip3 install|pip uninstall|cargo (add|remove)|gem install|composer (require|remove)|swift package (resolve|update|add|remove)|swift build|xcodebuild|pod (install|update)|carthage (update|bootstrap))'; then
   echo "NavGator: Dependencies changed. Architecture data may be stale. Run /navgator:scan to update component tracking." >&2
 fi
 

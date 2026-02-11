@@ -117,6 +117,23 @@ const INFRA_SIGNATURES: InfraSignature[] = [
     files: ['Pulumi.yaml'],
     purpose: 'Pulumi infrastructure as code',
   },
+
+  // Apple / Xcode
+  {
+    name: 'Xcode',
+    files: ['Package.swift', '*.xcodeproj', '*.xcworkspace'],
+    purpose: 'Xcode/Swift project',
+  },
+  {
+    name: 'Fastlane',
+    files: ['Fastfile', 'fastlane/Fastfile'],
+    purpose: 'Fastlane build automation',
+  },
+  {
+    name: 'Xcode Cloud',
+    files: ['ci_scripts', '.xcode-version'],
+    purpose: 'Xcode Cloud CI/CD',
+  },
 ];
 
 // =============================================================================
@@ -156,11 +173,22 @@ async function detectInfra(
   const foundFiles: string[] = [];
 
   for (const file of signature.files) {
-    const filePath = path.join(projectRoot, file);
-
-    // Check if file or directory exists
-    if (fs.existsSync(filePath)) {
-      foundFiles.push(file);
+    if (file.startsWith('*')) {
+      // Suffix match: e.g. "*.xcodeproj" — find entries ending with suffix
+      const suffix = file.slice(1);
+      try {
+        const entries = fs.readdirSync(projectRoot);
+        const matching = entries.filter(e => e.endsWith(suffix));
+        foundFiles.push(...matching);
+      } catch {
+        // Skip if directory can't be read
+      }
+    } else {
+      const filePath = path.join(projectRoot, file);
+      // Check if file or directory exists
+      if (fs.existsSync(filePath)) {
+        foundFiles.push(file);
+      }
     }
   }
 

@@ -33,6 +33,14 @@ export async function POST(request: NextRequest) {
     const projectPath = body.path || process.cwd().replace(/\/web$/, "");
     const includePrompts = body.prompts !== false;
 
+    // Validate project path to prevent command injection
+    if (!/^[a-zA-Z0-9._\s\/~-]+$/.test(projectPath)) {
+      return NextResponse.json<ScanResponse>(
+        { success: false, message: "Invalid project path", timestamp: new Date().toISOString(), error: "Path contains invalid characters" },
+        { status: 400 }
+      );
+    }
+
     // Build the scan command
     let command = `cd "${projectPath}" && npx navgator scan`;
     if (includePrompts) {

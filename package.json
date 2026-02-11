@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/navgator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Architecture connection tracker for Claude Code - know your stack before you change it",
   "type": "module",
   "main": "dist/index.js",
@@ -24,7 +24,6 @@
   },
   "files": [
     "dist",
-    "scripts",
     "commands",
     "skills",
     "hooks",
@@ -41,7 +40,7 @@
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
-    "postinstall": "node scripts/postinstall.cjs",
+
     "link:local": "npm run build && npm link"
   },
   "keywords": [
@@ -64,17 +63,17 @@
     "url": "https://github.com/tyroneross/navgator/issues"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
-    "commander": "^12.0.0",
-    "glob": "^10.3.10"
+    "commander": "^14.0.0",
+    "glob": "^13.0.0"
   },
   "optionalDependencies": {
-    "ts-morph": "^22.0.0"
+    "ts-morph": "^27.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^22.0.0",
     "typescript": "^5.3.0"
   }
 }

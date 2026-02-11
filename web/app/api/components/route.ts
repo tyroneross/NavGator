@@ -164,6 +164,7 @@ function mapType(type: string): Component["type"] {
   const typeMap: Record<string, Component["type"]> = {
     npm: "npm",
     pip: "pip",
+    spm: "spm",
     cargo: "cargo",
     go: "go",
     gem: "gem",

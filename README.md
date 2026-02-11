@@ -29,17 +29,23 @@ npx @tyroneross/navgator scan
 
 ### As a Claude Code Plugin
 
-```bash
-# Clone to your plugins directory
-git clone https://github.com/tyroneross/navgator ~/.claude/plugins/navgator
+After installing, run `navgator setup` — it will detect Claude Code and offer to link the plugin automatically. You can also link manually:
 
-# Or symlink an existing clone
+```bash
 ln -s /path/to/navgator ~/.claude/plugins/navgator
 ```
 
 ## Quick Start
 
-### 1. Scan Your Project
+### 1. Set Up NavGator
+
+```bash
+navgator setup
+```
+
+This runs the initial scan and offers to link NavGator as a Claude Code plugin (if Claude Code is installed).
+
+### 2. Scan Your Project
 
 ```bash
 # Full scan (packages + connections)
@@ -52,7 +58,7 @@ navgator scan --quick
 navgator scan --verbose
 ```
 
-### 2. Check Status
+### 3. Check Status
 
 ```bash
 navgator status
@@ -79,7 +85,7 @@ CONNECTIONS BY TYPE:
   frontend-calls-api: 3
 ```
 
-### 3. Analyze Impact
+### 4. Analyze Impact
 
 Before changing a component, see what's affected:
 
@@ -119,7 +125,7 @@ Files that may need changes if you modify Stripe:
   - src/webhooks/stripe.ts
 ```
 
-### 4. View Connections
+### 5. View Connections
 
 ```bash
 # All connections for a component
@@ -132,7 +138,7 @@ navgator connections "users" --incoming
 navgator connections "users" --outgoing
 ```
 
-### 5. Generate Diagrams
+### 6. Generate Diagrams
 
 ```bash
 # Full architecture diagram

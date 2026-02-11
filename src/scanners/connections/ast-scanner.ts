@@ -103,7 +103,6 @@ let tsMorphModule: any = null;
 export async function isTsMorphAvailable(): Promise<boolean> {
   if (tsMorphModule) return true;
   try {
-    // @ts-expect-error - ts-morph is optional
     tsMorphModule = await import('ts-morph');
     return true;
   } catch {
@@ -127,7 +126,6 @@ export async function scanWithAST(projectRoot: string): Promise<ScanResult> {
   // Try to load ts-morph
   if (!tsMorphModule) {
     try {
-      // @ts-expect-error - ts-morph is optional
       tsMorphModule = await import('ts-morph');
     } catch {
       return {
@@ -394,7 +392,6 @@ export async function scanDatabaseOperations(projectRoot: string): Promise<ScanR
   // Try to load ts-morph
   if (!tsMorphModule) {
     try {
-      // @ts-expect-error - ts-morph is optional
       tsMorphModule = await import('ts-morph');
     } catch {
       return { components, connections, warnings };

@@ -14,6 +14,7 @@ import {
 } from './types.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
+import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
 import { scanInfrastructure } from './scanners/infrastructure/index.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
 import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-scanner.js';
@@ -27,6 +28,7 @@ import {
   buildSummary,
   savePromptScan,
   clearStorage,
+  createSnapshot,
   computeFileHashes,
   saveHashes,
   detectFileChanges,
@@ -94,9 +96,9 @@ export async function scan(
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py,swift,h,m}', {
     cwd: root,
-    ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '__pycache__/**', 'venv/**', '.git/**'],
+    ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '__pycache__/**', 'venv/**', '.git/**', '.build/**', 'DerivedData/**', '.swiftpm/**', 'Pods/**'],
   });
 
   let fileChanges: FileChangeResult | undefined;
@@ -140,6 +142,14 @@ export async function scan(
   if (detectPip(root)) {
     if (options.verbose) console.log('  - Detected Python project');
     const result = await scanPipPackages(root);
+    allComponents.push(...result.components);
+    allWarnings.push(...result.warnings);
+  }
+
+  // Swift/iOS/Mac packages (SPM, CocoaPods)
+  if (detectSpm(root)) {
+    if (options.verbose) console.log('  - Detected Swift/Xcode project');
+    const result = await scanSpmPackages(root);
     allComponents.push(...result.components);
     allWarnings.push(...result.warnings);
   }
@@ -246,6 +256,27 @@ export async function scan(
   }
   const uniqueComponents = Array.from(componentMap.values());
 
+  // Deduplicate connections by composite key (within current scan)
+  // Keeps highest confidence when duplicates found (e.g., regex + AST detect same call)
+  const connectionMap = new Map<string, ArchitectureConnection>();
+  for (const conn of allConnections) {
+    const key = `${conn.from.component_id}|${conn.to.component_id}|${conn.connection_type}|${conn.code_reference?.file || ''}:${conn.code_reference?.line_start || ''}`;
+    const existing = connectionMap.get(key);
+    if (!existing || conn.confidence > existing.confidence) {
+      connectionMap.set(key, conn);
+    }
+  }
+  const uniqueConnections = Array.from(connectionMap.values());
+
+  // Snapshot previous state before overwriting (for change tracking)
+  if (!options.clearFirst) {
+    try {
+      await createSnapshot('pre-scan', config, root);
+    } catch {
+      // No previous data to snapshot — first scan
+    }
+  }
+
   // Clear old components/connections before storing new ones
   // This ensures no duplicate accumulation across scans
   await clearStorage(config, root);
@@ -253,7 +284,7 @@ export async function scan(
 
   // Store components and connections
   await storeComponents(uniqueComponents, config, root);
-  await storeConnections(allConnections, config, root);
+  await storeConnections(uniqueConnections, config, root);
 
   // Build index, graph, file map, and summary
   await buildIndex(config, root);
@@ -285,7 +316,7 @@ export async function scan(
   if (options.verbose) {
     console.log(`\nScan complete in ${duration}ms`);
     console.log(`  Components: ${uniqueComponents.length}`);
-    console.log(`  Connections: ${allConnections.length}`);
+    console.log(`  Connections: ${uniqueConnections.length}`);
     console.log(`  Files scanned: ${sourceFiles.length}`);
     console.log(`  Files changed: ${filesChanged}`);
     console.log(`  Warnings: ${allWarnings.length}`);
@@ -293,7 +324,7 @@ export async function scan(
 
   return {
     components: uniqueComponents,
-    connections: allConnections,
+    connections: uniqueConnections,
     warnings: allWarnings,
     fileChanges,
     promptScan: promptScanResultHolder,

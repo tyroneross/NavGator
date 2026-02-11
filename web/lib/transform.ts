@@ -699,7 +699,19 @@ export function transformScanResultWithDefaults(result: PromptScanResult): {
   summary: LLMTrackingSummary;
 } {
   if (!result.prompts || result.prompts.length === 0) {
-    return generateDemoData();
+    return {
+      calls: [],
+      prompts: [],
+      summary: {
+        totalCalls: 0,
+        totalPrompts: 0,
+        byProvider: {},
+        byCategory: {},
+        templatesCount: 0,
+        withToolsCount: 0,
+        lastScanned: new Date().toISOString(),
+      },
+    };
   }
 
   const calls = result.prompts.map((p, i) => transformToLLMCallWithDefaults(p, i));

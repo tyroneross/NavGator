@@ -61,7 +61,7 @@ export interface Prompt {
 export interface Component {
   id: string;
   name: string;
-  type: "npm" | "pip" | "cargo" | "go" | "gem" | "composer" | "service" | "database" | "queue" | "infra" | "framework" | "prompt" | "llm";
+  type: "npm" | "pip" | "spm" | "cargo" | "go" | "gem" | "composer" | "service" | "database" | "queue" | "infra" | "framework" | "prompt" | "llm";
   layer: "frontend" | "backend" | "data" | "shared" | "external" | "hosting";
   version?: string;
   purpose?: string;

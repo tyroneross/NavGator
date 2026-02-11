@@ -233,6 +233,12 @@ async function runNavGatorScan(
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
 
+  // Validate path to prevent command injection
+  if (!/^[a-zA-Z0-9._\s\/~-]+$/.test(root)) {
+    console.warn("Invalid project path, skipping CLI scan");
+    return null;
+  }
+
   try {
     // Try running navgator CLI
     const { stdout } = await execAsync(

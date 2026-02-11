@@ -14,6 +14,7 @@ export type ComponentType =
   // Package managers
   | 'npm'
   | 'pip'
+  | 'spm'           // Swift Package Manager / CocoaPods
   | 'cargo'
   | 'go'
   | 'gem'

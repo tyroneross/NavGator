@@ -7,6 +7,9 @@
 
 import { Command } from 'commander';
 import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as readline from 'readline';
 import { scan, quickScan, getScanStatus, scanPromptsOnly, formatPromptsOutput, formatPromptDetail } from '../scanner.js';
 import { loadIndex, loadAllComponents, loadAllConnections, loadGraph, getStorageStats } from '../storage.js';
 import { getConfig } from '../config.js';
@@ -38,7 +41,7 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.1.0')
+  .version('0.1.1')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 
 // =============================================================================
@@ -57,6 +60,49 @@ program
       console.log('🐊 NavGator - Architecture Connection Tracker');
       console.log('   Know your stack before you change it');
       console.log('');
+
+      // Offer to link as Claude Code plugin
+      const claudeDir = path.join(os.homedir(), '.claude');
+      if (fs.existsSync(claudeDir)) {
+        const pluginDir = path.join(claudeDir, 'plugins');
+        const linkPath = path.join(pluginDir, 'navgator');
+        const packageRoot = path.resolve(import.meta.dirname, '..', '..');
+        let alreadyLinked = false;
+
+        try {
+          const existing = fs.readlinkSync(linkPath);
+          if (existing === packageRoot) alreadyLinked = true;
+        } catch {}
+
+        if (!alreadyLinked) {
+          console.log('Claude Code detected.');
+          console.log('NavGator can register as a Claude Code plugin by creating a symlink:');
+          console.log(`  ${linkPath} -> ${packageRoot}`);
+          console.log('This enables hooks, skills, and slash commands inside Claude Code.\n');
+
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await new Promise<string>((resolve) => {
+            rl.question('Link NavGator as a Claude Code plugin? (y/N) ', resolve);
+          });
+          rl.close();
+
+          if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+            try {
+              fs.mkdirSync(pluginDir, { recursive: true });
+              // Remove stale link if it points elsewhere
+              try { fs.unlinkSync(linkPath); } catch {}
+              fs.symlinkSync(packageRoot, linkPath, 'dir');
+              console.log('Plugin linked successfully.\n');
+            } catch (err) {
+              console.log('Could not auto-link. Link manually:');
+              console.log(`  ln -s ${packageRoot} ${linkPath}\n`);
+            }
+          } else {
+            console.log('Skipped plugin linking. You can link manually later:');
+            console.log(`  ln -s ${packageRoot} ${linkPath}\n`);
+          }
+        }
+      }
 
       // Check if already set up
       const status = await isSetupComplete();
