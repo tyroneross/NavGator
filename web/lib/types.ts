@@ -97,6 +97,7 @@ export interface LLMTrackingSummary {
   totalCalls: number;
   totalPrompts: number;
   byProvider: Record<string, number>;
+  byModel: Record<string, number>;
   byCategory: Record<string, number>;
   templatesCount: number;
   withToolsCount: number;

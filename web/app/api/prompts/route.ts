@@ -93,6 +93,7 @@ export async function GET(request: NextRequest) {
           totalCalls: 0,
           totalPrompts: 0,
           byProvider: {},
+          byModel: {},
           byCategory: {},
           templatesCount: 0,
           withToolsCount: 0,
@@ -114,6 +115,7 @@ export async function GET(request: NextRequest) {
           totalCalls: 0,
           totalPrompts: 0,
           byProvider: {},
+          byModel: {},
           byCategory: {},
           templatesCount: 0,
           withToolsCount: 0,
@@ -317,6 +319,7 @@ function componentsToScanResult(
     summary: {
       totalPrompts: prompts.length,
       byProvider: {},
+      byModel: {},
       byCategory: {},
       templatesCount: prompts.filter((p) => p.isTemplate).length,
       withToolsCount: 0,

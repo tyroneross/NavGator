@@ -60,9 +60,22 @@ const quickActions = [
 export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType }: StatusOverviewProps) {
   const { status, isLoading: statusLoading, error: statusError } = useStatus({ autoFetch: true })
   const { components, summary: componentsSummary, isLoading: componentsLoading } = useComponents({ autoFetch: true })
-  const { prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
+  const { calls, prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
 
   const isLoading = statusLoading || componentsLoading || promptsLoading
+
+  // Count LLM issues for the stat card badge
+  const llmIssueCount = (() => {
+    let count = 0
+    for (const call of calls) {
+      if (call.provider === "unknown") count++
+      if (call.model === "unknown") count++
+    }
+    for (const prompt of prompts) {
+      if (prompt.usedBy.length === 0) count++
+    }
+    return count
+  })()
 
   // Build stats from real data
   const stats = [
@@ -81,8 +94,9 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
     },
     {
       label: "LLM Calls",
-      value: prompts.length.toString(),
+      value: calls.length.toString(),
       icon: Brain,
+      trend: llmIssueCount > 0 ? `${llmIssueCount} issues` : undefined,
       view: "llm" as View,
     },
     {

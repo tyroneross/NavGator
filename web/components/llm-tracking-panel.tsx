@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Search,
   Brain,
@@ -26,6 +27,7 @@ import {
   GitBranch,
   ArrowDown,
   Circle,
+  Layers,
 } from "lucide-react";
 import { usePrompts } from "@/lib/hooks";
 import type { LLMCall, Prompt } from "@/lib/types";
@@ -58,6 +60,10 @@ export function LLMTrackingPanel() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [providerFilter, setProviderFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<string>("calls");
+  const [sheetType, setSheetType] = useState<"calls" | "prompts" | "latency" | null>(null);
+  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
 
   const filteredCalls = calls.filter((call) => {
     const matchesSearch =
@@ -86,6 +92,26 @@ export function LLMTrackingPanel() {
     setExpandedCalls(next);
   };
 
+  const toggleProvider = (provider: string) => {
+    const next = new Set(expandedProviders);
+    if (next.has(provider)) {
+      next.delete(provider);
+    } else {
+      next.add(provider);
+    }
+    setExpandedProviders(next);
+  };
+
+  const toggleModel = (key: string) => {
+    const next = new Set(expandedModels);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    setExpandedModels(next);
+  };
+
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -100,6 +126,109 @@ export function LLMTrackingPanel() {
 
   const providers = [...new Set(calls.map((c) => c.provider))];
   const categories = [...new Set(calls.map((c) => c.category))];
+
+  // Enhancement 3: Compute issues
+  const issues = useMemo(() => {
+    const items: Array<{ type: string; message: string; id: string; tab: "calls" | "prompts" }> = [];
+    for (const call of calls) {
+      if (call.provider === "unknown") items.push({ type: "unknown-provider", message: `${call.name}: unknown provider`, id: call.id, tab: "calls" });
+      if (call.model === "unknown") items.push({ type: "unknown-model", message: `${call.name}: unknown model`, id: call.id, tab: "calls" });
+      if (!call.promptTemplate && !call.systemPrompt) items.push({ type: "no-prompt", message: `${call.name}: no visible prompt`, id: call.id, tab: "calls" });
+    }
+    for (const prompt of prompts) {
+      if (prompt.usedBy.length === 0) items.push({ type: "orphan", message: `${prompt.name}: defined but never called`, id: prompt.id, tab: "prompts" });
+    }
+    return items;
+  }, [calls, prompts]);
+
+  const issuesByType = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const issue of issues) {
+      counts[issue.type] = (counts[issue.type] || 0) + 1;
+    }
+    return counts;
+  }, [issues]);
+
+  const issueTextSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (issuesByType["unknown-provider"]) parts.push(`${issuesByType["unknown-provider"]} unknown provider${issuesByType["unknown-provider"] > 1 ? "s" : ""}`);
+    if (issuesByType["unknown-model"]) parts.push(`${issuesByType["unknown-model"]} unknown model${issuesByType["unknown-model"] > 1 ? "s" : ""}`);
+    if (issuesByType["no-prompt"]) parts.push(`${issuesByType["no-prompt"]} call${issuesByType["no-prompt"] > 1 ? "s" : ""} without prompt`);
+    if (issuesByType["orphan"]) parts.push(`${issuesByType["orphan"]} orphan prompt${issuesByType["orphan"] > 1 ? "s" : ""}`);
+    return parts.join(", ");
+  }, [issuesByType]);
+
+  // Enhancement 1: Provider tree computation
+  const providerTree = useMemo(() => {
+    const tree: Record<string, Record<string, LLMCall[]>> = {};
+    for (const call of calls) {
+      if (!tree[call.provider]) tree[call.provider] = {};
+      if (!tree[call.provider][call.model]) tree[call.provider][call.model] = [];
+      tree[call.provider][call.model].push(call);
+    }
+    return tree;
+  }, [calls]);
+
+  const providerStats = useMemo(() => {
+    const stats: Record<string, { modelCount: number; callCount: number }> = {};
+    for (const provider in providerTree) {
+      const models = providerTree[provider];
+      const modelCount = Object.keys(models).length;
+      const callCount = Object.values(models).flat().reduce((sum, call) => sum + call.callCount, 0);
+      stats[provider] = { modelCount, callCount };
+    }
+    return stats;
+  }, [providerTree]);
+
+  const modelStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    for (const provider in providerTree) {
+      for (const model in providerTree[provider]) {
+        const key = `${provider}:${model}`;
+        stats[key] = providerTree[provider][model].reduce((sum, call) => sum + call.callCount, 0);
+      }
+    }
+    return stats;
+  }, [providerTree]);
+
+  // Find provider and model for a call
+  const getCallProviderModel = (callId: string) => {
+    const call = calls.find(c => c.id === callId);
+    return call ? { provider: call.provider, model: call.model } : null;
+  };
+
+  // Enhancement 2: Sheet handlers
+  const openSheet = (type: "calls" | "prompts" | "latency") => {
+    setSheetType(type);
+  };
+
+  const closeSheet = () => {
+    setSheetType(null);
+  };
+
+  const handleSheetItemClick = (type: "calls" | "prompts", item: LLMCall | Prompt) => {
+    if (type === "calls") {
+      setSelectedCall(item as LLMCall);
+      setActiveTab("calls");
+    } else {
+      setSelectedPrompt(item as Prompt);
+      setActiveTab("prompts");
+    }
+    closeSheet();
+  };
+
+  const sortedCallsByLatency = useMemo(() => {
+    return [...calls].sort((a, b) => b.avgLatencyMs - a.avgLatencyMs);
+  }, [calls]);
+
+  // Helper to check if call has issue
+  const callHasIssue = (callId: string) => {
+    return issues.some(issue => issue.id === callId && issue.tab === "calls");
+  };
+
+  const promptHasIssue = (promptId: string) => {
+    return issues.some(issue => issue.id === promptId && issue.tab === "prompts");
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -134,9 +263,12 @@ export function LLMTrackingPanel() {
         </div>
       )}
 
-      {/* Summary Stats */}
+      {/* Summary Stats - Enhancement 2: Make clickable */}
       <div className="grid grid-cols-3 gap-4">
-        <Card className="border-border bg-card">
+        <Card
+          className="border-border bg-card cursor-pointer transition-colors hover:bg-secondary/50"
+          onClick={() => openSheet("calls")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -156,7 +288,10 @@ export function LLMTrackingPanel() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
+        <Card
+          className="border-border bg-card cursor-pointer transition-colors hover:bg-secondary/50"
+          onClick={() => openSheet("prompts")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-info/10">
@@ -172,7 +307,10 @@ export function LLMTrackingPanel() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
+        <Card
+          className="border-border bg-card cursor-pointer transition-colors hover:bg-secondary/50"
+          onClick={() => openSheet("latency")}
+        >
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
@@ -187,11 +325,94 @@ export function LLMTrackingPanel() {
             </div>
           </CardContent>
         </Card>
-
       </div>
 
-      {/* Main Content */}
-      <Tabs defaultValue="calls" className="w-full">
+      {/* Enhancement 3: Issues summary bar */}
+      {issues.length > 0 && (
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <p className="text-sm text-warning">
+            {issues.length} item{issues.length !== 1 ? "s" : ""} need attention: {issueTextSummary}
+          </p>
+        </div>
+      )}
+
+      {/* Enhancement 2: Sheet overlay */}
+      <Sheet open={sheetType !== null} onOpenChange={(open) => !open && closeSheet()}>
+        <SheetContent side="right" className="w-[400px] sm:w-[540px]">
+          <SheetHeader>
+            <SheetTitle>
+              {sheetType === "calls" && "All LLM Calls"}
+              {sheetType === "prompts" && "All Prompts"}
+              {sheetType === "latency" && "Calls by Latency"}
+            </SheetTitle>
+          </SheetHeader>
+          <ScrollArea className="h-[calc(100vh-80px)] mt-6">
+            <div className="rounded-lg border border-border">
+              {sheetType === "calls" && calls.map((call, idx) => (
+                <button
+                  key={call.id}
+                  type="button"
+                  onClick={() => handleSheetItemClick("calls", call)}
+                  className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
+                    idx !== calls.length - 1 ? "border-b border-border" : ""
+                  }`}
+                >
+                  <div className="font-medium text-sm">{call.name}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {call.model} · {call.provider}
+                  </div>
+                  <div className="font-mono text-xs text-muted-foreground mt-1">
+                    {call.file}:{call.line}
+                  </div>
+                </button>
+              ))}
+              {sheetType === "prompts" && prompts.map((prompt, idx) => (
+                <button
+                  key={prompt.id}
+                  type="button"
+                  onClick={() => handleSheetItemClick("prompts", prompt)}
+                  className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
+                    idx !== prompts.length - 1 ? "border-b border-border" : ""
+                  }`}
+                >
+                  <div className="font-medium text-sm">{prompt.name}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{prompt.type}</div>
+                  <div className="font-mono text-xs text-muted-foreground mt-1">
+                    {prompt.file}:{prompt.line}
+                  </div>
+                </button>
+              ))}
+              {sheetType === "latency" && sortedCallsByLatency.map((call, idx) => (
+                <button
+                  key={call.id}
+                  type="button"
+                  onClick={() => handleSheetItemClick("calls", call)}
+                  className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
+                    idx !== sortedCallsByLatency.length - 1 ? "border-b border-border" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium text-sm">{call.name}</div>
+                    <div className="font-mono text-lg font-semibold text-foreground">
+                      {call.avgLatencyMs.toFixed(0)}ms
+                    </div>
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {call.model} · {call.provider}
+                  </div>
+                  <div className="font-mono text-xs text-muted-foreground mt-1">
+                    {call.file}:{call.line}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+
+      {/* Main Content - Enhancement 1: Add activeTab control */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <div className="flex items-center justify-between gap-4">
           <TabsList className="bg-secondary">
             <TabsTrigger value="calls" className="gap-2">
@@ -205,6 +426,10 @@ export function LLMTrackingPanel() {
             <TabsTrigger value="flow" className="gap-2">
               <GitBranch className="h-4 w-4" />
               AI Flow
+            </TabsTrigger>
+            <TabsTrigger value="providers" className="gap-2">
+              <Layers className="h-4 w-4" />
+              By Provider
             </TabsTrigger>
           </TabsList>
 
@@ -281,7 +506,7 @@ export function LLMTrackingPanel() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* LLM Calls List */}
+            {/* LLM Calls List - Enhancement 3: Add issue indicators */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium">
@@ -315,6 +540,9 @@ export function LLMTrackingPanel() {
                               <span className="font-mono text-sm text-foreground">
                                 {call.name}
                               </span>
+                              {callHasIssue(call.id) && (
+                                <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                              )}
                               <Badge
                                 variant="outline"
                                 className={`text-xs ${categoryColors[call.category]}`}
@@ -379,7 +607,7 @@ export function LLMTrackingPanel() {
               </CardContent>
             </Card>
 
-            {/* Call Details */}
+            {/* Call Details - Enhancement 3: Add issue warnings */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium">Call Details</CardTitle>
@@ -410,12 +638,18 @@ export function LLMTrackingPanel() {
                         <p className="font-mono text-sm text-foreground">
                           {selectedCall.model}
                         </p>
+                        {selectedCall.model === "unknown" && (
+                          <p className="text-xs text-warning mt-1">Model name not detected</p>
+                        )}
                       </div>
                       <div className="rounded-lg bg-secondary p-3">
                         <p className="text-xs text-muted-foreground">Provider</p>
                         <p className="font-mono text-sm capitalize text-foreground">
                           {selectedCall.provider}
                         </p>
+                        {selectedCall.provider === "unknown" && (
+                          <p className="text-xs text-warning mt-1">Provider could not be identified from code patterns</p>
+                        )}
                       </div>
                     </div>
 
@@ -488,7 +722,7 @@ export function LLMTrackingPanel() {
 
         <TabsContent value="prompts" className="mt-4">
           <div className="grid grid-cols-2 gap-4">
-            {/* Prompts List */}
+            {/* Prompts List - Enhancement 1 & 3: Add provider/model info and issue indicators */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium">
@@ -498,46 +732,62 @@ export function LLMTrackingPanel() {
               <CardContent className="p-0">
                 <ScrollArea className="h-[500px]">
                   <div className="flex flex-col">
-                    {filteredPrompts.map((prompt, idx) => (
-                      <button
-                        key={`${prompt.id}-${idx}`}
-                        type="button"
-                        onClick={() => setSelectedPrompt(prompt)}
-                        className={`flex w-full items-start gap-3 border-b border-border p-4 text-left transition-colors hover:bg-secondary/50 ${
-                          selectedPrompt?.id === prompt.id ? "bg-secondary" : ""
-                        }`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-foreground">
-                              {prompt.name}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className={`text-xs ${typeColors[prompt.type]}`}
-                            >
-                              {prompt.type}
-                            </Badge>
+                    {filteredPrompts.map((prompt, idx) => {
+                      // Find calls that use this prompt
+                      const relatedCall = calls.find(call =>
+                        call.promptTemplate?.includes(prompt.name) ||
+                        call.systemPrompt?.includes(prompt.name) ||
+                        prompt.usedBy.includes(call.name)
+                      );
+                      return (
+                        <button
+                          key={`${prompt.id}-${idx}`}
+                          type="button"
+                          onClick={() => setSelectedPrompt(prompt)}
+                          className={`flex w-full items-start gap-3 border-b border-border p-4 text-left transition-colors hover:bg-secondary/50 ${
+                            selectedPrompt?.id === prompt.id ? "bg-secondary" : ""
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-sm text-foreground">
+                                {prompt.name}
+                              </span>
+                              {promptHasIssue(prompt.id) && (
+                                <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                              )}
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${typeColors[prompt.type]}`}
+                              >
+                                {prompt.type}
+                              </Badge>
+                              {relatedCall && (
+                                <span className="text-xs text-muted-foreground">
+                                  {relatedCall.provider} · {relatedCall.model}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                              {prompt.content}
+                            </p>
+                            <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                              <span>{prompt.tokenCount} tokens</span>
+                              <span>·</span>
+                              <span>v{prompt.version}</span>
+                              <span>·</span>
+                              <span>{prompt.lastModified}</span>
+                            </div>
                           </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {prompt.content}
-                          </p>
-                          <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                            <span>{prompt.tokenCount} tokens</span>
-                            <span>·</span>
-                            <span>v{prompt.version}</span>
-                            <span>·</span>
-                            <span>{prompt.lastModified}</span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </ScrollArea>
               </CardContent>
             </Card>
 
-            {/* Prompt Details */}
+            {/* Prompt Details - Enhancement 1: Add provider/model and clickable provider */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium">Prompt Details</CardTitle>
@@ -566,6 +816,39 @@ export function LLMTrackingPanel() {
                         </Badge>
                       </div>
                     </div>
+
+                    {(() => {
+                      const relatedCall = calls.find(call =>
+                        call.promptTemplate?.includes(selectedPrompt.name) ||
+                        call.systemPrompt?.includes(selectedPrompt.name) ||
+                        selectedPrompt.usedBy.includes(call.name)
+                      );
+                      return relatedCall ? (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">Provider</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveTab("providers");
+                                setExpandedProviders(new Set([relatedCall.provider]));
+                              }}
+                              className={`font-mono text-sm text-foreground hover:text-primary transition-colors ${
+                                relatedCall.provider === "unknown" ? "text-warning" : ""
+                              }`}
+                            >
+                              {relatedCall.provider}
+                            </button>
+                          </div>
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">Model</p>
+                            <p className="font-mono text-sm text-foreground">
+                              {relatedCall.model}
+                            </p>
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="rounded-lg bg-secondary p-3">
@@ -628,11 +911,15 @@ export function LLMTrackingPanel() {
                     <div>
                       <p className="mb-2 text-sm font-medium text-foreground">Used By</p>
                       <div className="flex flex-wrap gap-2">
-                        {selectedPrompt.usedBy.map((fn) => (
-                          <Badge key={fn} variant="outline" className="font-mono">
-                            {fn}()
-                          </Badge>
-                        ))}
+                        {selectedPrompt.usedBy.length > 0 ? (
+                          selectedPrompt.usedBy.map((fn) => (
+                            <Badge key={fn} variant="outline" className="font-mono">
+                              {fn}()
+                            </Badge>
+                          ))
+                        ) : (
+                          <p className="text-xs text-warning">Not used by any detected calls</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -648,6 +935,226 @@ export function LLMTrackingPanel() {
 
         <TabsContent value="flow" className="mt-4">
           <AIFlowDiagram prompts={prompts} calls={calls} />
+        </TabsContent>
+
+        {/* Enhancement 1: By Provider tab */}
+        <TabsContent value="providers" className="mt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Card className="border-border bg-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium">
+                  By Provider ({Object.keys(providerTree).length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="h-[500px]">
+                  <div className="flex flex-col">
+                    {Object.entries(providerTree).map(([provider, models], providerIdx) => (
+                      <div key={provider}>
+                        <button
+                          type="button"
+                          onClick={() => toggleProvider(provider)}
+                          className="flex w-full items-start gap-3 border-b border-border p-4 text-left transition-colors hover:bg-secondary/50"
+                        >
+                          <div className="mt-0.5">
+                            {expandedProviders.has(provider) ? (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className={`font-medium text-sm ${provider === "unknown" ? "text-warning" : "text-foreground"}`}>
+                                {provider}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {providerStats[provider].modelCount} model{providerStats[provider].modelCount !== 1 ? "s" : ""} · {providerStats[provider].callCount.toLocaleString()} call{providerStats[provider].callCount !== 1 ? "s" : ""}
+                            </div>
+                          </div>
+                        </button>
+
+                        {expandedProviders.has(provider) && (
+                          <div className="border-b border-border bg-secondary/30">
+                            {Object.entries(models).map(([model, modelCalls]) => {
+                              const modelKey = `${provider}:${model}`;
+                              return (
+                                <div key={modelKey}>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleModel(modelKey)}
+                                    className="flex w-full items-start gap-3 border-b border-border p-4 pl-12 text-left transition-colors hover:bg-secondary/50"
+                                  >
+                                    <div className="mt-0.5">
+                                      {expandedModels.has(modelKey) ? (
+                                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                      ) : (
+                                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm text-foreground">
+                                          {model}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1 text-xs text-muted-foreground">
+                                        {modelStats[modelKey].toLocaleString()} call{modelStats[modelKey] !== 1 ? "s" : ""}
+                                      </div>
+                                    </div>
+                                  </button>
+
+                                  {expandedModels.has(modelKey) && (
+                                    <div className="border-b border-border bg-secondary/50">
+                                      {modelCalls.map((call) => (
+                                        <button
+                                          key={call.id}
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedCall(call);
+                                          }}
+                                          className={`flex w-full items-start gap-3 border-b border-border p-4 pl-20 text-left transition-colors hover:bg-secondary/70 ${
+                                            selectedCall?.id === call.id ? "bg-secondary" : ""
+                                          }`}
+                                        >
+                                          <div className="flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-mono text-sm text-foreground">
+                                                {call.name}
+                                              </span>
+                                            </div>
+                                            <p className="mt-1 font-mono text-xs text-muted-foreground">
+                                              {call.file}:{call.line}
+                                            </p>
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+
+            {/* Reuse Call Details panel */}
+            <Card className="border-border bg-card">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-medium">Call Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {selectedCall ? (
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-mono text-lg text-foreground">
+                          {selectedCall.name}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedCall.file}:{selectedCall.line}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={categoryColors[selectedCall.category]}
+                      >
+                        {selectedCall.category}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-lg bg-secondary p-3">
+                        <p className="text-xs text-muted-foreground">Model</p>
+                        <p className="font-mono text-sm text-foreground">
+                          {selectedCall.model}
+                        </p>
+                        {selectedCall.model === "unknown" && (
+                          <p className="text-xs text-warning mt-1">Model name not detected</p>
+                        )}
+                      </div>
+                      <div className="rounded-lg bg-secondary p-3">
+                        <p className="text-xs text-muted-foreground">Provider</p>
+                        <p className="font-mono text-sm capitalize text-foreground">
+                          {selectedCall.provider}
+                        </p>
+                        {selectedCall.provider === "unknown" && (
+                          <p className="text-xs text-warning mt-1">Provider could not be identified from code patterns</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedCall.systemPrompt && (
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">
+                            System Prompt
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              copyToClipboard(
+                                selectedCall.systemPrompt || "",
+                                `sys-${selectedCall.id}`
+                              )
+                            }
+                          >
+                            {copiedId === `sys-${selectedCall.id}` ? (
+                              <Check className="h-4 w-4 text-primary" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                        <pre className="rounded-lg bg-secondary p-3 font-mono text-xs text-muted-foreground">
+                          {selectedCall.systemPrompt}
+                        </pre>
+                      </div>
+                    )}
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-medium text-foreground">
+                          Prompt Template
+                        </p>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            copyToClipboard(
+                              selectedCall.promptTemplate,
+                              `tpl-${selectedCall.id}`
+                            )
+                          }
+                        >
+                          {copiedId === `tpl-${selectedCall.id}` ? (
+                            <Check className="h-4 w-4 text-primary" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <pre className="rounded-lg bg-secondary p-3 font-mono text-xs text-muted-foreground">
+                        {selectedCall.promptTemplate}
+                      </pre>
+                    </div>
+
+                  </div>
+                ) : (
+                  <div className="flex h-[400px] items-center justify-center text-muted-foreground">
+                    <p>Select an LLM call to view details</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

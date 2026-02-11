@@ -260,10 +260,19 @@ export function transformScanResult(result: PromptScanResult): {
   const calls = result.prompts.map(transformToLLMCall);
   const prompts = result.prompts.map(transformToPrompt);
 
+  // Compute byModel from calls
+  const byModel: Record<string, number> = {};
+  for (const call of calls) {
+    if (call.model && call.model !== "unknown") {
+      byModel[call.model] = (byModel[call.model] || 0) + 1;
+    }
+  }
+
   const summary: LLMTrackingSummary = {
     totalCalls: calls.length,
     totalPrompts: prompts.length,
     byProvider: result.summary.byProvider,
+    byModel,
     byCategory: result.summary.byCategory,
     templatesCount: result.summary.templatesCount,
     withToolsCount: result.summary.withToolsCount,
@@ -582,6 +591,14 @@ Requirements:
       openai: 4,
       anthropic: 2,
     },
+    byModel: {
+      "gpt-4-turbo": 1,
+      "gpt-4o-mini": 1,
+      "text-embedding-3-small": 1,
+      "gpt-4o": 1,
+      "claude-3-sonnet": 1,
+      "claude-3-haiku": 1,
+    },
     byCategory: {
       completion: 2,
       chat: 1,
@@ -706,6 +723,7 @@ export function transformScanResultWithDefaults(result: PromptScanResult): {
         totalCalls: 0,
         totalPrompts: 0,
         byProvider: {},
+        byModel: {},
         byCategory: {},
         templatesCount: 0,
         withToolsCount: 0,
@@ -717,10 +735,19 @@ export function transformScanResultWithDefaults(result: PromptScanResult): {
   const calls = result.prompts.map((p, i) => transformToLLMCallWithDefaults(p, i));
   const prompts = result.prompts.map((p, i) => transformToPromptWithDefaults(p, i));
 
+  // Compute byModel from calls
+  const byModelComputed: Record<string, number> = {};
+  for (const call of calls) {
+    if (call.model && call.model !== "unknown") {
+      byModelComputed[call.model] = (byModelComputed[call.model] || 0) + 1;
+    }
+  }
+
   const summary: LLMTrackingSummary = {
     totalCalls: calls.length,
     totalPrompts: prompts.length,
     byProvider: result.summary?.byProvider || countBy(calls, "provider"),
+    byModel: byModelComputed,
     byCategory: result.summary?.byCategory || countBy(calls, "category"),
     templatesCount: result.summary?.templatesCount || calls.filter((c) => c.promptVariables.length > 0).length,
     withToolsCount: result.summary?.withToolsCount || calls.filter((c) => c.tags.includes("tool-use")).length,
