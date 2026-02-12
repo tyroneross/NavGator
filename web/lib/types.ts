@@ -82,7 +82,7 @@ export interface Connection {
   fromComponent?: string;
   to: string;
   toComponent?: string;
-  type: "service-call" | "api-calls-db" | "frontend-calls-api" | "queue-triggers" | "imports" | "prompt-usage" | "deploys-to";
+  type: "service-call" | "api-calls-db" | "frontend-calls-api" | "queue-triggers" | "imports" | "prompt-usage" | "deploys-to" | "observes" | "conforms-to" | "notifies" | "stores" | "navigates-to" | "requires-entitlement" | "target-contains" | "generates" | "uses-package" | "other";
   symbol: string;
   line: number;
   code: string;

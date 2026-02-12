@@ -351,7 +351,7 @@ export function LLMTrackingPanel() {
             <div className="rounded-lg border border-border">
               {sheetType === "calls" && calls.map((call, idx) => (
                 <button
-                  key={call.id}
+                  key={`${call.id}-sheet-${idx}`}
                   type="button"
                   onClick={() => handleSheetItemClick("calls", call)}
                   className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
@@ -369,7 +369,7 @@ export function LLMTrackingPanel() {
               ))}
               {sheetType === "prompts" && prompts.map((prompt, idx) => (
                 <button
-                  key={prompt.id}
+                  key={`${prompt.id}-sheet-${idx}`}
                   type="button"
                   onClick={() => handleSheetItemClick("prompts", prompt)}
                   className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
@@ -385,7 +385,7 @@ export function LLMTrackingPanel() {
               ))}
               {sheetType === "latency" && sortedCallsByLatency.map((call, idx) => (
                 <button
-                  key={call.id}
+                  key={`${call.id}-latency-${idx}`}
                   type="button"
                   onClick={() => handleSheetItemClick("calls", call)}
                   className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
@@ -1007,9 +1007,9 @@ export function LLMTrackingPanel() {
 
                                   {expandedModels.has(modelKey) && (
                                     <div className="border-b border-border bg-secondary/50">
-                                      {modelCalls.map((call) => (
+                                      {modelCalls.map((call, callIdx) => (
                                         <button
-                                          key={call.id}
+                                          key={`${call.id}-prov-${callIdx}`}
                                           type="button"
                                           onClick={() => {
                                             setSelectedCall(call);

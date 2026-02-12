@@ -168,8 +168,18 @@ function mapConnectionType(type: string): Connection["type"] {
     "prompt-usage": "prompt-usage",
     "prompt-location": "prompt-usage",
     "deploys-to": "deploys-to",
+    "observes": "observes",
+    "conforms-to": "conforms-to",
+    "notifies": "notifies",
+    "stores": "stores",
+    "navigates-to": "navigates-to",
+    "requires-entitlement": "requires-entitlement",
+    "target-contains": "target-contains",
+    "generates": "generates",
+    "uses-package": "uses-package",
+    "other": "other",
   };
-  return typeMap[type] || "service-call";
+  return typeMap[type] || "other";
 }
 
 function buildSummary(connections: Connection[]): ConnectionsSummary {

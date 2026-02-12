@@ -712,7 +712,7 @@ export class PromptDetector {
    * Generate a unique prompt ID
    */
   private generatePromptId(file: string, line: number, name?: string): string {
-    const hash = Buffer.from(`${file}:${line}:${name || ''}`).toString('base64').slice(0, 8);
+    const hash = Buffer.from(`${file}:${line}:${name || ''}`).toString('base64url').slice(0, 16);
     return `PROMPT_${hash}`;
   }
 

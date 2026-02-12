@@ -70,7 +70,7 @@ async function deriveFlowEdges(
 
   try {
     const files = await fs.readdir(connectionsDir);
-    const connFiles = files.filter((f) => f.startsWith("CONN_service-call") && f.endsWith(".json"));
+    const connFiles = files.filter((f) => f.startsWith("CONN_") && f.endsWith(".json"));
 
     // Aggregate: deduplicate by (sourceNodeId, targetNodeId)
     const edgeSet = new Map<string, { source: string; target: string; type: string; count: number }>();
@@ -88,12 +88,13 @@ async function deriveFlowEdges(
         const sourceId = layerReps.get(layer) || null;
 
         if (sourceId && sourceId !== targetId && nodeById.has(sourceId)) {
+          const connType = conn.connection_type || "service-call";
           const key = `${sourceId}->${targetId}`;
           const existing = edgeSet.get(key);
           if (existing) {
             existing.count++;
           } else {
-            edgeSet.set(key, { source: sourceId, target: targetId, type: "service-call", count: 1 });
+            edgeSet.set(key, { source: sourceId, target: targetId, type: connType, count: 1 });
           }
         }
       } catch {
