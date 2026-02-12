@@ -23,7 +23,8 @@ import {
 } from '../diagram.js';
 import { ArchitectureLayer } from '../types.js';
 import { setup, fastSetup, isSetupComplete, formatSetupStatus } from '../setup.js';
-import { startUIServer } from '../ui-server.js';
+import { fileURLToPath } from 'url';
+import { spawn, ChildProcess } from 'child_process';
 
 const NAVGATOR_LOGO = `
   _   _             ____       _
@@ -41,27 +42,91 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.1.1')
+  .version('0.2.0')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 
 // =============================================================================
 // WELCOME MENU (shown after setup or when no command provided)
 // =============================================================================
 
+async function launchWebUI(options: {
+  port?: number;
+  projectPath?: string;
+}): Promise<{ port: number; process: ChildProcess }> {
+  const port = options.port || 3000;
+  const projectPath = options.projectPath || process.cwd();
+
+  // Resolve standalone server.js relative to package root
+  const cliDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageRoot = path.resolve(cliDir, '..', '..');
+  const serverJs = path.join(packageRoot, 'web', '.next', 'standalone', 'web', 'server.js');
+
+  if (!fs.existsSync(serverJs)) {
+    throw new Error(
+      `Next.js standalone server not found at:\n  ${serverJs}\n\n` +
+      'Run `npm run build` from the NavGator root to build the web UI.'
+    );
+  }
+
+  const child = spawn('node', [serverJs], {
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOSTNAME: '0.0.0.0',
+      NAVGATOR_PROJECT_PATH: projectPath,
+    },
+    cwd: path.dirname(serverJs),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  // Wait for "Ready" or listening message
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      resolve(); // proceed even if no explicit "Ready" message after 5s
+    }, 5000);
+
+    const onData = (data: Buffer) => {
+      const msg = data.toString();
+      if (msg.includes('Ready') || msg.includes('ready') || msg.includes('started') || msg.includes('listening')) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    child.on('exit', (code) => {
+      if (code !== null && code !== 0) {
+        clearTimeout(timeout);
+        reject(new Error(`Server exited with code ${code}`));
+      }
+    });
+  });
+
+  return { port, process: child };
+}
+
 async function launchUI(projectPath?: string): Promise<void> {
   const resolvedPath = projectPath || process.cwd();
+  const port = 3000;
 
   console.log('');
   console.log('🐊 NavGator Dashboard');
   console.log(`   Project: ${resolvedPath}`);
   console.log('');
 
-  const { port: actualPort } = await startUIServer({
-    port: 3333,
+  const { process: serverProcess } = await launchWebUI({
+    port,
     projectPath: resolvedPath,
   });
 
-  const url = `http://localhost:${actualPort}`;
+  const url = `http://localhost:${port}`;
   console.log(`Dashboard running at: ${url}`);
   console.log('');
   console.log('Press Ctrl+C to stop');
@@ -73,11 +138,14 @@ async function launchUI(projectPath?: string): Promise<void> {
                   process.platform === 'win32' ? 'start' : 'xdg-open';
   exec(`${openCmd} ${url}`);
 
-  // Keep process running
-  process.on('SIGINT', () => {
+  // Keep process running, clean up child on exit
+  const cleanup = () => {
     console.log('\nShutting down...');
+    serverProcess.kill();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }
 
 async function runScan(): Promise<void> {
@@ -135,9 +203,27 @@ async function showStatus(): Promise<void> {
   }
 }
 
+function showPostSetupGuidance(): void {
+  console.log('');
+  console.log('  Your architecture dashboard is ready!');
+  console.log('');
+  console.log('  What NavGator gives you:');
+  console.log('    - Interactive SVG diagrams (zoom, pan, click) + Mermaid export');
+  console.log('    - LLM call site tracking with provider/model analysis');
+  console.log('    - Component & connection maps with code-level evidence');
+  console.log('');
+  console.log('  Quick reference:');
+  console.log('    navgator          Open the welcome menu');
+  console.log('    navgator ui       Launch the full dashboard');
+  console.log('    navgator scan     Re-scan the project');
+  console.log('    navgator diagram  Generate a Mermaid diagram');
+  console.log('');
+}
+
 async function showWelcomeMenu(context: 'post-setup' | 'no-command'): Promise<void> {
   if (context === 'no-command') {
     console.log(NAVGATOR_LOGO);
+    console.log('  Tip: Run `navgator ui` to launch the full dashboard.\n');
   }
 
   console.log('  What would you like to do?\n');
@@ -270,7 +356,8 @@ program
         console.log('');
       }
 
-      // Show welcome menu after setup
+      // Show post-setup guidance + welcome menu
+      showPostSetupGuidance();
       await showWelcomeMenu('post-setup');
 
     } catch (error) {
@@ -775,7 +862,7 @@ program
 program
   .command('ui')
   .description('Launch the NavGator dashboard in your browser')
-  .option('-p, --port <port>', 'Port to serve on', '3333')
+  .option('-p, --port <port>', 'Port to serve on', '3000')
   .option('--path <path>', 'Project path to analyze (defaults to current directory)')
   .option('--no-open', 'Don\'t open browser automatically')
   .action(async (options) => {
@@ -790,12 +877,12 @@ program
       console.log(`   Project: ${projectPath}`);
       console.log('');
 
-      const { port: actualPort } = await startUIServer({
+      const { process: serverProcess } = await launchWebUI({
         port,
         projectPath,
       });
 
-      const url = `http://localhost:${actualPort}`;
+      const url = `http://localhost:${port}`;
       console.log(`Dashboard running at: ${url}`);
       console.log('');
       console.log('Press Ctrl+C to stop');
@@ -809,11 +896,14 @@ program
         exec(`${openCmd} ${url}`);
       }
 
-      // Keep process running
-      process.on('SIGINT', () => {
+      // Keep process running, clean up child on exit
+      const cleanup = () => {
         console.log('\nShutting down...');
+        serverProcess.kill();
         process.exit(0);
-      });
+      };
+      process.on('SIGINT', cleanup);
+      process.on('SIGTERM', cleanup);
 
     } catch (error) {
       console.error('Failed to start UI:', error);

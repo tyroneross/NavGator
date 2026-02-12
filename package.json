@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/navgator",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Architecture connection tracker for Claude Code - know your stack before you change it",
   "type": "module",
   "main": "dist/index.js",
@@ -24,6 +24,9 @@
   },
   "files": [
     "dist",
+    "web/.next/standalone",
+    "web/.next/static",
+    "web/public",
     "commands",
     "skills",
     "hooks",
@@ -32,15 +35,18 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && npm run build:fixshebang",
+    "build": "npm run build:cli && npm run build:web",
+    "build:cli": "tsc && npm run build:fixshebang",
     "build:fixshebang": "node -e \"const fs=require('fs');const f='dist/cli/index.js';let c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!')){c='#!/usr/bin/env node\\n'+c;fs.writeFileSync(f,c);}\"",
+    "build:web": "cd web && npm run build && cd .. && npm run build:standalone",
+    "build:standalone": "cp -r web/.next/static web/.next/standalone/web/.next/static && test -d web/public && cp -r web/public web/.next/standalone/web/public || true",
     "dev": "tsc --watch",
+    "dev:web": "cd web && next dev",
     "start": "node dist/cli/index.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "lint": "eslint src/**/*.ts",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist web/.next",
     "prepublishOnly": "npm run clean && npm run build",
-
     "link:local": "npm run build && npm link"
   },
   "keywords": [
