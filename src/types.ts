@@ -150,6 +150,15 @@ export type ConnectionType =
   | 'prompt-location'     // AI prompt definition location
   | 'prompt-usage'        // Code uses an AI prompt
   | 'uses-package'        // Code uses a package
+  // Apple platform connections
+  | 'observes'            // View ↔ @Published/@Observable state
+  | 'conforms-to'         // Type conforms to protocol
+  | 'notifies'            // NotificationCenter post ↔ observe
+  | 'stores'              // Code ↔ UserDefaults/Keychain/@AppStorage key
+  | 'navigates-to'        // View A → View B (NavigationLink, push, present)
+  | 'requires-entitlement' // Framework usage ↔ .entitlements entry
+  | 'target-contains'     // Xcode target ↔ source files/frameworks
+  | 'generates'           // Build script/schema → generated source file
   | 'other';
 
 /**
@@ -247,10 +256,26 @@ export interface FileChangeResult {
 /**
  * Quick lookup index for fast searches
  */
+/**
+ * Project-level metadata for agent orientation
+ */
+export interface ProjectMetadata {
+  type: 'swift-app' | 'web-app' | 'api' | 'library' | 'monorepo' | 'unknown';
+  platforms?: ('iOS' | 'macOS' | 'watchOS' | 'tvOS' | 'visionOS')[];
+  architecture_pattern?: string;   // MVVM, TCA, MVC, VIPER, etc.
+  min_deployment?: Record<string, string>; // { iOS: "17.0", macOS: "14.0" }
+  targets?: { name: string; type: string; dependencies: string[] }[];
+  entitlements?: { key: string; file: string }[];
+  fragile_keys?: { key: string; type: string; files: string[] }[]; // String-keyed runtime deps
+}
+
 export interface ArchitectureIndex {
   version: string;              // Index format version
   last_scan: number;            // Unix timestamp of last scan
   project_path: string;         // Absolute path to project root
+
+  // Project-level metadata (for agent context)
+  project?: ProjectMetadata;
 
   // Component lookups
   components: {

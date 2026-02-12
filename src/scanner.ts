@@ -11,6 +11,7 @@ import {
   ScanResult,
   ScanWarning,
   FileChangeResult,
+  ProjectMetadata,
 } from './types.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
@@ -19,6 +20,7 @@ import { scanInfrastructure } from './scanners/infrastructure/index.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
 import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-scanner.js';
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
+import { scanSwiftCode } from './scanners/swift/code-scanner.js';
 import {
   storeComponents,
   storeConnections,
@@ -121,6 +123,7 @@ export async function scan(
   const allConnections: ArchitectureConnection[] = [];
   const allWarnings: ScanWarning[] = [];
   let promptScanResultHolder: PromptScanResult | undefined;
+  let projectMetadata: Partial<ProjectMetadata> | undefined;
 
   // ==========================================================================
   // Phase 1: Package Detection
@@ -213,6 +216,32 @@ export async function scan(
       allWarnings.push(...serviceResult.warnings);
     }
 
+    // Swift code analysis (runtime deps, protocols, state, LLM calls)
+    if (detectSpm(root)) {
+      if (options.verbose) console.log('  - Scanning Swift code connections...');
+      try {
+        const swiftResult = await scanSwiftCode(root);
+        allComponents.push(...swiftResult.components);
+        allConnections.push(...swiftResult.connections);
+        allWarnings.push(...swiftResult.warnings);
+        projectMetadata = swiftResult.projectMeta;
+        if (options.verbose) {
+          console.log(`    Swift: ${swiftResult.components.length} components, ${swiftResult.connections.length} connections`);
+          if (swiftResult.projectMeta.platforms) {
+            console.log(`    Platforms: ${swiftResult.projectMeta.platforms.join(', ')}`);
+          }
+          if (swiftResult.projectMeta.architecture_pattern) {
+            console.log(`    Architecture: ${swiftResult.projectMeta.architecture_pattern}`);
+          }
+        }
+      } catch (error) {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Swift code scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }
+
     // AI prompts - use enhanced scanner if --prompts flag, otherwise basic
     if (options.prompts) {
       if (options.verbose) console.log('  - Running enhanced prompt scan...');
@@ -287,10 +316,10 @@ export async function scan(
   await storeConnections(uniqueConnections, config, root);
 
   // Build index, graph, file map, and summary
-  await buildIndex(config, root);
+  await buildIndex(config, root, projectMetadata);
   await buildGraph(config, root);
   await buildFileMap(config, root);
-  await buildSummary(config, root, promptScanResultHolder);
+  await buildSummary(config, root, promptScanResultHolder, projectMetadata);
 
   // Persist prompt scan results if available
   if (promptScanResultHolder) {

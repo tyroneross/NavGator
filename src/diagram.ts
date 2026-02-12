@@ -98,6 +98,39 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
   'uses-package': {
     lineStyle: '-->',
   },
+  // Apple platform connections
+  observes: {
+    lineStyle: '-.->',
+    label: 'observes',
+  },
+  'conforms-to': {
+    lineStyle: '-->',
+    label: 'conforms',
+  },
+  notifies: {
+    lineStyle: '-.->',
+    label: 'notifies',
+  },
+  stores: {
+    lineStyle: '-->',
+    label: 'stores',
+  },
+  'navigates-to': {
+    lineStyle: '-->',
+    label: 'navigates',
+  },
+  'requires-entitlement': {
+    lineStyle: '-.->',
+    label: 'requires',
+  },
+  'target-contains': {
+    lineStyle: '-->',
+    label: 'contains',
+  },
+  generates: {
+    lineStyle: '==>',
+    label: 'generates',
+  },
   other: {
     lineStyle: '-->',
   },

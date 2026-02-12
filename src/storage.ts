@@ -270,7 +270,8 @@ export async function deleteConnection(
  */
 export async function buildIndex(
   config?: NavGatorConfig,
-  projectRoot?: string
+  projectRoot?: string,
+  projectMetadata?: Partial<import('./types.js').ProjectMetadata>
 ): Promise<ArchitectureIndex> {
   const cfg = config || getConfig();
   const components = await loadAllComponents(cfg, projectRoot);
@@ -303,6 +304,11 @@ export async function buildIndex(
       vulnerable_count: 0,
     },
   };
+
+  // Attach project metadata if provided
+  if (projectMetadata && Object.keys(projectMetadata).length > 0) {
+    index.project = projectMetadata as import('./types.js').ProjectMetadata;
+  }
 
   // Index components
   for (const component of components) {
@@ -519,7 +525,8 @@ const AI_PROVIDER_NAMES = new Set([
 export async function buildSummary(
   config?: NavGatorConfig,
   projectRoot?: string,
-  promptScan?: { prompts: Array<{ name: string; location: { file: string; lineStart: number }; provider?: { provider: string; model?: string }; category?: string; messages: Array<{ role: string; content: string }> }>; summary: { totalPrompts: number } }
+  promptScan?: { prompts: Array<{ name: string; location: { file: string; lineStart: number }; provider?: { provider: string; model?: string }; category?: string; messages: Array<{ role: string; content: string }> }>; summary: { totalPrompts: number } },
+  projectMetadata?: Partial<import('./types.js').ProjectMetadata>
 ): Promise<string> {
   const cfg = config || getConfig();
   const root = projectRoot || process.cwd();
@@ -545,6 +552,43 @@ export async function buildSummary(
   lines.push(`> NavGator auto-generated | Scanned: ${now}`);
   lines.push(`> ${components.length} components | ${connections.length} connections | ${aiComponents.length} AI providers`);
   lines.push('');
+
+  // Project metadata (agent orientation)
+  if (projectMetadata && projectMetadata.type) {
+    lines.push('## Project');
+    lines.push(`- **Type:** ${projectMetadata.type}`);
+    if (projectMetadata.platforms?.length) {
+      lines.push(`- **Platforms:** ${projectMetadata.platforms.join(', ')}`);
+    }
+    if (projectMetadata.architecture_pattern) {
+      lines.push(`- **Architecture:** ${projectMetadata.architecture_pattern}`);
+    }
+    if (projectMetadata.min_deployment) {
+      const deploys = Object.entries(projectMetadata.min_deployment).map(([k, v]) => `${k} ${v}`).join(', ');
+      lines.push(`- **Min deployment:** ${deploys}`);
+    }
+    if (projectMetadata.targets?.length) {
+      lines.push(`- **Targets:** ${projectMetadata.targets.map(t => `${t.name} (${t.type})`).join(', ')}`);
+    }
+    if (projectMetadata.entitlements?.length) {
+      lines.push(`- **Required entitlements:** ${projectMetadata.entitlements.map(e => e.key).join(', ')}`);
+    }
+    lines.push('');
+
+    // Fragile connections (critical for agents)
+    if (projectMetadata.fragile_keys?.length) {
+      const sharedKeys = projectMetadata.fragile_keys.filter(k => k.files.length > 1);
+      if (sharedKeys.length > 0) {
+        lines.push('## Fragile Connections (string-keyed, multi-file)');
+        lines.push('> These break at runtime, not compile time. Change the string → silent failure.');
+        lines.push('');
+        for (const key of sharedKeys) {
+          lines.push(`- **${key.key}** (${key.type}) — used in: ${key.files.join(', ')}`);
+        }
+        lines.push('');
+      }
+    }
+  }
 
   // Components by layer
   lines.push('## Components');
