@@ -34,12 +34,9 @@ const SERVICE_PATTERNS: ServicePattern[] = [
     patterns: [
       /anthropic\.messages\.create/,
       /anthropic\.completions\.create/,
+      /anthropic\.beta\./,
       /new Anthropic\(/,
-      /from anthropic import/,
-      /AnthropicAI/,
-      /import\s+Anthropic\s+from\s+['"]@anthropic-ai\/sdk['"]/,
-      /require\(['"]@anthropic-ai\/sdk['"]\)/,
-      /ChatAnthropic\(/,
+      /AnthropicAI\(/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -51,13 +48,10 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /openai\.chat\.completions\.create/,
       /openai\.completions\.create/,
       /openai\.embeddings\.create/,
+      /openai\.images\.generate/,
+      /openai\.audio\.transcriptions/,
       /new OpenAI\(/,
-      /from openai import/,
       /OpenAIApi\(/,
-      /import\s+OpenAI\s+from\s+['"]openai['"]/,
-      /require\(['"]openai['"]\)/,
-      /ChatOpenAI\(/,
-      /wrapOpenAI\(/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -68,11 +62,6 @@ const SERVICE_PATTERNS: ServicePattern[] = [
     patterns: [
       /new Groq\(/,
       /groq\.chat\.completions\.create/,
-      /from groq import/,
-      /import\s+Groq\s+from\s+['"]groq-sdk['"]/,
-      /require\(['"]groq-sdk['"]\)/,
-      /ChatGroq\(/,
-      /from\s+['"]@langchain\/groq['"]/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -121,13 +110,14 @@ const SERVICE_PATTERNS: ServicePattern[] = [
   {
     serviceName: 'LangChain',
     patterns: [
-      /from\s+['"]langchain/,
-      /from\s+['"]@langchain\//,
-      /require\(['"]langchain/,
-      /require\(['"]@langchain\//,
       /ChatPromptTemplate\./,
       /StructuredOutputParser\./,
       /RunnableSequence\./,
+      /ChatOpenAI\(/,
+      /ChatAnthropic\(/,
+      /ChatGoogleGenerativeAI\(/,
+      /ChatGroq\(/,
+      /wrapOpenAI\(/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -488,6 +478,9 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
   // Track which services we've found
   const foundServices = new Map<string, ArchitectureComponent>();
 
+  // Deduplication: one connection per {file, function, service} tuple
+  const seenConnections = new Set<string>();
+
   for (const file of sourceFiles) {
     // Skip files that should be excluded (NavGator's own code, test files, etc.)
     if (shouldExcludeFile(file, projectRoot)) {
@@ -566,38 +559,43 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
               }
             }
 
-            // Create connection with computed confidence
+            // Deduplicate: one connection per {file, function, service}
             const serviceComponent = foundServices.get(pattern.serviceName)!;
             const functionName = extractFunctionName(lines, i);
+            const dedupKey = `${file}|${functionName || 'global'}|${pattern.serviceName}`;
 
-            const connection: ArchitectureConnection = {
-              connection_id: generateConnectionId('service-call'),
-              from: {
-                component_id: `FILE:${file}`,
-                location: {
-                  file,
-                  line: i + 1,
-                  function: functionName,
+            if (!seenConnections.has(dedupKey)) {
+              seenConnections.add(dedupKey);
+
+              const connection: ArchitectureConnection = {
+                connection_id: generateConnectionId('service-call'),
+                from: {
+                  component_id: `FILE:${file}`,
+                  location: {
+                    file,
+                    line: i + 1,
+                    function: functionName,
+                  },
                 },
-              },
-              to: {
-                component_id: serviceComponent.component_id,
-              },
-              connection_type: 'service-call',
-              code_reference: {
-                file,
-                symbol: functionName || `anonymous_${i + 1}`,
-                symbol_type: functionName ? 'function' : undefined,
-                line_start: i + 1,
-                code_snippet: line.trim().slice(0, 100),
-              },
-              description: `Calls ${pattern.serviceName}`,
-              detected_from: `Pattern: ${regex.source}`,
-              confidence,
-              timestamp,
-              last_verified: timestamp,
-            };
-            connections.push(connection);
+                to: {
+                  component_id: serviceComponent.component_id,
+                },
+                connection_type: 'service-call',
+                code_reference: {
+                  file,
+                  symbol: functionName || `anonymous_${i + 1}`,
+                  symbol_type: functionName ? 'function' : undefined,
+                  line_start: i + 1,
+                  code_snippet: line.trim().slice(0, 100),
+                },
+                description: `Calls ${pattern.serviceName}`,
+                detected_from: `Pattern: ${regex.source}`,
+                confidence,
+                timestamp,
+                last_verified: timestamp,
+              };
+              connections.push(connection);
+            }
 
             break; // Only match once per line per pattern
           }

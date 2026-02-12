@@ -13,7 +13,6 @@ import {
   Brain,
   MessageSquare,
   FileText,
-  Clock,
   Copy,
   Check,
   ChevronDown,
@@ -28,16 +27,19 @@ import {
   ArrowDown,
   Circle,
   Layers,
+  X,
 } from "lucide-react";
 import { usePrompts } from "@/lib/hooks";
 import type { LLMCall, Prompt } from "@/lib/types";
 
-const categoryColors: Record<LLMCall["category"], string> = {
+const categoryColors: Record<string, string> = {
   chat: "bg-info/20 text-info border-info/30",
   completion: "bg-primary/20 text-primary border-primary/30",
   embedding: "bg-chart-3/20 text-chart-3 border-chart-3/30",
   function: "bg-chart-4/20 text-chart-4 border-chart-4/30",
   agent: "bg-warning/20 text-warning border-warning/30",
+  image: "bg-chart-3/20 text-chart-3 border-chart-3/30",
+  audio: "bg-chart-4/20 text-chart-4 border-chart-4/30",
 };
 
 const typeColors: Record<Prompt["type"], string> = {
@@ -61,9 +63,21 @@ export function LLMTrackingPanel() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [providerFilter, setProviderFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<string>("calls");
-  const [sheetType, setSheetType] = useState<"calls" | "prompts" | "latency" | null>(null);
+  const [sheetType, setSheetType] = useState<"calls" | "prompts" | null>(null);
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
+  const [fileFilter, setFileFilter] = useState<string | null>(null);
+
+  // Navigate to a specific file's prompts
+  const navigateToFile = (file: string) => {
+    setFileFilter(file);
+    setActiveTab("prompts");
+    // Auto-select first prompt in this file
+    const firstPrompt = prompts.find((p) => p.file === file);
+    if (firstPrompt) {
+      setSelectedPrompt(firstPrompt);
+    }
+  };
 
   const filteredCalls = calls.filter((call) => {
     const matchesSearch =
@@ -75,12 +89,14 @@ export function LLMTrackingPanel() {
     return matchesSearch && matchesCategory && matchesProvider;
   });
 
-  const filteredPrompts = prompts.filter(
-    (prompt) =>
+  const filteredPrompts = prompts.filter((prompt) => {
+    const matchesSearch =
       prompt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       prompt.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      prompt.file.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      prompt.file.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFile = !fileFilter || prompt.file === fileFilter;
+    return matchesSearch && matchesFile;
+  });
 
   const toggleExpanded = (id: string) => {
     const next = new Set(expandedCalls);
@@ -119,13 +135,9 @@ export function LLMTrackingPanel() {
   };
 
   // Calculate stats from real data
-  const totalCalls = calls.reduce((sum, c) => sum + c.callCount, 0);
-  const avgLatency = totalCalls > 0
-    ? calls.reduce((sum, c) => sum + c.avgLatencyMs * c.callCount, 0) / totalCalls
-    : 0;
-
   const providers = [...new Set(calls.map((c) => c.provider))];
   const categories = [...new Set(calls.map((c) => c.category))];
+  const filesWithAI = new Set(calls.map((c) => c.file)).size;
 
   // Enhancement 3: Compute issues
   const issues = useMemo(() => {
@@ -170,12 +182,12 @@ export function LLMTrackingPanel() {
   }, [calls]);
 
   const providerStats = useMemo(() => {
-    const stats: Record<string, { modelCount: number; callCount: number }> = {};
+    const stats: Record<string, { modelCount: number; callSiteCount: number }> = {};
     for (const provider in providerTree) {
       const models = providerTree[provider];
       const modelCount = Object.keys(models).length;
-      const callCount = Object.values(models).flat().reduce((sum, call) => sum + call.callCount, 0);
-      stats[provider] = { modelCount, callCount };
+      const callSiteCount = Object.values(models).flat().length;
+      stats[provider] = { modelCount, callSiteCount };
     }
     return stats;
   }, [providerTree]);
@@ -185,7 +197,7 @@ export function LLMTrackingPanel() {
     for (const provider in providerTree) {
       for (const model in providerTree[provider]) {
         const key = `${provider}:${model}`;
-        stats[key] = providerTree[provider][model].reduce((sum, call) => sum + call.callCount, 0);
+        stats[key] = providerTree[provider][model].length;
       }
     }
     return stats;
@@ -197,8 +209,8 @@ export function LLMTrackingPanel() {
     return call ? { provider: call.provider, model: call.model } : null;
   };
 
-  // Enhancement 2: Sheet handlers
-  const openSheet = (type: "calls" | "prompts" | "latency") => {
+  // Sheet handlers
+  const openSheet = (type: "calls" | "prompts") => {
     setSheetType(type);
   };
 
@@ -216,10 +228,6 @@ export function LLMTrackingPanel() {
     }
     closeSheet();
   };
-
-  const sortedCallsByLatency = useMemo(() => {
-    return [...calls].sort((a, b) => b.avgLatencyMs - a.avgLatencyMs);
-  }, [calls]);
 
   // Helper to check if call has issue
   const callHasIssue = (callId: string) => {
@@ -279,7 +287,7 @@ export function LLMTrackingPanel() {
                 )}
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">LLM Calls</p>
+                <p className="text-sm text-muted-foreground">LLM Call Sites</p>
                 <p className="text-2xl font-semibold text-foreground">
                   {calls.length}
                 </p>
@@ -307,19 +315,19 @@ export function LLMTrackingPanel() {
           </CardContent>
         </Card>
 
-        <Card
-          className="border-border bg-card cursor-pointer transition-colors hover:bg-secondary/50"
-          onClick={() => openSheet("latency")}
-        >
+        <Card className="border-border bg-card">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
-                <Clock className="h-5 w-5 text-warning" />
+                <Layers className="h-5 w-5 text-warning" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Avg Latency</p>
+                <p className="text-sm text-muted-foreground">Providers</p>
                 <p className="text-2xl font-semibold text-foreground">
-                  {avgLatency.toFixed(0)}ms
+                  {providers.length}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {filesWithAI} file{filesWithAI !== 1 ? "s" : ""} with AI
                 </p>
               </div>
             </div>
@@ -342,9 +350,8 @@ export function LLMTrackingPanel() {
         <SheetContent side="right" className="w-[400px] sm:w-[540px]">
           <SheetHeader>
             <SheetTitle>
-              {sheetType === "calls" && "All LLM Calls"}
+              {sheetType === "calls" && "All LLM Call Sites"}
               {sheetType === "prompts" && "All Prompts"}
-              {sheetType === "latency" && "Calls by Latency"}
             </SheetTitle>
           </SheetHeader>
           <ScrollArea className="h-[calc(100vh-80px)] mt-6">
@@ -383,29 +390,6 @@ export function LLMTrackingPanel() {
                   </div>
                 </button>
               ))}
-              {sheetType === "latency" && sortedCallsByLatency.map((call, idx) => (
-                <button
-                  key={`${call.id}-latency-${idx}`}
-                  type="button"
-                  onClick={() => handleSheetItemClick("calls", call)}
-                  className={`w-full text-left p-4 transition-colors hover:bg-secondary/50 ${
-                    idx !== sortedCallsByLatency.length - 1 ? "border-b border-border" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium text-sm">{call.name}</div>
-                    <div className="font-mono text-lg font-semibold text-foreground">
-                      {call.avgLatencyMs.toFixed(0)}ms
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {call.model} · {call.provider}
-                  </div>
-                  <div className="font-mono text-xs text-muted-foreground mt-1">
-                    {call.file}:{call.line}
-                  </div>
-                </button>
-              ))}
             </div>
           </ScrollArea>
         </SheetContent>
@@ -417,7 +401,7 @@ export function LLMTrackingPanel() {
           <TabsList className="bg-secondary">
             <TabsTrigger value="calls" className="gap-2">
               <Zap className="h-4 w-4" />
-              LLM Calls
+              LLM Call Sites
             </TabsTrigger>
             <TabsTrigger value="prompts" className="gap-2">
               <MessageSquare className="h-4 w-4" />
@@ -510,7 +494,7 @@ export function LLMTrackingPanel() {
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base font-medium">
-                  Detected LLM Calls ({filteredCalls.length})
+                  Detected Call Sites ({filteredCalls.length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -554,50 +538,92 @@ export function LLMTrackingPanel() {
                               <span>{call.model}</span>
                               <span>·</span>
                               <span>{call.provider}</span>
-                              <span>·</span>
-                              <span>{call.callCount.toLocaleString()} calls</span>
+                              {call.method && (
+                                <>
+                                  <span>·</span>
+                                  <span className="font-mono">{call.method}</span>
+                                </>
+                              )}
                             </div>
-                            <p className="mt-1 font-mono text-xs text-muted-foreground">
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigateToFile(call.file);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.stopPropagation();
+                                  navigateToFile(call.file);
+                                }
+                              }}
+                              className="mt-1 font-mono text-xs text-muted-foreground hover:text-primary hover:underline transition-colors cursor-pointer"
+                            >
                               {call.file}:{call.line}
-                            </p>
+                            </span>
                           </div>
                         </button>
 
                         {expandedCalls.has(call.id) && (
                           <div className="border-b border-border bg-secondary/30 p-4">
                             <div className="grid grid-cols-3 gap-4 text-sm">
+                              {call.method && (
+                                <div>
+                                  <p className="text-muted-foreground">SDK Method</p>
+                                  <p className="font-mono text-foreground">{call.method}</p>
+                                </div>
+                              )}
+                              {call.sdk && (
+                                <div>
+                                  <p className="text-muted-foreground">SDK</p>
+                                  <p className="font-mono text-foreground">{call.sdk}</p>
+                                </div>
+                              )}
                               <div>
-                                <p className="text-muted-foreground">Avg Tokens In</p>
+                                <p className="text-muted-foreground">Confidence</p>
                                 <p className="font-mono text-foreground">
-                                  {call.avgTokensIn.toLocaleString()}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Avg Tokens Out</p>
-                                <p className="font-mono text-foreground">
-                                  {call.avgTokensOut.toLocaleString()}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground">Avg Latency</p>
-                                <p className="font-mono text-foreground">
-                                  {call.avgLatencyMs.toLocaleString()}ms
+                                  {(call.confidence * 100).toFixed(0)}%
                                 </p>
                               </div>
                             </div>
-                            <div className="mt-3">
-                              <p className="text-xs text-muted-foreground">
-                                Variables:{" "}
-                                {call.promptVariables.map((v) => (
-                                  <code
-                                    key={v}
-                                    className="mx-1 rounded bg-secondary px-1 py-0.5"
-                                  >
-                                    {`{{${v}}}`}
-                                  </code>
-                                ))}
-                              </p>
-                            </div>
+                            {call.configExtracted && (
+                              <div className="mt-3 grid grid-cols-3 gap-4 text-sm">
+                                {call.configExtracted.temperature !== undefined && (
+                                  <div>
+                                    <p className="text-muted-foreground">Temperature</p>
+                                    <p className="font-mono text-foreground">{call.configExtracted.temperature}</p>
+                                  </div>
+                                )}
+                                {call.configExtracted.maxTokens !== undefined && (
+                                  <div>
+                                    <p className="text-muted-foreground">Max Tokens</p>
+                                    <p className="font-mono text-foreground">{call.configExtracted.maxTokens}</p>
+                                  </div>
+                                )}
+                                {call.configExtracted.stream !== undefined && (
+                                  <div>
+                                    <p className="text-muted-foreground">Streaming</p>
+                                    <p className="font-mono text-foreground">{call.configExtracted.stream ? "Yes" : "No"}</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {call.promptVariables.length > 0 && (
+                              <div className="mt-3">
+                                <p className="text-xs text-muted-foreground">
+                                  Variables:{" "}
+                                  {call.promptVariables.map((v) => (
+                                    <code
+                                      key={v}
+                                      className="mx-1 rounded bg-secondary px-1 py-0.5"
+                                    >
+                                      {`{{${v}}}`}
+                                    </code>
+                                  ))}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -607,10 +633,10 @@ export function LLMTrackingPanel() {
               </CardContent>
             </Card>
 
-            {/* Call Details - Enhancement 3: Add issue warnings */}
+            {/* Call Details */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base font-medium">Call Details</CardTitle>
+                <CardTitle className="text-base font-medium">Call Site Details</CardTitle>
               </CardHeader>
               <CardContent>
                 {selectedCall ? (
@@ -620,9 +646,13 @@ export function LLMTrackingPanel() {
                         <h3 className="font-mono text-lg text-foreground">
                           {selectedCall.name}
                         </h3>
-                        <p className="text-sm text-muted-foreground">
+                        <button
+                          type="button"
+                          onClick={() => navigateToFile(selectedCall.file)}
+                          className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors text-left"
+                        >
                           {selectedCall.file}:{selectedCall.line}
-                        </p>
+                        </button>
                       </div>
                       <Badge
                         variant="outline"
@@ -651,6 +681,30 @@ export function LLMTrackingPanel() {
                           <p className="text-xs text-warning mt-1">Provider could not be identified from code patterns</p>
                         )}
                       </div>
+                    </div>
+
+                    {(selectedCall.method || selectedCall.sdk) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {selectedCall.method && (
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">SDK Method</p>
+                            <p className="font-mono text-sm text-foreground">{selectedCall.method}</p>
+                          </div>
+                        )}
+                        {selectedCall.sdk && (
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">SDK Package</p>
+                            <p className="font-mono text-sm text-foreground">{selectedCall.sdk}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="rounded-lg bg-secondary p-3">
+                      <p className="text-xs text-muted-foreground">Confidence</p>
+                      <p className="font-mono text-sm text-foreground">
+                        {(selectedCall.confidence * 100).toFixed(0)}%
+                      </p>
                     </div>
 
                     {selectedCall.systemPrompt && (
@@ -721,6 +775,22 @@ export function LLMTrackingPanel() {
         </TabsContent>
 
         <TabsContent value="prompts" className="mt-4">
+          {fileFilter && (
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Filtered by file:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setFileFilter(null);
+                  setSelectedPrompt(null);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md bg-secondary px-2.5 py-1 text-xs font-mono text-foreground hover:bg-secondary/80 transition-colors"
+              >
+                {fileFilter.split("/").pop()}
+                <X className="h-3 w-3 text-muted-foreground" />
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             {/* Prompts List - Enhancement 1 & 3: Add provider/model info and issue indicators */}
             <Card className="border-border bg-card">
@@ -800,9 +870,13 @@ export function LLMTrackingPanel() {
                         <h3 className="font-mono text-lg text-foreground">
                           {selectedPrompt.name}
                         </h3>
-                        <p className="text-sm text-muted-foreground">
+                        <button
+                          type="button"
+                          onClick={() => navigateToFile(selectedPrompt.file)}
+                          className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors text-left"
+                        >
                           {selectedPrompt.file}:{selectedPrompt.line}
-                        </p>
+                        </button>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="text-xs">
@@ -934,7 +1008,7 @@ export function LLMTrackingPanel() {
         </TabsContent>
 
         <TabsContent value="flow" className="mt-4">
-          <AIFlowDiagram prompts={prompts} calls={calls} />
+          <AIFlowDiagram prompts={prompts} calls={calls} onFileClick={navigateToFile} />
         </TabsContent>
 
         {/* Enhancement 1: By Provider tab */}
@@ -970,7 +1044,7 @@ export function LLMTrackingPanel() {
                               </span>
                             </div>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              {providerStats[provider].modelCount} model{providerStats[provider].modelCount !== 1 ? "s" : ""} · {providerStats[provider].callCount.toLocaleString()} call{providerStats[provider].callCount !== 1 ? "s" : ""}
+                              {providerStats[provider].modelCount} model{providerStats[provider].modelCount !== 1 ? "s" : ""} · {providerStats[provider].callSiteCount} call site{providerStats[provider].callSiteCount !== 1 ? "s" : ""}
                             </div>
                           </div>
                         </button>
@@ -1000,7 +1074,7 @@ export function LLMTrackingPanel() {
                                         </span>
                                       </div>
                                       <div className="mt-1 text-xs text-muted-foreground">
-                                        {modelStats[modelKey].toLocaleString()} call{modelStats[modelKey] !== 1 ? "s" : ""}
+                                        {modelStats[modelKey]} call site{modelStats[modelKey] !== 1 ? "s" : ""}
                                       </div>
                                     </div>
                                   </button>
@@ -1044,10 +1118,10 @@ export function LLMTrackingPanel() {
               </CardContent>
             </Card>
 
-            {/* Reuse Call Details panel */}
+            {/* Call Site Details (providers tab) */}
             <Card className="border-border bg-card">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base font-medium">Call Details</CardTitle>
+                <CardTitle className="text-base font-medium">Call Site Details</CardTitle>
               </CardHeader>
               <CardContent>
                 {selectedCall ? (
@@ -1057,9 +1131,13 @@ export function LLMTrackingPanel() {
                         <h3 className="font-mono text-lg text-foreground">
                           {selectedCall.name}
                         </h3>
-                        <p className="text-sm text-muted-foreground">
+                        <button
+                          type="button"
+                          onClick={() => navigateToFile(selectedCall.file)}
+                          className="text-sm text-muted-foreground hover:text-primary hover:underline transition-colors text-left"
+                        >
                           {selectedCall.file}:{selectedCall.line}
-                        </p>
+                        </button>
                       </div>
                       <Badge
                         variant="outline"
@@ -1072,47 +1150,34 @@ export function LLMTrackingPanel() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="rounded-lg bg-secondary p-3">
                         <p className="text-xs text-muted-foreground">Model</p>
-                        <p className="font-mono text-sm text-foreground">
-                          {selectedCall.model}
-                        </p>
-                        {selectedCall.model === "unknown" && (
-                          <p className="text-xs text-warning mt-1">Model name not detected</p>
-                        )}
+                        <p className="font-mono text-sm text-foreground">{selectedCall.model}</p>
                       </div>
                       <div className="rounded-lg bg-secondary p-3">
                         <p className="text-xs text-muted-foreground">Provider</p>
-                        <p className="font-mono text-sm capitalize text-foreground">
-                          {selectedCall.provider}
-                        </p>
-                        {selectedCall.provider === "unknown" && (
-                          <p className="text-xs text-warning mt-1">Provider could not be identified from code patterns</p>
-                        )}
+                        <p className="font-mono text-sm capitalize text-foreground">{selectedCall.provider}</p>
                       </div>
                     </div>
 
+                    {(selectedCall.method || selectedCall.sdk) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {selectedCall.method && (
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">SDK Method</p>
+                            <p className="font-mono text-sm text-foreground">{selectedCall.method}</p>
+                          </div>
+                        )}
+                        {selectedCall.sdk && (
+                          <div className="rounded-lg bg-secondary p-3">
+                            <p className="text-xs text-muted-foreground">SDK Package</p>
+                            <p className="font-mono text-sm text-foreground">{selectedCall.sdk}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {selectedCall.systemPrompt && (
                       <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <p className="text-sm font-medium text-foreground">
-                            System Prompt
-                          </p>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              copyToClipboard(
-                                selectedCall.systemPrompt || "",
-                                `sys-${selectedCall.id}`
-                              )
-                            }
-                          >
-                            {copiedId === `sys-${selectedCall.id}` ? (
-                              <Check className="h-4 w-4 text-primary" />
-                            ) : (
-                              <Copy className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </div>
+                        <p className="mb-2 text-sm font-medium text-foreground">System Prompt</p>
                         <pre className="rounded-lg bg-secondary p-3 font-mono text-xs text-muted-foreground">
                           {selectedCall.systemPrompt}
                         </pre>
@@ -1120,27 +1185,7 @@ export function LLMTrackingPanel() {
                     )}
 
                     <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-sm font-medium text-foreground">
-                          Prompt Template
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            copyToClipboard(
-                              selectedCall.promptTemplate,
-                              `tpl-${selectedCall.id}`
-                            )
-                          }
-                        >
-                          {copiedId === `tpl-${selectedCall.id}` ? (
-                            <Check className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </div>
+                      <p className="mb-2 text-sm font-medium text-foreground">Prompt Template</p>
                       <pre className="rounded-lg bg-secondary p-3 font-mono text-xs text-muted-foreground">
                         {selectedCall.promptTemplate}
                       </pre>
@@ -1149,7 +1194,7 @@ export function LLMTrackingPanel() {
                   </div>
                 ) : (
                   <div className="flex h-[400px] items-center justify-center text-muted-foreground">
-                    <p>Select an LLM call to view details</p>
+                    <p>Select a call site to view details</p>
                   </div>
                 )}
               </CardContent>
@@ -1168,6 +1213,7 @@ export function LLMTrackingPanel() {
 interface AIFlowDiagramProps {
   prompts: Prompt[];
   calls: LLMCall[];
+  onFileClick?: (file: string) => void;
 }
 
 interface FlowNode {
@@ -1180,7 +1226,7 @@ interface FlowNode {
   prompts: Prompt[];
 }
 
-function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
+function AIFlowDiagram({ prompts, calls, onFileClick }: AIFlowDiagramProps) {
   // Group prompts by file and categorize them
   const groupedByFile = prompts.reduce((acc, prompt) => {
     const file = prompt.file;
@@ -1321,6 +1367,7 @@ function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
                   label={typeLabels.input}
                   nodes={inputNodes}
                   colorClass={typeColors.input}
+                  onNodeClick={onFileClick}
                 />
               </>
             )}
@@ -1332,6 +1379,7 @@ function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
                   label={typeLabels.process}
                   nodes={processNodes}
                   colorClass={typeColors.process}
+                  onNodeClick={onFileClick}
                 />
               </>
             )}
@@ -1343,6 +1391,7 @@ function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
                   label={typeLabels.output}
                   nodes={outputNodes}
                   colorClass={typeColors.output}
+                  onNodeClick={onFileClick}
                 />
               </>
             )}
@@ -1369,9 +1418,11 @@ function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
           <ScrollArea className="h-[300px]">
             <div className="space-y-2">
               {flowNodes.map((node) => (
-                <div
+                <button
+                  type="button"
                   key={node.id}
-                  className={`rounded-lg border p-3 ${typeColors[node.type]}`}
+                  onClick={() => onFileClick?.(node.file)}
+                  className={`w-full text-left rounded-lg border p-3 transition-colors hover:opacity-80 ${typeColors[node.type]}`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1388,7 +1439,7 @@ function AIFlowDiagram({ prompts, calls }: AIFlowDiagramProps) {
                   {node.purpose && (
                     <p className="mt-2 text-xs">{node.purpose}</p>
                   )}
-                </div>
+                </button>
               ))}
             </div>
           </ScrollArea>
@@ -1402,9 +1453,10 @@ interface FlowStageProps {
   label: string;
   nodes: FlowNode[];
   colorClass: string;
+  onNodeClick?: (file: string) => void;
 }
 
-function FlowStage({ label, nodes, colorClass }: FlowStageProps) {
+function FlowStage({ label, nodes, colorClass, onNodeClick }: FlowStageProps) {
   return (
     <div className="w-full max-w-2xl">
       <div className="mb-2 text-center text-xs font-medium text-muted-foreground">
@@ -1413,14 +1465,16 @@ function FlowStage({ label, nodes, colorClass }: FlowStageProps) {
       <div className={`rounded-lg border-2 p-4 ${colorClass}`}>
         <div className="flex flex-wrap justify-center gap-3">
           {nodes.map((node) => (
-            <div
+            <button
+              type="button"
               key={node.id}
-              className="flex items-center gap-2 rounded-md bg-background/50 px-3 py-1.5"
+              onClick={() => onNodeClick?.(node.file)}
+              className="flex items-center gap-2 rounded-md bg-background/50 px-3 py-1.5 transition-colors hover:bg-background/80"
             >
               <FileText className="h-3.5 w-3.5" />
               <span className="font-mono text-xs">{node.name}</span>
               <span className="text-xs opacity-60">({node.prompts.length})</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>

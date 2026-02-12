@@ -20,6 +20,7 @@ import { scanInfrastructure } from './scanners/infrastructure/index.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
 import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-scanner.js';
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
+import { traceLLMCalls, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 import { scanSwiftCode } from './scanners/swift/code-scanner.js';
 import {
   storeComponents,
@@ -242,22 +243,59 @@ export async function scan(
       }
     }
 
-    // AI prompts - use enhanced scanner if --prompts flag, otherwise basic
+    // AI prompts & LLM call tracing
     if (options.prompts) {
-      if (options.verbose) console.log('  - Running enhanced prompt scan...');
+      // Step 1: Run anchor-based LLM call tracer (primary detection)
+      if (options.verbose) console.log('  - Running LLM call tracer (anchor-based)...');
+      let traceResult: LLMTraceResult | undefined;
+      try {
+        traceResult = await traceLLMCalls(root);
+        allComponents.push(...traceResult.scanResult.components);
+        allConnections.push(...traceResult.scanResult.connections);
+
+        if (options.verbose) {
+          console.log(`    Traced ${traceResult.calls.length} LLM call sites`);
+          console.log(`    Wrappers: ${traceResult.wrappers.length}`);
+          const providers = new Map<string, number>();
+          for (const call of traceResult.calls) {
+            const p = call.provider.name;
+            providers.set(p, (providers.get(p) || 0) + 1);
+          }
+          for (const [provider, count] of providers) {
+            console.log(`      ${provider}: ${count} call sites`);
+          }
+        }
+      } catch (error) {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `LLM call tracer failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+        if (options.verbose) console.log(`    LLM tracer error: ${error instanceof Error ? error.message : 'Unknown'}`);
+      }
+
+      // Step 2: Run regex prompt detector with corroboration (secondary — catches prompt definitions)
+      if (options.verbose) console.log('  - Running prompt detector (corroboration-filtered)...');
       promptScanResultHolder = await scanPrompts(root, {
         includeRawContent: true,
         detectVariables: true,
+        requireAPICallAnchor: true,
+        minCorroborationSignals: 2,
       });
 
-      // Convert to architecture format
+      // Attach tracer results to prompt scan data (for web UI)
+      if (traceResult) {
+        promptScanResultHolder.tracedCalls = traceResult.calls;
+        promptScanResultHolder.summary.tracedCallSites = traceResult.calls.length;
+      }
+
+      // Convert prompt definitions to architecture format
       const promptArchitecture = convertToArchitecture(promptScanResultHolder.prompts);
       allComponents.push(...promptArchitecture.components);
       allConnections.push(...promptArchitecture.connections);
       allWarnings.push(...promptArchitecture.warnings);
 
       if (options.verbose) {
-        console.log(`    Found ${promptScanResultHolder.prompts.length} prompts`);
+        console.log(`    Found ${promptScanResultHolder.prompts.length} prompt definitions`);
         if (promptScanResultHolder.summary.byProvider) {
           for (const [provider, count] of Object.entries(promptScanResultHolder.summary.byProvider)) {
             console.log(`      ${provider}: ${count}`);
@@ -394,10 +432,32 @@ export async function scanPromptsOnly(
     console.log(`Scanning for AI prompts in: ${root}`);
   }
 
+  // Run anchor-based tracer first
+  let traceResult: LLMTraceResult | undefined;
+  try {
+    traceResult = await traceLLMCalls(root);
+    if (options.verbose) {
+      console.log(`Traced ${traceResult.calls.length} LLM call sites`);
+    }
+  } catch (error) {
+    if (options.verbose) {
+      console.log(`LLM tracer error: ${error instanceof Error ? error.message : 'Unknown'}`);
+    }
+  }
+
+  // Run prompt detector with corroboration
   const result = await scanPrompts(root, {
     includeRawContent: true,
     detectVariables: true,
+    requireAPICallAnchor: true,
+    minCorroborationSignals: 2,
   });
+
+  // Attach tracer data
+  if (traceResult) {
+    result.tracedCalls = traceResult.calls;
+    result.summary.tracedCallSites = traceResult.calls.length;
+  }
 
   if (options.verbose) {
     console.log(formatPromptsOutput(result));
@@ -409,6 +469,10 @@ export async function scanPromptsOnly(
 // Re-export prompt utilities
 export { formatPromptsOutput, formatPromptDetail } from './scanners/prompts/index.js';
 export type { PromptScanResult, DetectedPrompt } from './scanners/prompts/index.js';
+
+// Re-export tracer types
+export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
+export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 
 /**
  * Get scan status/summary without running a full scan

@@ -5,7 +5,7 @@
  */
 
 // =============================================================================
-// LLM CALL (from detected prompts)
+// LLM CALL SITE (from anchor-based tracer)
 // =============================================================================
 
 export interface LLMCall {
@@ -19,13 +19,18 @@ export interface LLMCall {
   promptTemplate: string;
   promptVariables: string[];
   systemPrompt?: string;
-  avgTokensIn: number;
-  avgTokensOut: number;
-  avgLatencyMs: number;
-  callCount: number;
-  estimatedCostPer1k: number;
-  lastCalled?: string;
-  category: "chat" | "completion" | "embedding" | "function" | "agent";
+  /** SDK method called (e.g. "chat.completions.create", "invoke") */
+  method?: string;
+  /** SDK package name (e.g. "openai", "groq-sdk", "@langchain/openai") */
+  sdk?: string;
+  /** Extracted call configuration (model, temperature, etc.) */
+  configExtracted?: {
+    temperature?: number;
+    maxTokens?: number;
+    stream?: boolean;
+    tools?: string[];
+  };
+  category: "chat" | "completion" | "embedding" | "function" | "agent" | "image" | "audio";
   purpose?: string;
   confidence: number;
   tags: string[];
@@ -94,13 +99,17 @@ export interface Connection {
 // =============================================================================
 
 export interface LLMTrackingSummary {
+  /** Total anchor-traced LLM call sites */
   totalCalls: number;
+  /** Total detected prompt definitions */
   totalPrompts: number;
   byProvider: Record<string, number>;
   byModel: Record<string, number>;
   byCategory: Record<string, number>;
   templatesCount: number;
   withToolsCount: number;
+  /** Number of unique files containing AI calls */
+  filesWithAI?: number;
   lastScanned?: string;
 }
 

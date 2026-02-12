@@ -319,7 +319,6 @@ function componentsToScanResult(
     summary: {
       totalPrompts: prompts.length,
       byProvider: {},
-      byModel: {},
       byCategory: {},
       templatesCount: prompts.filter((p) => p.isTemplate).length,
       withToolsCount: 0,

@@ -45,6 +45,131 @@ program
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 
 // =============================================================================
+// WELCOME MENU (shown after setup or when no command provided)
+// =============================================================================
+
+async function launchUI(projectPath?: string): Promise<void> {
+  const resolvedPath = projectPath || process.cwd();
+
+  console.log('');
+  console.log('🐊 NavGator Dashboard');
+  console.log(`   Project: ${resolvedPath}`);
+  console.log('');
+
+  const { port: actualPort } = await startUIServer({
+    port: 3333,
+    projectPath: resolvedPath,
+  });
+
+  const url = `http://localhost:${actualPort}`;
+  console.log(`Dashboard running at: ${url}`);
+  console.log('');
+  console.log('Press Ctrl+C to stop');
+  console.log('');
+
+  // Try to open browser
+  const { exec } = await import('child_process');
+  const openCmd = process.platform === 'darwin' ? 'open' :
+                  process.platform === 'win32' ? 'start' : 'xdg-open';
+  exec(`${openCmd} ${url}`);
+
+  // Keep process running
+  process.on('SIGINT', () => {
+    console.log('\nShutting down...');
+    process.exit(0);
+  });
+}
+
+async function runScan(): Promise<void> {
+  console.log('NavGator - Scanning architecture...\n');
+
+  const result = await scan(process.cwd(), {
+    prompts: true,
+    verbose: false,
+  });
+
+  console.log('\n========================================');
+  console.log('SCAN COMPLETE');
+  console.log('========================================\n');
+
+  const byType: Record<string, number> = {};
+  for (const c of result.components) {
+    byType[c.type] = (byType[c.type] || 0) + 1;
+  }
+
+  console.log('COMPONENTS:');
+  for (const [type, count] of Object.entries(byType)) {
+    console.log(`  ${type}: ${count}`);
+  }
+
+  console.log(`\nFiles scanned: ${result.stats.files_scanned}`);
+  console.log(`Scan completed in ${result.stats.scan_duration_ms}ms`);
+}
+
+async function showStatus(): Promise<void> {
+  const config = getConfig();
+  const index = await loadIndex(config);
+
+  if (!index) {
+    console.log('No architecture data found. Run `navgator setup` first.');
+    return;
+  }
+
+  console.log('NavGator - Architecture Status\n');
+  console.log('========================================');
+
+  const lastScan = new Date(index.last_scan);
+  const hoursSince = Math.round((Date.now() - index.last_scan) / (1000 * 60 * 60));
+
+  console.log(`Last scan: ${lastScan.toLocaleString()} (${hoursSince}h ago)`);
+  console.log(`Total components: ${index.stats.total_components}`);
+  console.log(`Total connections: ${index.stats.total_connections}`);
+
+  if (index.stats.outdated_count > 0) {
+    console.log(`Outdated packages: ${index.stats.outdated_count}`);
+  }
+
+  console.log('\nCOMPONENTS BY TYPE:');
+  for (const [type, count] of Object.entries(index.stats.components_by_type)) {
+    console.log(`  ${type}: ${count}`);
+  }
+}
+
+async function showWelcomeMenu(context: 'post-setup' | 'no-command'): Promise<void> {
+  if (context === 'no-command') {
+    console.log(NAVGATOR_LOGO);
+  }
+
+  console.log('  What would you like to do?\n');
+  console.log('  1) Launch the dashboard UI');
+  console.log('  2) Run a scan');
+  console.log('  3) View project status');
+  console.log('  4) Exit');
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise<string>((resolve) => {
+    rl.question('  Choose (1-4): ', resolve);
+  });
+  rl.close();
+
+  switch (answer.trim()) {
+    case '1':
+      await launchUI();
+      break;
+    case '2':
+      await runScan();
+      break;
+    case '3':
+      await showStatus();
+      break;
+    default:
+      console.log('');
+      break;
+  }
+}
+
+// =============================================================================
 // SETUP COMMAND (New - Initial Installation)
 // =============================================================================
 
@@ -111,7 +236,7 @@ program
         console.log(`Last scan: ${status.lastScan?.toLocaleString()}`);
         console.log(`Scan depth: ${status.phase}`);
         console.log('');
-        console.log('Run `navgator scan` to refresh, or `navgator status` to view.');
+        await showWelcomeMenu('post-setup');
         return;
       }
 
@@ -144,6 +269,9 @@ program
         }
         console.log('');
       }
+
+      // Show welcome menu after setup
+      await showWelcomeMenu('post-setup');
 
     } catch (error) {
       console.error('Setup failed:', error);
@@ -770,4 +898,18 @@ program
 // PARSE AND RUN
 // =============================================================================
 
-program.parse();
+// If no command or flags provided, show welcome menu
+const arg = process.argv[2];
+const isFlag = arg?.startsWith('-');
+const hasCommandOrFlag = process.argv.length > 2;
+
+if (!hasCommandOrFlag) {
+  // No arguments at all → show welcome menu
+  showWelcomeMenu('no-command').catch((err) => {
+    console.error('Error:', err);
+    process.exit(1);
+  });
+} else {
+  // Has a command or flag (--help, --version, etc.) → let Commander handle it
+  program.parse();
+}

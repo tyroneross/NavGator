@@ -132,6 +132,10 @@ export interface DetectorOptions {
   maxPromptLength?: number;
   includeRawContent?: boolean;
   detectVariables?: boolean;
+  /** Only create prompts that have a nearby API call anchor (default: true) */
+  requireAPICallAnchor?: boolean;
+  /** Minimum corroborating signals to surface a prompt (default: 2) */
+  minCorroborationSignals?: number;
 }
 
 /**
@@ -145,6 +149,8 @@ export class PromptDetector {
       maxPromptLength: options.maxPromptLength ?? MAX_PROMPT_LENGTH,
       includeRawContent: options.includeRawContent ?? true,
       detectVariables: options.detectVariables ?? true,
+      requireAPICallAnchor: options.requireAPICallAnchor ?? true,
+      minCorroborationSignals: options.minCorroborationSignals ?? 2,
     };
   }
 
@@ -200,13 +206,37 @@ export class PromptDetector {
     const prompts: DetectedPrompt[] = [];
     const lines = content.split('\n');
 
+    // Skip files in UI/component directories (common false positive sources)
+    if (this.isUIFile(filePath)) {
+      return prompts;
+    }
+
     // Track AI API calls to link prompts to providers
     const apiCalls = this.findAPICalls(content, lines);
+
+    // Check file-level AI signals for corroboration
+    const hasAIImport = this.hasAISDKImport(content);
+    const hasTraceableDecorator = content.includes('traceable(') || content.includes('@traceable');
 
     // Find prompt definitions
     const promptMatches = this.findPromptDefinitions(content, lines);
 
     for (const match of promptMatches) {
+      // Count corroboration signals for this match
+      const signals = this.countCorroborationSignals(
+        match, lines, apiCalls, hasAIImport, hasTraceableDecorator
+      );
+
+      // Skip if below minimum corroboration threshold
+      if (signals < this.options.minCorroborationSignals) {
+        continue;
+      }
+
+      // Skip if we require an API call anchor and none was found nearby
+      if (this.options.requireAPICallAnchor && apiCalls.length === 0 && !hasAIImport) {
+        continue;
+      }
+
       const prompt = this.buildPromptFromMatch(filePath, lines, match, apiCalls);
       if (prompt) {
         prompts.push(prompt);
@@ -214,6 +244,89 @@ export class PromptDetector {
     }
 
     return prompts;
+  }
+
+  /**
+   * Check if a file is in a UI/component directory (likely false positive)
+   */
+  private isUIFile(filePath: string): boolean {
+    const uiPatterns = [
+      /\/components\//,
+      /\/pages\//,
+      /\/app\/.*\/page\.(tsx|jsx)$/,
+      /\/app\/.*\/layout\.(tsx|jsx)$/,
+      /\/ui\//,
+      /\/views\//,
+      /\/hooks\//,
+      /\/devtools\//,
+      /\/admin\/.*(?:editor|ui|panel)/i,
+      /\/dev\/.*(?:lab|editor|ui)/i,
+    ];
+    return uiPatterns.some(p => p.test(filePath));
+  }
+
+  /**
+   * Check if file imports any AI SDK
+   */
+  private hasAISDKImport(content: string): boolean {
+    const aiImportPatterns = [
+      /from\s+['"]openai['"]/,
+      /from\s+['"]@anthropic-ai\/sdk['"]/,
+      /from\s+['"]groq-sdk['"]/,
+      /from\s+['"]ai['"]/,
+      /from\s+['"]@ai-sdk\//,
+      /from\s+['"]@langchain\//,
+      /from\s+['"]langchain/,
+      /from\s+['"]cohere/,
+      /from\s+['"]@mistralai/,
+    ];
+    return aiImportPatterns.some(p => p.test(content));
+  }
+
+  /**
+   * Count corroboration signals for a prompt match
+   */
+  private countCorroborationSignals(
+    match: { lineStart: number; lineEnd: number; type: string; name?: string },
+    lines: string[],
+    apiCalls: Array<{ line: number; provider: string; pattern: string }>,
+    hasAIImport: boolean,
+    hasTraceableDecorator: boolean,
+  ): number {
+    let signals = 0;
+
+    // Signal 1: Messages array contains role: "system" or "user"
+    const matchContent = lines.slice(match.lineStart - 1, match.lineEnd).join('\n');
+    if (/role\s*:\s*['"](?:system|user|assistant)['"]/.test(matchContent)) {
+      signals++;
+    }
+
+    // Signal 2: File imports an AI SDK package
+    if (hasAIImport) signals++;
+
+    // Signal 3: Nearby API call site (within 50 lines)
+    const nearbyCall = apiCalls.find(c =>
+      Math.abs(c.line - match.lineStart) < 50
+    );
+    if (nearbyCall) signals++;
+
+    // Signal 4: @traceable() decorator in file
+    if (hasTraceableDecorator) signals++;
+
+    // Signal 5: Variable name strongly suggests AI prompt (not just any "prompt")
+    if (match.name) {
+      const strongNames = /system_?prompt|ai_?prompt|llm_?prompt|chat_?prompt|completion_?prompt/i;
+      if (strongNames.test(match.name)) signals++;
+    }
+
+    // Signal 6: Function name contains AI-related keywords
+    const funcName = this.findContainingFunction(lines, match.lineStart - 1);
+    if (funcName) {
+      const aiKeywords = /generate|summarize|classify|extract|embed|chat|complete|invoke|translate/i;
+      if (aiKeywords.test(funcName)) signals++;
+    }
+
+    return signals;
   }
 
   /**

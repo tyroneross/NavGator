@@ -150,8 +150,12 @@ export interface PromptScanResult {
     byCategory: Record<string, number>;
     templatesCount: number;
     withToolsCount: number;
+    /** Number of anchor-traced LLM call sites (from llm-call-tracer) */
+    tracedCallSites?: number;
   };
   warnings: PromptWarning[];
+  /** Anchor-based traced LLM calls (from llm-call-tracer). Present when tracer ran. */
+  tracedCalls?: import('../connections/llm-call-tracer.js').TracedLLMCall[];
 }
 
 export interface PromptWarning {
