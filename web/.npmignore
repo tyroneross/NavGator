@@ -1,0 +1,8 @@
+# npm package: allow .next/standalone and .next/static through
+# (web/.gitignore excludes .next/ but we need it in the npm package)
+node_modules/
+.next/cache/
+.env*
+.vercel
+*.tsbuildinfo
+next-env.d.ts

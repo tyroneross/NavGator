@@ -42,7 +42,7 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.2.0')
+  .version('0.2.1')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 
 // =============================================================================
