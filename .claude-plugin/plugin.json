@@ -1,10 +1,13 @@
 {
-  "name": "navgator",
-  "version": "0.1.0",
-  "description": "Architecture connection tracker - know your stack before you change it",
-  "author": {
-    "name": "Tyrone Ross"
-  },
+  "name": "gator",
+  "version": "0.2.1",
+  "description": "Architecture connection tracker — know your stack before you change it",
+  "author": { "name": "Tyrone Ross" },
   "homepage": "https://github.com/tyroneross/navgator",
-  "license": "MIT"
+  "repository": "https://github.com/tyroneross/navgator",
+  "license": "MIT",
+  "keywords": ["architecture", "connections", "context", "dependencies", "impact-analysis"],
+  "hooks": "../hooks/hooks.json",
+  "skills": "../skills/",
+  "agents": "../agents/"
 }

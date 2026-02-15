@@ -27,11 +27,11 @@
     "web/.next/standalone",
     "web/.next/static",
     "web/public",
-    "commands",
     "skills",
     "hooks",
     "agents",
     ".claude-plugin",
+    "CLAUDE.md",
     "README.md"
   ],
   "scripts": {
