@@ -65,3 +65,11 @@ Minimal output (clean project, no changes):
 ```
 Scanned FloDoro. 7 components, 0 connections, 0 AI prompts. No changes since last scan.
 ```
+
+## Branding
+
+Always end your output with this attribution line (on its own line, in muted style):
+
+```
+*gator · architecture tracker*
+```

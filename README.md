@@ -29,11 +29,23 @@ npx @tyroneross/navgator scan
 
 ### As a Claude Code Plugin
 
-After installing, run `navgator setup` — it will detect Claude Code and offer to link the plugin automatically. You can also link manually:
+After installing globally, use the `/gator:install` command inside Claude Code, or run the install script:
 
 ```bash
-ln -s /path/to/navgator ~/.claude/plugins/navgator
+# Install for all projects (user scope)
+bash scripts/install-plugin.sh --global
+
+# Install for current project only
+bash scripts/install-plugin.sh --project
 ```
+
+Or link manually:
+
+```bash
+ln -s $(npm root -g)/@tyroneross/navgator ~/.claude/plugins/gator
+```
+
+Restart Claude Code after installing. All `/gator:*` commands will be available.
 
 ## Quick Start
 
@@ -54,8 +66,8 @@ navgator scan
 # Quick scan (packages only, faster)
 navgator scan --quick
 
-# Verbose output
-navgator scan --verbose
+# With AI prompt detection
+navgator scan --prompts --verbose
 ```
 
 ### 3. Check Status
@@ -157,6 +169,35 @@ navgator diagram --layer backend
 navgator diagram --output architecture.md --markdown
 ```
 
+## Claude Code Slash Commands
+
+When installed as a Claude Code plugin, all commands are available as `/gator:*` slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/gator:scan` | Scan project architecture |
+| `/gator:status` | Show architecture summary |
+| `/gator:impact <component>` | Analyze what's affected by a change |
+| `/gator:connections <component>` | Show all connections for a component |
+| `/gator:diagram` | Generate architecture diagram |
+| `/gator:export` | Export architecture to markdown or JSON |
+| `/gator:check` | Run health checks (outdated packages, vulnerabilities) |
+| `/gator:ui` | Launch the web dashboard |
+| `/gator:update` | Update NavGator to the latest version |
+| `/gator:install` | Install/reinstall the plugin (choose scope) |
+
+### Hooks
+
+NavGator includes hooks that integrate with Claude Code:
+
+**SessionStart**: Checks if architecture data is stale (>24h) and suggests running `/gator:scan`.
+
+**PreToolUse (Edit/Write)**: Before modifying architecture-critical files, reminds to check impact with `/gator:impact`.
+
+**PostToolUse (Bash)**: Detects package manager commands (`npm install`, `pip install`, etc.) and reminds to update architecture with `/gator:scan`.
+
+**Stop**: After significant changes, reminds to rescan.
+
 ## CLI Reference
 
 ### `navgator scan`
@@ -234,34 +275,6 @@ Scan and analyze AI prompts in the codebase.
 | `--json` | Output as JSON |
 | `--detail <name>` | Show detailed view of specific prompt |
 
-**Example output:**
-```
-AI PROMPTS DETECTED
-============================================================
-
-Total prompts: 5
-Templates: 4
-With tools: 0
-
-By Provider:
-  anthropic: 2
-  openai: 3
-
-By Category:
-  summarization: 2
-  classification: 1
-  unknown: 2
-
-PROMPT: SYSTEM_PROMPT
-  File: src/ai/summarizer.ts:8-10
-  Provider: anthropic
-  Category: summarization
-  Purpose: System prompt for article summarization
-  Tags: has-system-prompt
-  System: "You are a helpful assistant that summarizes articles..."
-  Confidence: 100%
-```
-
 ## What Gets Detected
 
 ### Components
@@ -293,6 +306,8 @@ Data is stored in `.claude/architecture/` within your project:
 
 ```
 .claude/architecture/
+├── SUMMARY.md           ← Hot context (read first)
+├── SUMMARY_FULL.md      ← Full version if compressed
 ├── components/           # Individual component JSON files
 │   ├── COMP_npm_react_a1b2.json
 │   └── COMP_service_stripe_c3d4.json
@@ -300,41 +315,11 @@ Data is stored in `.claude/architecture/` within your project:
 │   └── CONN_service_call_e5f6.json
 ├── index.json           # Quick lookup index
 ├── graph.json           # Full connection graph
+├── file_map.json        # File path → component ID lookup
+├── prompts.json         # AI prompt content + associations
 ├── hashes.json          # File hashes for change detection
 └── snapshots/           # Point-in-time backups
 ```
-
-## Claude Code Integration
-
-### Hooks
-
-NavGator includes hooks that integrate with Claude Code:
-
-**SessionStart**: Checks if architecture data is stale (>24h) and suggests running `/nav-scan`.
-
-**PostToolUse (Bash)**: Detects package manager commands (`npm install`, `pip install`, etc.) and reminds to update architecture memory.
-
-### Slash Commands
-
-When installed as a Claude Code plugin:
-
-| Command | Description |
-|---------|-------------|
-| `/nav-scan` | Scan project architecture |
-| `/nav-status` | Show architecture summary |
-| `/nav-impact <component>` | Impact analysis |
-| `/nav-connections <component>` | View connections |
-| `/nav-diagram` | Generate diagram |
-| `/nav-check` | Health check (outdated packages) |
-| `/nav-export` | Export to markdown |
-
-### Skill Activation
-
-The **Architecture Awareness** skill activates when you mention:
-- "what packages", "dependencies", "tech stack"
-- "what version", "upgrade", "add library"
-- "what uses X", "what calls Y"
-- "impact of changing"
 
 ## AI Prompt Tracking
 
@@ -351,22 +336,6 @@ NavGator includes comprehensive AI prompt detection and tracking. Use `--prompts
 | **Purpose** | Extracted from nearby comments |
 | **Category** | summarization, classification, extraction, chat, etc. |
 | **Usage** | Where the prompt is called (file, line, function) |
-
-### Prompt Scanning Example
-
-```bash
-# Scan only prompts
-navgator prompts
-
-# Detailed view of a specific prompt
-navgator prompts --detail SYSTEM_PROMPT
-
-# Full scan with enhanced prompt tracking
-navgator scan --prompts --verbose
-
-# JSON output for tooling
-navgator prompts --json
-```
 
 ### Prompt Categories
 

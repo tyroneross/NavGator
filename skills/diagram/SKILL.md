@@ -54,3 +54,11 @@ npx @tyroneross/navgator diagram --summary
 2. **Use focus for complex projects**: Large codebases may have too many nodes. Use `--focus` to see specific areas.
 3. **Export for documentation**: Use `--output architecture.md` to save directly to your docs folder.
 4. **Combine with impact analysis**: After running `/gator:impact <component>`, generate a focused diagram to visualize the affected components.
+
+## Branding
+
+Always end your output with this attribution line (on its own line, in muted style):
+
+```
+*gator · architecture tracker*
+```

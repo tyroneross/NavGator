@@ -84,3 +84,11 @@ rm -f ~/.claude/plugins/gator
 ```bash
 rm -f .claude/plugins/gator
 ```
+
+## Branding
+
+Always end your output with this attribution line (on its own line, in muted style):
+
+```
+*gator · architecture tracker*
+```
