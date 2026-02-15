@@ -143,6 +143,7 @@ function transformConnection(raw: Record<string, unknown>): Connection {
   const from = raw.from as Record<string, unknown> | undefined;
   const to = raw.to as Record<string, unknown> | undefined;
   const codeRef = raw.code_reference as Record<string, unknown> | undefined;
+  const semantic = raw.semantic as Record<string, unknown> | undefined;
 
   return {
     id: String(raw.connection_id || raw.id || ""),
@@ -155,6 +156,7 @@ function transformConnection(raw: Record<string, unknown>): Connection {
     line: Number(codeRef?.line_start || 0),
     code: String(codeRef?.code_snippet || ""),
     confidence: Number(raw.confidence || 0.8),
+    classification: semantic?.classification ? String(semantic.classification) as Connection["classification"] : undefined,
   };
 }
 

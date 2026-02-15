@@ -11,7 +11,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 import { scan, quickScan, getScanStatus, scanPromptsOnly, formatPromptsOutput, formatPromptDetail } from '../scanner.js';
-import { loadIndex, loadAllComponents, loadAllConnections, loadGraph, getStorageStats } from '../storage.js';
+import { loadIndex, loadAllComponents, loadAllConnections, loadGraph, getStorageStats, loadFileMap } from '../storage.js';
 import { getConfig } from '../config.js';
 import {
   generateMermaidDiagram,
@@ -22,7 +22,16 @@ import {
   DiagramOptions,
 } from '../diagram.js';
 import { ArchitectureLayer } from '../types.js';
+import { computeImpact, computeSeverity } from '../impact.js';
+import { wrapInEnvelope, buildExecutiveSummary } from '../agent-output.js';
+import { getGitInfo } from '../git.js';
 import { setup, fastSetup, isSetupComplete, formatSetupStatus } from '../setup.js';
+import { resolveComponent, findCandidates } from '../resolve.js';
+import { traceDataflow, formatTraceOutput } from '../trace.js';
+import { checkRules, getBuiltinRules, loadCustomRules, formatRulesOutput } from '../rules.js';
+import { computeCoverage, formatCoverageOutput } from '../coverage.js';
+import { extractSubgraph, subgraphToMermaid } from '../subgraph.js';
+import { isSandboxMode } from '../sandbox.js';
 import { fileURLToPath } from 'url';
 import { spawn, ChildProcess } from 'child_process';
 
@@ -42,8 +51,16 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.2.1')
+  .version('0.2.2')
+  .option('--sandbox', 'Run in sandbox mode (restricts network, interactive, child processes)')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
+
+// Apply sandbox flag globally before any command runs
+program.hook('preAction', () => {
+  if (program.opts().sandbox) {
+    process.env.NAVGATOR_SANDBOX = '1';
+  }
+});
 
 // =============================================================================
 // WELCOME MENU (shown after setup or when no command provided)
@@ -272,9 +289,9 @@ program
       console.log('   Know your stack before you change it');
       console.log('');
 
-      // Offer to link as Claude Code plugin
+      // Offer to link as Claude Code plugin (skip in sandbox mode)
       const claudeDir = path.join(os.homedir(), '.claude');
-      if (fs.existsSync(claudeDir)) {
+      if (fs.existsSync(claudeDir) && !isSandboxMode()) {
         const pluginDir = path.join(claudeDir, 'plugins');
         const linkPath = path.join(pluginDir, 'navgator');
         const packageRoot = path.resolve(import.meta.dirname, '..', '..');
@@ -379,9 +396,19 @@ program
   .option('-v, --verbose', 'Show detailed output')
   .option('--clear', 'Clear existing data before scanning')
   .option('--ast', 'Use AST-based scanning (more accurate, slightly slower)')
+  .option('--track-branch', 'Capture git branch/commit in scan output')
+  .option('--json', 'Output scan results as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (options) => {
     try {
-      console.log('NavGator - Scanning architecture...\n');
+      const isAgent = !!options.agent;
+      const isJson = !!options.json || isAgent;
+
+      // Suppress console output in agent/json mode
+      const origLog = console.log;
+      if (isJson) {
+        console.log = () => {};
+      }
 
       const result = await scan(process.cwd(), {
         quick: options.quick,
@@ -390,7 +417,41 @@ program
         verbose: options.verbose,
         clearFirst: options.clear,
         useAST: options.ast,
+        trackBranch: options.trackBranch,
       });
+
+      // Restore console for output
+      if (isJson) {
+        console.log = origLog;
+      }
+
+      // JSON/Agent output mode
+      if (isJson) {
+        const jsonData: Record<string, unknown> = {
+          components_found: result.stats.components_found,
+          connections_found: result.stats.connections_found,
+          scan_duration_ms: result.stats.scan_duration_ms,
+          files_scanned: result.stats.files_scanned,
+          files_changed: result.stats.files_changed,
+          warnings_count: result.stats.warnings_count,
+          prompts_found: result.stats.prompts_found,
+        };
+        if (result.gitInfo) {
+          jsonData.git = result.gitInfo;
+        }
+        if (result.timelineEntry) {
+          jsonData.significance = result.timelineEntry.significance;
+          jsonData.triggers = result.timelineEntry.triggers;
+          jsonData.total_changes = result.timelineEntry.diff.stats.total_changes;
+        }
+
+        if (isAgent) {
+          console.log(wrapInEnvelope('scan', jsonData));
+        } else {
+          console.log(JSON.stringify(jsonData, null, 2));
+        }
+        return;
+      }
 
       console.log('\n========================================');
       console.log('SCAN COMPLETE');
@@ -457,35 +518,19 @@ program
       console.log(`\nFiles scanned: ${result.stats.files_scanned}`);
       console.log(`Scan completed in ${result.stats.scan_duration_ms}ms`);
 
-      // Auto-register project in ~/.navgator/projects.json
-      try {
-        const os = await import('os');
-        const path = await import('path');
-        const registryDir = path.join(os.homedir(), '.navgator');
-        const registryPath = path.join(registryDir, 'projects.json');
+      // Show branch info if tracking
+      if (result.gitInfo) {
+        console.log(`Branch: ${result.gitInfo.branch} @ ${result.gitInfo.commit}`);
+      }
 
-        await fs.promises.mkdir(registryDir, { recursive: true });
+      // Project registration is now handled inside the scanner (Phase 5)
 
-        let registry: { version: number; projects: Array<{ path: string; name: string; addedAt: number; lastScan: number | null }> };
-        try {
-          registry = JSON.parse(await fs.promises.readFile(registryPath, 'utf-8'));
-        } catch {
-          registry = { version: 1, projects: [] };
+      // Show timeline entry summary if available
+      if (result.timelineEntry && result.timelineEntry.diff.stats.total_changes > 0) {
+        console.log(`\nArchitecture diff: ${result.timelineEntry.significance.toUpperCase()} — ${result.timelineEntry.diff.stats.total_changes} change(s)`);
+        if (result.timelineEntry.triggers.length > 0) {
+          console.log(`  Triggers: ${result.timelineEntry.triggers.join(', ')}`);
         }
-
-        const projectRoot = process.cwd();
-        const existing = registry.projects.find(p => p.path === projectRoot);
-        if (existing) {
-          existing.lastScan = Date.now();
-        } else {
-          const dirName = projectRoot.split(path.sep).pop() || 'project';
-          const name = dirName.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).trim();
-          registry.projects.push({ path: projectRoot, name, addedAt: Date.now(), lastScan: Date.now() });
-        }
-
-        await fs.promises.writeFile(registryPath, JSON.stringify(registry, null, 2), 'utf-8');
-      } catch {
-        // Non-critical — don't fail the scan
       }
     } catch (error) {
       console.error('Scan failed:', error);
@@ -501,6 +546,7 @@ program
   .command('status')
   .description('Show architecture summary and health status')
   .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (options) => {
     try {
       const config = getConfig();
@@ -508,6 +554,11 @@ program
 
       if (!index) {
         console.log('No architecture data found. Run `navgator scan` first.');
+        return;
+      }
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('status', index));
         return;
       }
 
@@ -562,41 +613,81 @@ program
   .command('impact <component>')
   .description('Show what\'s affected if you change a component')
   .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (componentName, options) => {
     try {
       const config = getConfig();
       const components = await loadAllComponents(config);
       const connections = await loadAllConnections(config);
+      const fileMap = await loadFileMap(config);
 
-      // Find the component
-      const component = components.find(
-        (c) => c.name.toLowerCase() === componentName.toLowerCase()
-      );
+      // Resolve the component (supports name, file path, partial match)
+      const component = resolveComponent(componentName, components, fileMap);
 
       if (!component) {
         console.log(`Component "${componentName}" not found.`);
-        console.log('\nAvailable components:');
-        for (const c of components.slice(0, 10)) {
-          console.log(`  - ${c.name} (${c.type})`);
-        }
-        if (components.length > 10) {
-          console.log(`  ... and ${components.length - 10} more`);
+        const candidates = findCandidates(componentName, components);
+        if (candidates.length > 0) {
+          console.log('\nDid you mean:');
+          for (const name of candidates) {
+            console.log(`  - ${name}`);
+          }
+        } else {
+          console.log('\nAvailable components:');
+          for (const c of components.slice(0, 10)) {
+            console.log(`  - ${c.name} (${c.type})`);
+          }
+          if (components.length > 10) {
+            console.log(`  ... and ${components.length - 10} more`);
+          }
         }
         return;
       }
 
-      // Find connections TO this component
+      // Compute impact with severity
+      const impact = computeImpact(component, components, connections);
+
+      // Also compute incoming/outgoing for display
       const incoming = connections.filter(
         (c) => c.to.component_id === component.component_id
       );
-
-      // Find connections FROM this component
       const outgoing = connections.filter(
         (c) => c.from.component_id === component.component_id
       );
 
+      if (options.agent) {
+        console.log(wrapInEnvelope('impact', {
+          component: { name: component.name, type: component.type, layer: component.role.layer },
+          severity: impact.severity,
+          summary: impact.summary,
+          total_files_affected: impact.total_files_affected,
+          affected: impact.affected.map((a) => ({
+            name: a.component.name,
+            type: a.component.type,
+            impact_type: a.impact_type,
+            change_required: a.change_required,
+          })),
+          incoming_count: incoming.length,
+          outgoing_count: outgoing.length,
+        }));
+        return;
+      }
+
       if (options.json) {
-        console.log(JSON.stringify({ component, incoming, outgoing }, null, 2));
+        console.log(JSON.stringify({
+          component,
+          severity: impact.severity,
+          summary: impact.summary,
+          total_files_affected: impact.total_files_affected,
+          affected: impact.affected.map((a) => ({
+            name: a.component.name,
+            type: a.component.type,
+            impact_type: a.impact_type,
+            change_required: a.change_required,
+          })),
+          incoming,
+          outgoing,
+        }, null, 2));
         return;
       }
 
@@ -606,6 +697,8 @@ program
       console.log(`Type: ${component.type}`);
       console.log(`Layer: ${component.role.layer}`);
       console.log(`Purpose: ${component.role.purpose}`);
+      console.log(`Severity: ${impact.severity.toUpperCase()}`);
+      console.log(`Summary: ${impact.summary}`);
 
       if (incoming.length > 0) {
         console.log(`\nINCOMING CONNECTIONS (${incoming.length}):`);
@@ -613,7 +706,6 @@ program
         for (const conn of incoming) {
           const lineInfo = conn.code_reference.line_start ? `:${conn.code_reference.line_start}` : '';
           console.log(`  ${conn.code_reference.file}${lineInfo}`);
-          // Use symbol as primary identifier
           if (conn.code_reference.symbol) {
             const symbolType = conn.code_reference.symbol_type ? ` (${conn.code_reference.symbol_type})` : '';
             console.log(`    Symbol: ${conn.code_reference.symbol}${symbolType}`);
@@ -633,6 +725,16 @@ program
           console.log(`  → ${target?.name || conn.to.component_id}`);
           console.log(`    Type: ${conn.connection_type}`);
           console.log('');
+        }
+      }
+
+      // Show transitive impacts if any
+      const transitiveAffected = impact.affected.filter((a) => a.impact_type === 'transitive');
+      if (transitiveAffected.length > 0) {
+        console.log(`\nTRANSITIVE IMPACT (${transitiveAffected.length}):`);
+        for (const a of transitiveAffected) {
+          console.log(`  ~ ${a.component.name} (${a.component.type})`);
+          console.log(`    ${a.change_required}`);
         }
       }
 
@@ -660,6 +762,7 @@ program
   .command('connections <component>')
   .description('Show all connections for a specific component')
   .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .option('--incoming', 'Show only incoming connections')
   .option('--outgoing', 'Show only outgoing connections')
   .action(async (componentName, options) => {
@@ -667,13 +770,19 @@ program
       const config = getConfig();
       const components = await loadAllComponents(config);
       const connections = await loadAllConnections(config);
+      const fileMap = await loadFileMap(config);
 
-      const component = components.find(
-        (c) => c.name.toLowerCase() === componentName.toLowerCase()
-      );
+      const component = resolveComponent(componentName, components, fileMap);
 
       if (!component) {
         console.log(`Component "${componentName}" not found.`);
+        const candidates = findCandidates(componentName, components);
+        if (candidates.length > 0) {
+          console.log('\nDid you mean:');
+          for (const name of candidates) {
+            console.log(`  - ${name}`);
+          }
+        }
         return;
       }
 
@@ -684,6 +793,11 @@ program
       const outgoing = options.incoming
         ? []
         : connections.filter((c) => c.from.component_id === component.component_id);
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('connections', { component, incoming, outgoing }));
+        return;
+      }
 
       if (options.json) {
         console.log(JSON.stringify({ component, incoming, outgoing }, null, 2));
@@ -728,6 +842,7 @@ program
   .option('-t, --type <type>', 'Filter by type')
   .option('-l, --layer <layer>', 'Filter by layer')
   .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (options) => {
     try {
       const config = getConfig();
@@ -738,6 +853,11 @@ program
       }
       if (options.layer) {
         components = components.filter((c) => c.role.layer === options.layer);
+      }
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('list', components));
+        return;
       }
 
       if (options.json) {
@@ -803,17 +923,24 @@ program
       let diagram: string;
 
       if (options.focus) {
-        // Find component by name
+        // Resolve component by name, file path, or partial match
         const components = await loadAllComponents(config);
-        const component = components.find(
-          (c) => c.name.toLowerCase() === options.focus.toLowerCase()
-        );
+        const fileMap = await loadFileMap(config);
+        const component = resolveComponent(options.focus, components, fileMap);
 
         if (!component) {
           console.error(`Component "${options.focus}" not found.`);
-          console.log('Available components:');
-          for (const c of components.slice(0, 10)) {
-            console.log(`  - ${c.name}`);
+          const candidates = findCandidates(options.focus, components);
+          if (candidates.length > 0) {
+            console.log('Did you mean:');
+            for (const name of candidates) {
+              console.log(`  - ${name}`);
+            }
+          } else {
+            console.log('Available components:');
+            for (const c of components.slice(0, 10)) {
+              console.log(`  - ${c.name}`);
+            }
           }
           process.exit(1);
         }
@@ -867,6 +994,11 @@ program
   .option('--no-open', 'Don\'t open browser automatically')
   .action(async (options) => {
     try {
+      if (isSandboxMode()) {
+        console.log('Web UI not available in sandbox mode.');
+        return;
+      }
+
       const port = parseInt(options.port, 10);
       const projectPath = options.path
         ? (await import('path')).resolve(options.path)
@@ -920,10 +1052,16 @@ program
   .description('Scan and display AI prompts in the codebase')
   .option('-v, --verbose', 'Show full prompt content')
   .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .option('--detail <name>', 'Show detailed view of a specific prompt')
   .action(async (options) => {
     try {
       const result = await scanPromptsOnly(process.cwd());
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('prompts', result));
+        return;
+      }
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -980,6 +1118,350 @@ program
       }
     } catch (error) {
       console.error('Prompt scan failed:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// HISTORY COMMAND
+// =============================================================================
+
+program
+  .command('history')
+  .description('Show architecture change timeline')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .option('-n, --limit <n>', 'Show last N entries', '20')
+  .option('-s, --significance <level>', 'Filter by significance (major, minor, patch)')
+  .action(async (options) => {
+    try {
+      const { loadTimeline, formatTimeline } = await import('../diff.js');
+      const config = getConfig();
+      const timeline = await loadTimeline(config);
+
+      if (options.agent) {
+        let entries = [...timeline.entries].reverse();
+        if (options.significance) {
+          entries = entries.filter((e) => e.significance === options.significance);
+        }
+        entries = entries.slice(0, parseInt(options.limit, 10));
+        console.log(wrapInEnvelope('history', entries));
+        return;
+      }
+
+      const output = formatTimeline(timeline, {
+        limit: parseInt(options.limit, 10),
+        significance: options.significance,
+        json: options.json,
+      });
+
+      console.log(output);
+    } catch (error) {
+      console.error('Failed to load history:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// DIFF COMMAND
+// =============================================================================
+
+program
+  .command('diff [entry-id]')
+  .description('Show detailed architecture diff (most recent if no ID given)')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (entryId, options) => {
+    try {
+      const { loadTimeline, formatDiffSummary } = await import('../diff.js');
+      const config = getConfig();
+      const timeline = await loadTimeline(config);
+
+      if (timeline.entries.length === 0) {
+        console.log('No timeline entries found. Run `navgator scan` at least twice to see diffs.');
+        return;
+      }
+
+      let entry;
+      if (entryId) {
+        entry = timeline.entries.find((e) => e.id === entryId);
+        if (!entry) {
+          console.error(`Timeline entry "${entryId}" not found.`);
+          console.log('Available entries:');
+          for (const e of timeline.entries.slice(-5).reverse()) {
+            console.log(`  ${e.id}  (${new Date(e.timestamp).toLocaleString()})`);
+          }
+          process.exit(1);
+        }
+      } else {
+        entry = timeline.entries[timeline.entries.length - 1];
+      }
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('diff', entry));
+        return;
+      }
+
+      console.log(formatDiffSummary(entry, options.json));
+    } catch (error) {
+      console.error('Failed to load diff:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// PROJECTS COMMAND
+// =============================================================================
+
+program
+  .command('projects')
+  .description('List all registered NavGator projects')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (options) => {
+    try {
+      const { listProjects, formatProjectsList } = await import('../projects.js');
+      const projects = await listProjects();
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('projects', projects));
+        return;
+      }
+
+      console.log(formatProjectsList(projects, options.json));
+    } catch (error) {
+      console.error('Failed to list projects:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// SUMMARY COMMAND (Agent-oriented executive summary)
+// =============================================================================
+
+program
+  .command('summary')
+  .description('Output executive summary with risks, blockers, and next actions (JSON)')
+  .option('--agent', 'Wrap output in agent envelope')
+  .action(async (options) => {
+    try {
+      const config = getConfig();
+      const components = await loadAllComponents(config);
+      const connections = await loadAllConnections(config);
+      const projectPath = process.cwd();
+
+      // Try to get git info for context
+      const gitInfo = await getGitInfo(projectPath) || undefined;
+
+      const summary = buildExecutiveSummary(components, connections, projectPath, gitInfo);
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('summary', summary));
+      } else {
+        console.log(JSON.stringify(summary, null, 2));
+      }
+    } catch (error) {
+      console.error('Summary generation failed:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// TRACE COMMAND
+// =============================================================================
+
+program
+  .command('trace <component>')
+  .description('Trace dataflow paths from a component through the architecture')
+  .option('--direction <dir>', 'Trace direction: forward, backward, both', 'both')
+  .option('--depth <n>', 'Maximum trace depth', '5')
+  .option('--classification <class>', 'Filter by semantic classification')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (componentName, options) => {
+    try {
+      const config = getConfig();
+      const components = await loadAllComponents(config);
+      const connections = await loadAllConnections(config);
+      const fileMap = await loadFileMap(config);
+
+      const component = resolveComponent(componentName, components, fileMap);
+
+      if (!component) {
+        console.log(`Component "${componentName}" not found.`);
+        const candidates = findCandidates(componentName, components);
+        if (candidates.length > 0) {
+          console.log('\nDid you mean:');
+          for (const name of candidates) {
+            console.log(`  - ${name}`);
+          }
+        }
+        return;
+      }
+
+      const result = traceDataflow(component, components, connections, {
+        direction: options.direction as 'forward' | 'backward' | 'both',
+        maxDepth: parseInt(options.depth, 10),
+        filterClassification: options.classification,
+      });
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('trace', result));
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.log(formatTraceOutput(result));
+    } catch (error) {
+      console.error('Trace failed:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// RULES COMMAND
+// =============================================================================
+
+program
+  .command('rules')
+  .description('Check architecture rules and show violations')
+  .option('--severity <level>', 'Filter by severity: error, warning, info')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (options) => {
+    try {
+      const config = getConfig();
+      const components = await loadAllComponents(config);
+      const connections = await loadAllConnections(config);
+
+      const allRules = [...getBuiltinRules(), ...loadCustomRules()];
+      const violations = checkRules(components, connections, allRules);
+
+      if (options.agent) {
+        const data = {
+          violations,
+          summary: {
+            total: violations.length,
+            errors: violations.filter(v => v.severity === 'error').length,
+            warnings: violations.filter(v => v.severity === 'warning').length,
+            info: violations.filter(v => v.severity === 'info').length,
+          },
+          rules_checked: allRules.length,
+        };
+        console.log(wrapInEnvelope('rules', data));
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          violations: options.severity
+            ? violations.filter(v => v.severity === options.severity)
+            : violations,
+          summary: {
+            total: violations.length,
+            errors: violations.filter(v => v.severity === 'error').length,
+            warnings: violations.filter(v => v.severity === 'warning').length,
+            info: violations.filter(v => v.severity === 'info').length,
+          },
+        }, null, 2));
+        return;
+      }
+
+      console.log(formatRulesOutput(violations, options.severity));
+    } catch (error) {
+      console.error('Rules check failed:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// COVERAGE COMMAND
+// =============================================================================
+
+program
+  .command('coverage')
+  .description('Show architecture tracking coverage and identify gaps')
+  .option('--gaps-only', 'Show only gaps')
+  .option('--json', 'Output as JSON')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (options) => {
+    try {
+      const config = getConfig();
+      const components = await loadAllComponents(config);
+      const connections = await loadAllConnections(config);
+      const fileMap = await loadFileMap(config);
+      const projectRoot = process.cwd();
+
+      const report = await computeCoverage(components, connections, projectRoot, fileMap);
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('coverage', report));
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(report, null, 2));
+        return;
+      }
+
+      console.log(formatCoverageOutput(report, !!options.gapsOnly));
+    } catch (error) {
+      console.error('Coverage check failed:', error);
+      process.exit(1);
+    }
+  });
+
+// =============================================================================
+// SUBGRAPH COMMAND
+// =============================================================================
+
+program
+  .command('subgraph')
+  .description('Extract a focused subgraph from the architecture')
+  .option('--focus <components>', 'Comma-separated component names to focus on')
+  .option('--layer <layers>', 'Comma-separated layers to include')
+  .option('--classification <class>', 'Filter connections by semantic classification')
+  .option('--depth <n>', 'BFS depth from focus components', '2')
+  .option('--max-nodes <n>', 'Maximum nodes in subgraph', '50')
+  .option('--format <fmt>', 'Output format: json, mermaid', 'json')
+  .option('--json', 'Output as JSON (same as --format json)')
+  .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+  .action(async (options) => {
+    try {
+      const config = getConfig();
+      const components = await loadAllComponents(config);
+      const connections = await loadAllConnections(config);
+
+      const subgraphOpts = {
+        focus: options.focus ? options.focus.split(',').map((s: string) => s.trim()) : undefined,
+        layers: options.layer
+          ? options.layer.split(',').map((s: string) => s.trim()) as ArchitectureLayer[]
+          : undefined,
+        classification: options.classification,
+        depth: parseInt(options.depth, 10),
+        maxNodes: parseInt(options.maxNodes, 10),
+      };
+
+      const result = extractSubgraph(components, connections, subgraphOpts);
+
+      if (options.agent) {
+        console.log(wrapInEnvelope('subgraph', result));
+        return;
+      }
+
+      if (options.format === 'mermaid') {
+        console.log(subgraphToMermaid(result));
+        return;
+      }
+
+      // Default: JSON
+      console.log(JSON.stringify(result, null, 2));
+    } catch (error) {
+      console.error('Subgraph extraction failed:', error);
       process.exit(1);
     }
   });

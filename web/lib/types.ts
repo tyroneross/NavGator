@@ -92,6 +92,34 @@ export interface Connection {
   line: number;
   code: string;
   confidence?: number;
+  classification?: "production" | "admin" | "analytics" | "test" | "dev-only" | "migration" | "unknown";
+}
+
+// =============================================================================
+// RULES
+// =============================================================================
+
+export interface RuleViolation {
+  rule_id: string;
+  severity: "error" | "warning" | "info";
+  component?: string;
+  message: string;
+  suggestion?: string;
+}
+
+export interface RulesApiResponse {
+  success: boolean;
+  data?: {
+    violations: RuleViolation[];
+    summary: {
+      total: number;
+      errors: number;
+      warnings: number;
+      info: number;
+    };
+  };
+  error?: string;
+  source: "scan" | "cache";
 }
 
 // =============================================================================

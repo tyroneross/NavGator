@@ -15,11 +15,14 @@ import {
   Brain,
   Loader2,
   Info,
+  Shield,
 } from "lucide-react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useStatus, useComponents, usePrompts } from "@/lib/hooks"
 import type { View } from "@/app/page"
+import type { RulesApiResponse } from "@/lib/types"
 
 interface StatusOverviewProps {
   onSelectComponent: (name: string) => void
@@ -62,6 +65,19 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
   const { components, summary: componentsSummary, isLoading: componentsLoading } = useComponents({ autoFetch: true })
   const { calls, prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
 
+  // Fetch rules data
+  const [rulesSummary, setRulesSummary] = useState<{ total: number; errors: number; warnings: number; info: number } | null>(null)
+  useEffect(() => {
+    fetch("/api/rules")
+      .then((r) => r.json())
+      .then((json: RulesApiResponse) => {
+        if (json.success && json.data) {
+          setRulesSummary(json.data.summary)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   const isLoading = statusLoading || componentsLoading || promptsLoading
 
   // Count LLM issues for the stat card badge
@@ -98,6 +114,13 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
       icon: Brain,
       trend: llmIssueCount > 0 ? `${llmIssueCount} issues` : undefined,
       view: "llm" as View,
+    },
+    {
+      label: "Rules",
+      value: rulesSummary ? rulesSummary.total.toString() : "—",
+      icon: Shield,
+      trend: rulesSummary?.errors ? `${rulesSummary.errors} errors` : undefined,
+      view: "rules" as View,
     },
     {
       label: "Health",
@@ -165,7 +188,7 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
       )}
 
       {/* Stats Grid - Clickable Navigation */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {stats.map((stat) => (
           <button
             key={stat.label}

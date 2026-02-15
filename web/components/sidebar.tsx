@@ -8,6 +8,7 @@ import {
   Share2,
   Settings,
   Brain,
+  Shield,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { View } from "@/app/page"
@@ -24,6 +25,7 @@ const navItems = [
   { id: "impact" as const, label: "Impact", icon: Target },
   { id: "diagram" as const, label: "Diagram", icon: Share2 },
   { id: "llm" as const, label: "LLM Tracking", icon: Brain },
+  { id: "rules" as const, label: "Rules", icon: Shield },
 ]
 
 export function Sidebar({ activeView, setActiveView }: SidebarProps) {

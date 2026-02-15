@@ -9,12 +9,13 @@ import { ConnectionsPanel } from "@/components/connections-panel"
 import { ImpactAnalysis } from "@/components/impact-analysis"
 import { DiagramView } from "@/components/diagram-view"
 import { LLMTrackingPanel } from "@/components/llm-tracking-panel"
+import { RulesPanel } from "@/components/rules-panel"
 import { SettingsPanel } from "@/components/settings-panel"
 import { useProjects } from "@/lib/hooks"
 import { useActiveProject } from "@/lib/project-context"
 import { useStatus } from "@/lib/hooks"
 
-export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "settings"
+export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "rules" | "settings"
 
 export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>("overview")
@@ -86,6 +87,7 @@ export default function Dashboard() {
             <DiagramView selectedComponent={selectedComponent} />
           )}
           {activeView === "llm" && <LLMTrackingPanel />}
+          {activeView === "rules" && <RulesPanel />}
           {activeView === "settings" && <SettingsPanel />}
         </main>
       </div>

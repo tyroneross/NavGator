@@ -44,6 +44,16 @@ const connectionTypeColors: Record<string, string> = {
   "other": "bg-muted text-muted-foreground border-muted",
 }
 
+const classificationColors: Record<string, string> = {
+  production: "text-gray-600",
+  test: "text-amber-600",
+  admin: "text-blue-600",
+  analytics: "text-green-600",
+  "dev-only": "text-purple-600",
+  migration: "text-orange-600",
+  unknown: "text-gray-400",
+}
+
 const connectionTypeLabels: Record<string, string> = {
   "service-call": "Service Calls",
   "api-calls-db": "DB Queries",
@@ -182,12 +192,19 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
                         {connection.to}
                       </button>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={cn("text-xs", connectionTypeColors[connection.type])}
-                    >
-                      {connection.type.replace(/-/g, " ")}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      {connection.classification && connection.classification !== "unknown" && (
+                        <span className={cn("text-xs", classificationColors[connection.classification] || "text-gray-400")}>
+                          {connection.classification}
+                        </span>
+                      )}
+                      <Badge
+                        variant="outline"
+                        className={cn("text-xs", connectionTypeColors[connection.type])}
+                      >
+                        {connection.type.replace(/-/g, " ")}
+                      </Badge>
+                    </div>
                   </div>
 
                   <div className="mt-3 rounded-md bg-secondary/50 p-3">

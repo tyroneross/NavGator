@@ -14,6 +14,8 @@ export { NavGatorConfig, StorageMode };
 // DEFAULT CONFIGURATION
 // =============================================================================
 
+export const SCHEMA_VERSION = '1.0.0';
+
 const DEFAULT_CONFIG: NavGatorConfig = {
   storageMode: 'local',
   storagePath: '.claude/architecture',
@@ -92,6 +94,7 @@ export function loadConfig(): NavGatorConfig {
     scanDepth: getEnvString('NAVGATOR_SCAN_DEPTH', DEFAULT_CONFIG.scanDepth, ['shallow', 'deep']),
     defaultConfidenceThreshold: getEnvNumber('NAVGATOR_CONFIDENCE', DEFAULT_CONFIG.defaultConfidenceThreshold),
     maxResultsPerQuery: getEnvNumber('NAVGATOR_MAX_RESULTS', DEFAULT_CONFIG.maxResultsPerQuery),
+    sandbox: getEnvBoolean('NAVGATOR_SANDBOX', false),
   };
 }
 
@@ -183,6 +186,21 @@ export function getFileMapPath(config: NavGatorConfig, projectRoot?: string): st
  */
 export function getPromptsPath(config: NavGatorConfig, projectRoot?: string): string {
   return path.join(getStoragePath(config, projectRoot), 'prompts.json');
+}
+
+/**
+ * Get path to timeline file
+ */
+export function getTimelinePath(config: NavGatorConfig, projectRoot?: string): string {
+  return path.join(getStoragePath(config, projectRoot), 'timeline.json');
+}
+
+/**
+ * Get max number of timeline entries to retain
+ * Reads NAVGATOR_HISTORY_LIMIT env var (default 100)
+ */
+export function getHistoryLimit(): number {
+  return getEnvNumber('NAVGATOR_HISTORY_LIMIT', 100);
 }
 
 // =============================================================================

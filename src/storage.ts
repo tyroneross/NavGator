@@ -21,6 +21,8 @@ import {
   NavHashes,
   FileHashRecord,
   FileChangeResult,
+  TimelineEntry,
+  GitInfo,
 } from './types.js';
 import {
   getConfig,
@@ -37,6 +39,7 @@ import {
   ensureStorageDirectories,
   isValidComponentId,
   isValidConnectionId,
+  SCHEMA_VERSION,
 } from './config.js';
 
 // =============================================================================
@@ -278,6 +281,7 @@ export async function buildIndex(
   const connections = await loadAllConnections(cfg, projectRoot);
 
   const index: ArchitectureIndex = {
+    schema_version: SCHEMA_VERSION,
     version: '1.0.0',
     last_scan: Date.now(),
     project_path: projectRoot || process.cwd(),
@@ -426,6 +430,7 @@ export async function buildGraph(
   }));
 
   const graph: ConnectionGraph = {
+    schema_version: SCHEMA_VERSION,
     nodes,
     edges,
     metadata: {
@@ -482,10 +487,40 @@ export async function buildFileMap(
     }
   }
 
+  const wrapped = {
+    schema_version: SCHEMA_VERSION,
+    generated_at: Date.now(),
+    files: fileMap,
+  };
+
   const fileMapPath = getFileMapPath(cfg, root);
-  await fs.promises.writeFile(fileMapPath, JSON.stringify(fileMap, null, 2), 'utf-8');
+  await fs.promises.writeFile(fileMapPath, JSON.stringify(wrapped, null, 2), 'utf-8');
 
   return fileMap;
+}
+
+/**
+ * Load the file map (file path → component ID)
+ */
+export async function loadFileMap(
+  config?: NavGatorConfig,
+  projectRoot?: string
+): Promise<Record<string, string>> {
+  const cfg = config || getConfig();
+  const root = projectRoot || process.cwd();
+  const fileMapPath = getFileMapPath(cfg, root);
+
+  if (!fs.existsSync(fileMapPath)) {
+    return {};
+  }
+
+  try {
+    const content = await fs.promises.readFile(fileMapPath, 'utf-8');
+    const parsed = JSON.parse(content);
+    return parsed.files || {};
+  } catch {
+    return {};
+  }
 }
 
 // =============================================================================
@@ -504,7 +539,13 @@ export async function savePromptScan(
   const root = projectRoot || process.cwd();
   ensureStorageDirectories(cfg, root);
   const promptsPath = getPromptsPath(cfg, root);
-  await fs.promises.writeFile(promptsPath, JSON.stringify(promptData, null, 2), 'utf-8');
+
+  // Spread schema_version into prompt output
+  const output = typeof promptData === 'object' && promptData !== null
+    ? { schema_version: SCHEMA_VERSION, ...(promptData as Record<string, unknown>) }
+    : promptData;
+
+  await fs.promises.writeFile(promptsPath, JSON.stringify(output, null, 2), 'utf-8');
 }
 
 // =============================================================================
@@ -526,7 +567,9 @@ export async function buildSummary(
   config?: NavGatorConfig,
   projectRoot?: string,
   promptScan?: { prompts: Array<{ name: string; location: { file: string; lineStart: number }; provider?: { provider: string; model?: string }; category?: string; messages: Array<{ role: string; content: string }> }>; summary: { totalPrompts: number } },
-  projectMetadata?: Partial<import('./types.js').ProjectMetadata>
+  projectMetadata?: Partial<import('./types.js').ProjectMetadata>,
+  latestDiff?: TimelineEntry,
+  gitInfo?: GitInfo
 ): Promise<string> {
   const cfg = config || getConfig();
   const root = projectRoot || process.cwd();
@@ -551,6 +594,9 @@ export async function buildSummary(
   lines.push('# Architecture Summary');
   lines.push(`> NavGator auto-generated | Scanned: ${now}`);
   lines.push(`> ${components.length} components | ${connections.length} connections | ${aiComponents.length} AI providers`);
+  if (gitInfo) {
+    lines.push(`> Branch: **${gitInfo.branch}** @ \`${gitInfo.commit}\``);
+  }
   lines.push('');
 
   // Project metadata (agent orientation)
@@ -647,31 +693,38 @@ export async function buildSummary(
     lines.push('');
   }
 
-  // Delta — compare with previous summary
+  // Delta — use structured diff from timeline if available, else fall back to naive comparison
   const summaryPath = getSummaryPath(cfg, root);
-  if (fs.existsSync(summaryPath)) {
-    try {
-      const prev = await fs.promises.readFile(summaryPath, 'utf-8');
-      const prevNames = new Set<string>();
-      for (const match of prev.matchAll(/^- \*\*(.+?)\*\*/gm)) {
-        prevNames.add(match[1]);
-      }
-      const currentNames = new Set(components.map((c) => c.name));
-      const added = components.filter((c) => !prevNames.has(c.name));
-      const removed = [...prevNames].filter((n) => !currentNames.has(n));
+  if (latestDiff && latestDiff.diff.stats.total_changes > 0) {
+    const { formatDiffForSummary } = await import('./diff.js');
+    const diffLines = formatDiffForSummary(latestDiff);
+    lines.push(...diffLines);
+  } else if (!latestDiff) {
+    // Fallback: naive text-based delta for backwards compatibility (no timeline entry provided)
+    if (fs.existsSync(summaryPath)) {
+      try {
+        const prev = await fs.promises.readFile(summaryPath, 'utf-8');
+        const prevNames = new Set<string>();
+        for (const match of prev.matchAll(/^- \*\*(.+?)\*\*/gm)) {
+          prevNames.add(match[1]);
+        }
+        const currentNames = new Set(components.map((c) => c.name));
+        const added = components.filter((c) => !prevNames.has(c.name));
+        const removed = [...prevNames].filter((n) => !currentNames.has(n));
 
-      if (added.length > 0 || removed.length > 0) {
-        lines.push('## Changes Since Last Scan');
-        for (const c of added) {
-          lines.push(`- Added: \`${c.name}\` (${c.role.layer})`);
+        if (added.length > 0 || removed.length > 0) {
+          lines.push('## Changes Since Last Scan');
+          for (const c of added) {
+            lines.push(`- Added: \`${c.name}\` (${c.role.layer})`);
+          }
+          for (const name of removed) {
+            lines.push(`- Removed: \`${name}\``);
+          }
+          lines.push('');
         }
-        for (const name of removed) {
-          lines.push(`- Removed: \`${name}\``);
-        }
-        lines.push('');
+      } catch {
+        // First scan or parse error — skip delta
       }
-    } catch {
-      // First scan or parse error — skip delta
     }
   }
 
@@ -699,6 +752,7 @@ export async function buildSummary(
   lines.push(`- Full index: \`index.json\``);
   lines.push(`- Connection graph: \`graph.json\``);
   lines.push(`- File map: \`file_map.json\``);
+  lines.push(`- Architecture timeline: \`timeline.json\``);
   if (promptScan && promptScan.prompts.length > 0) {
     lines.push(`- Prompts: \`prompts.json\` (${promptScan.prompts.length} prompts, full content)`);
   }
@@ -872,11 +926,18 @@ export async function createSnapshot(
   const components = await loadAllComponents(cfg, projectRoot);
   const connections = await loadAllConnections(cfg, projectRoot);
 
+  // Build component_id → name lookup for connection name resolution
+  const componentIdToName = new Map<string, string>();
+  for (const c of components) {
+    componentIdToName.set(c.component_id, c.name);
+  }
+
   const timestamp = Date.now();
   const snapshotId = `SNAP_${new Date(timestamp).toISOString().replace(/[-:T.Z]/g, '').slice(0, 14)}`;
 
   const snapshot = {
     snapshot_id: snapshotId,
+    snapshot_version: '2.0' as const,
     timestamp,
     reason,
     components: components.map((c) => ({
@@ -885,12 +946,17 @@ export async function createSnapshot(
       type: c.type,
       version: c.version,
       status: c.status,
+      layer: c.role.layer,
+      critical: c.role.critical,
     })),
     connections: connections.map((c) => ({
       connection_id: c.connection_id,
       from: c.from.component_id,
       to: c.to.component_id,
       type: c.connection_type,
+      from_name: componentIdToName.get(c.from.component_id) || '?',
+      to_name: componentIdToName.get(c.to.component_id) || '?',
+      file: c.code_reference?.file,
     })),
     stats: {
       total_components: components.length,

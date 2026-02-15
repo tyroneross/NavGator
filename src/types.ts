@@ -205,6 +205,12 @@ export interface ArchitectureConnection {
     code_snippet?: string;      // Actual code (truncated to ~100 chars)
   };
 
+  // Semantic classification (from classify.ts)
+  semantic?: {
+    classification: 'production' | 'admin' | 'analytics' | 'test' | 'dev-only' | 'migration' | 'unknown';
+    confidence: number;         // 0-1
+  };
+
   // Metadata
   description?: string;         // "Creates user in database"
   detected_from: string;        // Detection method/pattern that found this
@@ -270,6 +276,7 @@ export interface ProjectMetadata {
 }
 
 export interface ArchitectureIndex {
+  schema_version?: string;      // NavGator schema version (e.g., '1.0.0')
   version: string;              // Index format version
   last_scan: number;            // Unix timestamp of last scan
   project_path: string;         // Absolute path to project root
@@ -307,6 +314,7 @@ export interface ArchitectureIndex {
  * Full connection graph (for visualization/analysis)
  */
 export interface ConnectionGraph {
+  schema_version?: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
   metadata: {
@@ -364,14 +372,27 @@ export interface DetectionPattern {
 }
 
 // =============================================================================
+// GIT INFO
+// =============================================================================
+
+export interface GitInfo {
+  branch: string;
+  commit: string;
+  commitFull?: string;
+}
+
+// =============================================================================
 // IMPACT ANALYSIS TYPES
 // =============================================================================
+
+export type ImpactSeverity = 'critical' | 'high' | 'medium' | 'low';
 
 /**
  * Impact analysis result
  */
 export interface ImpactAnalysis {
   component: ArchitectureComponent;
+  severity: ImpactSeverity;
   affected: AffectedComponent[];
   total_files_affected: number;
   summary: string;
@@ -404,6 +425,7 @@ export interface NavGatorConfig {
   scanDepth: 'shallow' | 'deep';
   defaultConfidenceThreshold: number;
   maxResultsPerQuery: number;
+  sandbox?: boolean;
 }
 
 // =============================================================================
@@ -491,4 +513,165 @@ export function toCompactConnection(c: ArchitectureConnection): CompactConnectio
     st: c.code_reference.symbol_type,
     line: c.code_reference.line_start,
   };
+}
+
+// =============================================================================
+// SNAPSHOT v2 TYPES
+// =============================================================================
+
+export interface SnapshotComponent {
+  component_id: string;
+  name: string;
+  type: ComponentType;
+  version?: string;
+  status: ComponentStatus;
+  layer: ArchitectureLayer;
+  critical: boolean;
+}
+
+export interface SnapshotConnection {
+  connection_id: string;
+  from: string;          // component_id
+  to: string;            // component_id
+  type: ConnectionType;
+  from_name: string;     // resolved component name
+  to_name: string;       // resolved component name
+  file?: string;         // code_reference.file
+}
+
+export interface Snapshot {
+  snapshot_id: string;
+  snapshot_version: '2.0';
+  timestamp: number;
+  reason?: string;
+  git?: GitInfo;
+  components: SnapshotComponent[];
+  connections: SnapshotConnection[];
+  stats: {
+    total_components: number;
+    total_connections: number;
+  };
+}
+
+// =============================================================================
+// TIMELINE & DIFF TYPES
+// =============================================================================
+
+export type DiffSignificance = 'major' | 'minor' | 'patch';
+
+export type DiffTrigger =
+  | 'layer-change'          // database/infra layer added/removed
+  | 'high-churn'            // >20% components changed
+  | 'new-layer'             // entirely new layer introduced
+  | 'new-package'           // new packages added
+  | 'connection-change'     // connections added/removed
+  | 'version-bump'          // major semver bump
+  | 'metadata-only';        // version patches, status changes
+
+export interface ComponentChange {
+  name: string;
+  type: ComponentType;
+  layer: ArchitectureLayer;
+  version?: string;
+}
+
+export interface ComponentModification {
+  name: string;
+  type: ComponentType;
+  changes: string[];       // e.g. ["version: 1.0.0 → 2.0.0", "status: active → outdated"]
+}
+
+export interface ConnectionChange {
+  from_name: string;
+  to_name: string;
+  type: ConnectionType;
+  file?: string;
+}
+
+export interface DiffResult {
+  components: {
+    added: ComponentChange[];
+    removed: ComponentChange[];
+    modified: ComponentModification[];
+  };
+  connections: {
+    added: ConnectionChange[];
+    removed: ConnectionChange[];
+  };
+  stats: {
+    total_changes: number;
+    components_before: number;
+    components_after: number;
+    connections_before: number;
+    connections_after: number;
+  };
+}
+
+export interface TimelineEntry {
+  id: string;              // TL_YYYYMMDDHHmmss
+  timestamp: number;
+  significance: DiffSignificance;
+  triggers: DiffTrigger[];
+  diff: DiffResult;
+  snapshot_id?: string;    // the post-scan snapshot id
+  git?: GitInfo;           // branch/commit when --track-branch used
+}
+
+export interface Timeline {
+  version: '1.0';
+  project_path: string;
+  entries: TimelineEntry[];
+}
+
+// =============================================================================
+// AGENT OUTPUT TYPES
+// =============================================================================
+
+/**
+ * Stable envelope format for machine consumers (Codex, agents, CI)
+ */
+export interface AgentEnvelope<T> {
+  schema_version: string;
+  command: string;
+  timestamp: number;
+  data: T;
+}
+
+/**
+ * Executive summary for agent orientation
+ */
+export interface ExecutiveSummary {
+  project_path: string;
+  timestamp: number;
+  git?: GitInfo;
+  risks: SummaryRisk[];
+  blockers: SummaryBlocker[];
+  next_actions: SummaryAction[];
+  stats: {
+    total_components: number;
+    total_connections: number;
+    outdated_count: number;
+    vulnerable_count: number;
+  };
+  components: CompactComponent[];
+  connections: CompactConnection[];
+}
+
+export interface SummaryRisk {
+  type: string;
+  severity: ImpactSeverity;
+  component?: string;
+  message: string;
+}
+
+export interface SummaryBlocker {
+  type: string;
+  component?: string;
+  message: string;
+}
+
+export interface SummaryAction {
+  action: string;
+  reason: string;
+  command?: string;
 }

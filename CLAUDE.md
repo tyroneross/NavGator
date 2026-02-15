@@ -50,6 +50,43 @@ Load on demand when you need full detail about a specific component or connectio
 | `/gator:check` | Run health checks (outdated packages, vulnerabilities) |
 | `/gator:ui` | Launch the web dashboard |
 | `/gator:update` | Update NavGator to the latest version |
+| `navgator history` | Show architecture change timeline |
+| `navgator diff [id]` | Show detailed diff (most recent if no ID) |
+| `navgator projects` | List all registered NavGator projects |
+| `navgator summary` | Executive summary with risks, blockers, next actions (JSON) |
+
+## Agent/Machine Output
+
+All commands that support `--json` also support `--agent`, which wraps output in a stable envelope:
+
+```json
+{
+  "command": "scan",
+  "data": { ... },
+  "schema_version": "1.0.0",
+  "timestamp": 1234567890
+}
+```
+
+### Scan Flags
+
+| Flag | Purpose |
+|------|---------|
+| `--track-branch` | Capture git branch/commit in scan output (opt-in) |
+| `--json` | Output scan results as JSON (stats, changes, git info) |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
+
+### Schema Version
+
+All JSON files (`index.json`, `graph.json`, `file_map.json`, `prompts.json`) include a `schema_version` field (currently `1.0.0`). The `file_map.json` is wrapped as `{ schema_version, generated_at, files: { ... } }`.
+
+### Branch Tracking
+
+When `--track-branch` is used during scan:
+- `timeline.json` entries include a `git` field with `{ branch, commit }`
+- `SUMMARY.md` header shows `> Branch: **main** @ \`abc1234\``
+- `navgator history` shows `[branch@commit]` tags on entries
+- `navgator projects` shows the last tracked branch
 
 ## Architecture Data Location
 
@@ -63,6 +100,7 @@ All data lives in `<project-root>/.claude/architecture/`:
 ├── file_map.json       ← File path → component ID lookup
 ├── prompts.json        ← Full prompt content + LLM associations
 ├── hashes.json         ← File change detection
+├── timeline.json       ← Architecture change history (diffs between scans)
 ├── components/         ← One JSON per component
 └── connections/        ← One JSON per connection
 ```

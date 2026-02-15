@@ -12,7 +12,9 @@ import {
   ScanWarning,
   FileChangeResult,
   ProjectMetadata,
+  GitInfo,
 } from './types.js';
+import { getGitInfo } from './git.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
 import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
@@ -38,6 +40,18 @@ import {
   formatFileChangeSummary,
 } from './storage.js';
 import { getConfig, ensureStorageDirectories, NavGatorConfig } from './config.js';
+import {
+  computeArchitectureDiff,
+  classifySignificance,
+  loadLatestSnapshot,
+  buildCurrentSnapshot,
+  saveTimelineEntry,
+  generateTimelineId,
+} from './diff.js';
+import { registerProject } from './projects.js';
+import { TimelineEntry } from './types.js';
+import { classifyAllConnections } from './classify.js';
+import { isSandboxMode } from './sandbox.js';
 
 // =============================================================================
 // SCAN OPTIONS
@@ -51,6 +65,7 @@ export interface ScanOptions {
   incremental?: boolean;     // Only scan changed files (uses hashes)
   useAST?: boolean;          // Use AST-based scanning (more accurate, slightly slower)
   prompts?: boolean;         // Enhanced prompt scanning with full content
+  trackBranch?: boolean;     // Opt-in: capture git branch/commit in scan output
 }
 
 // =============================================================================
@@ -69,6 +84,8 @@ export async function scan(
   warnings: ScanWarning[];
   fileChanges?: FileChangeResult;
   promptScan?: PromptScanResult;
+  timelineEntry?: TimelineEntry;
+  gitInfo?: GitInfo;
   stats: {
     scan_duration_ms: number;
     components_found: number;
@@ -82,6 +99,25 @@ export async function scan(
   const startTime = Date.now();
   const root = projectRoot || process.cwd();
   const config = getConfig();
+
+  // Sandbox mode: restrict scan behavior
+  if (isSandboxMode()) {
+    options.quick = true;
+    options.prompts = false;
+    options.useAST = false;
+  }
+
+  // Opt-in branch tracking
+  let gitInfo: GitInfo | undefined;
+  if (options.trackBranch) {
+    const info = await getGitInfo(root);
+    if (info) {
+      gitInfo = info;
+      if (options.verbose) {
+        console.log(`Branch tracking: ${info.branch} @ ${info.commit}`);
+      }
+    }
+  }
 
   if (options.verbose) {
     console.log(`Scanning project: ${root}`);
@@ -306,6 +342,32 @@ export async function scan(
   }
 
   // ==========================================================================
+  // Phase 3.5: Semantic Classification
+  // ==========================================================================
+
+  if (allConnections.length > 0 && allComponents.length > 0) {
+    if (options.verbose) {
+      console.log('Phase 3.5: Classifying connections...');
+    }
+    const semantics = classifyAllConnections(allConnections, allComponents);
+    for (const conn of allConnections) {
+      const info = semantics.get(conn.connection_id);
+      if (info) {
+        conn.semantic = info;
+      }
+    }
+    if (options.verbose) {
+      const byClass = new Map<string, number>();
+      for (const [, info] of semantics) {
+        byClass.set(info.classification, (byClass.get(info.classification) || 0) + 1);
+      }
+      for (const [cls, count] of byClass) {
+        console.log(`  ${cls}: ${count}`);
+      }
+    }
+  }
+
+  // ==========================================================================
   // Phase 4: Deduplicate & Store
   // ==========================================================================
 
@@ -336,9 +398,12 @@ export async function scan(
   const uniqueConnections = Array.from(connectionMap.values());
 
   // Snapshot previous state before overwriting (for change tracking)
+  // Also load the pre-scan snapshot for diff computation
+  let preScanSnapshot = null;
   if (!options.clearFirst) {
     try {
       await createSnapshot('pre-scan', config, root);
+      preScanSnapshot = await loadLatestSnapshot(config, root);
     } catch {
       // No previous data to snapshot — first scan
     }
@@ -353,23 +418,83 @@ export async function scan(
   await storeComponents(uniqueComponents, config, root);
   await storeConnections(uniqueConnections, config, root);
 
+  // ==========================================================================
+  // Phase 5: Architecture Diff
+  // ==========================================================================
+
+  let timelineEntry: TimelineEntry | undefined;
+
+  if (options.verbose) {
+    console.log('Phase 5: Computing architecture diff...');
+  }
+
+  try {
+    const currentSnapshot = await buildCurrentSnapshot(config, root);
+    const diff = computeArchitectureDiff(preScanSnapshot, currentSnapshot);
+    const { significance, triggers } = classifySignificance(diff);
+
+    timelineEntry = {
+      id: generateTimelineId(),
+      timestamp: Date.now(),
+      significance,
+      triggers,
+      diff,
+      snapshot_id: currentSnapshot.snapshot_id,
+      git: gitInfo,
+    };
+
+    // Only save timeline entry if there are changes (or first scan)
+    if (diff.stats.total_changes > 0 || !preScanSnapshot) {
+      await saveTimelineEntry(timelineEntry, config, root);
+    }
+
+    if (options.verbose) {
+      console.log(`  Significance: ${significance}`);
+      console.log(`  Changes: ${diff.stats.total_changes}`);
+      if (triggers.length > 0) {
+        console.log(`  Triggers: ${triggers.join(', ')}`);
+      }
+    }
+  } catch {
+    // Diff computation is non-critical
+    if (options.verbose) {
+      console.log('  Diff computation skipped (non-critical error)');
+    }
+  }
+
   // Build index, graph, file map, and summary
   await buildIndex(config, root, projectMetadata);
   await buildGraph(config, root);
   await buildFileMap(config, root);
-  await buildSummary(config, root, promptScanResultHolder, projectMetadata);
+  await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo);
 
   // Persist prompt scan results if available
   if (promptScanResultHolder) {
     await savePromptScan(promptScanResultHolder, config, root);
   }
 
+  // Register project in global registry
+  try {
+    await registerProject(
+      root,
+      {
+        components: uniqueComponents.length,
+        connections: uniqueConnections.length,
+        prompts: promptScanResultHolder?.prompts.length ?? 0,
+      },
+      timelineEntry?.significance,
+      gitInfo
+    );
+  } catch {
+    // Non-critical
+  }
+
   // ==========================================================================
-  // Phase 5: Save File Hashes
+  // Phase 6: Save File Hashes
   // ==========================================================================
 
   if (options.verbose) {
-    console.log('Phase 5: Saving file hashes...');
+    console.log('Phase 6: Saving file hashes...');
   }
 
   const fileHashes = await computeFileHashes(sourceFiles, root);
@@ -395,6 +520,8 @@ export async function scan(
     warnings: allWarnings,
     fileChanges,
     promptScan: promptScanResultHolder,
+    timelineEntry,
+    gitInfo,
     stats: {
       scan_duration_ms: duration,
       components_found: uniqueComponents.length,
