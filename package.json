@@ -31,6 +31,7 @@
     "hooks",
     "agents",
     ".claude-plugin",
+    "scripts/install-plugin.sh",
     "CLAUDE.md",
     "README.md"
   ],
@@ -47,7 +48,8 @@
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist web/.next",
     "prepublishOnly": "npm run clean && npm run build",
-    "link:local": "npm run build && npm link"
+    "link:local": "npm run build && npm link",
+    "install-plugin": "bash scripts/install-plugin.sh --global"
   },
   "keywords": [
     "claude-code",
