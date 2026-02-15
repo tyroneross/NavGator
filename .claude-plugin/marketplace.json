@@ -10,7 +10,7 @@
       "name": "gator",
       "source": "./",
       "description": "Architecture connection tracker for Claude Code — know your stack before you change it",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "author": { "name": "Tyrone Ross" },
       "homepage": "https://github.com/tyroneross/navgator#readme",
       "repository": "https://github.com/tyroneross/navgator",
