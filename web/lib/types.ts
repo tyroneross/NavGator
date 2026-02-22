@@ -224,3 +224,83 @@ export interface ScanRequest {
   projectPath?: string;
   forceRescan?: boolean;
 }
+
+// =============================================================================
+// COVERAGE
+// =============================================================================
+
+export interface CoverageGap {
+  type: "unmapped-file" | "low-confidence-connection" | "zero-consumers" | "no-outgoing";
+  target: string;
+  message: string;
+}
+
+export interface CoverageReport {
+  overall_confidence: number;
+  component_coverage: {
+    total_files_in_project: number;
+    files_mapped_to_components: number;
+    coverage_percent: number;
+  };
+  connection_coverage: {
+    total_connections: number;
+    by_confidence: { high: number; medium: number; low: number };
+    by_classification: Record<string, number>;
+  };
+  gaps: CoverageGap[];
+}
+
+export interface CoverageApiResponse {
+  success: boolean;
+  data?: CoverageReport;
+  error?: string;
+  source: "scan" | "cache";
+}
+
+// =============================================================================
+// TRACE
+// =============================================================================
+
+export interface TraceStep {
+  component: { id: string; n: string; t: string; l: string };
+  connection?: { id: string; f: string; t: string; tp: string };
+  file?: string;
+  line?: number;
+}
+
+export interface TracePath {
+  steps: TraceStep[];
+  classification?: string;
+}
+
+export interface TraceResult {
+  query: string;
+  paths: TracePath[];
+  components_touched: string[];
+  layers_crossed: string[];
+}
+
+export interface TraceApiResponse {
+  success: boolean;
+  data?: TraceResult;
+  error?: string;
+  source: "scan" | "cache";
+}
+
+// =============================================================================
+// SUBGRAPH
+// =============================================================================
+
+export interface SubgraphResult {
+  components: Array<{ id: string; n: string; t: string; l: string }>;
+  connections: Array<{ id: string; f: string; t: string; tp: string }>;
+  stats: { nodes: number; edges: number };
+  mermaid?: string;
+}
+
+export interface SubgraphApiResponse {
+  success: boolean;
+  data?: SubgraphResult;
+  error?: string;
+  source: "scan" | "cache";
+}

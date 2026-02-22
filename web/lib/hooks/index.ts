@@ -6,3 +6,6 @@ export { useSettings } from "./use-settings";
 export type { AllSettings, ScanConfig, DetectionConfig, NotificationConfig, DisplayConfig } from "./use-settings";
 export { useProjects } from "./use-projects";
 export type { RegisteredProject } from "./use-projects";
+export { useCoverage } from "./use-coverage";
+export { useTrace } from "./use-trace";
+export { useSubgraph } from "./use-subgraph";

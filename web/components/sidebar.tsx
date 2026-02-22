@@ -9,6 +9,9 @@ import {
   Settings,
   Brain,
   Shield,
+  BarChart3,
+  Route,
+  Network,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { View } from "@/app/page"
@@ -26,6 +29,9 @@ const navItems = [
   { id: "diagram" as const, label: "Diagram", icon: Share2 },
   { id: "llm" as const, label: "LLM Tracking", icon: Brain },
   { id: "rules" as const, label: "Rules", icon: Shield },
+  { id: "coverage" as const, label: "Coverage", icon: BarChart3 },
+  { id: "trace" as const, label: "Trace", icon: Route },
+  { id: "subgraph" as const, label: "Subgraph", icon: Network },
 ]
 
 export function Sidebar({ activeView, setActiveView }: SidebarProps) {

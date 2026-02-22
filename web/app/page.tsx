@@ -10,12 +10,15 @@ import { ImpactAnalysis } from "@/components/impact-analysis"
 import { DiagramView } from "@/components/diagram-view"
 import { LLMTrackingPanel } from "@/components/llm-tracking-panel"
 import { RulesPanel } from "@/components/rules-panel"
+import { CoveragePanel } from "@/components/coverage-panel"
+import { TracePanel } from "@/components/trace-panel"
+import { SubgraphPanel } from "@/components/subgraph-panel"
 import { SettingsPanel } from "@/components/settings-panel"
 import { useProjects } from "@/lib/hooks"
 import { useActiveProject } from "@/lib/project-context"
 import { useStatus } from "@/lib/hooks"
 
-export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "rules" | "settings"
+export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "rules" | "coverage" | "trace" | "subgraph" | "settings"
 
 export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>("overview")
@@ -88,6 +91,9 @@ export default function Dashboard() {
           )}
           {activeView === "llm" && <LLMTrackingPanel />}
           {activeView === "rules" && <RulesPanel />}
+          {activeView === "coverage" && <CoveragePanel />}
+          {activeView === "trace" && <TracePanel />}
+          {activeView === "subgraph" && <SubgraphPanel />}
           {activeView === "settings" && <SettingsPanel />}
         </main>
       </div>
