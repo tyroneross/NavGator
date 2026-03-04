@@ -30,3 +30,6 @@ coverage/
 .env.*.local
 web/node_modules/
 web/.next/
+
+# Bookmark snapshot data
+.claude/bookmarks/

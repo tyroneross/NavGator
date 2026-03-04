@@ -9,5 +9,6 @@
   "keywords": ["architecture", "connections", "context", "dependencies", "impact-analysis"],
   "hooks": "../hooks/hooks.json",
   "skills": "../skills/",
-  "agents": "../agents/"
+  "agents": "../agents/",
+  "mcpServers": "../.mcp.json"
 }
