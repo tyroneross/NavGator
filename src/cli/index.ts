@@ -27,6 +27,7 @@ import { wrapInEnvelope, buildExecutiveSummary } from '../agent-output.js';
 import { getGitInfo } from '../git.js';
 import { setup, fastSetup, isSetupComplete, formatSetupStatus } from '../setup.js';
 import { resolveComponent, findCandidates } from '../resolve.js';
+import { resolveFileConnections, formatFileImpact, formatFileConnections } from '../file-resolve.js';
 import { traceDataflow, formatTraceOutput } from '../trace.js';
 import { checkRules, getBuiltinRules, loadCustomRules, formatRulesOutput } from '../rules.js';
 import { computeCoverage, formatCoverageOutput } from '../coverage.js';
@@ -625,6 +626,34 @@ program
       const component = resolveComponent(componentName, components, fileMap);
 
       if (!component) {
+        // Fall back to file-level import analysis
+        const { looksLikeFilePath } = await import('../file-resolve.js');
+        if (looksLikeFilePath(componentName)) {
+          const fc = resolveFileConnections(componentName, connections);
+          if (fc) {
+            if (options.agent) {
+              console.log(wrapInEnvelope('impact', {
+                file: fc.filePath,
+                imported_by: fc.importedBy.length,
+                imports: fc.imports.length,
+                other_connections: fc.otherFrom.length + fc.otherTo.length,
+                importers: fc.importedBy.map(c => ({
+                  file: c.from.component_id.replace('FILE:', ''),
+                  line: c.code_reference?.line_start,
+                  symbol: c.code_reference?.symbol,
+                })),
+              }));
+              return;
+            }
+            if (options.json) {
+              console.log(JSON.stringify(fc, null, 2));
+              return;
+            }
+            console.log(formatFileImpact(fc));
+            return;
+          }
+        }
+
         console.log(`Component "${componentName}" not found.`);
         const candidates = findCandidates(componentName, components);
         if (candidates.length > 0) {
@@ -775,6 +804,24 @@ program
       const component = resolveComponent(componentName, components, fileMap);
 
       if (!component) {
+        // Fall back to file-level connections
+        const { looksLikeFilePath } = await import('../file-resolve.js');
+        if (looksLikeFilePath(componentName)) {
+          const fc = resolveFileConnections(componentName, connections);
+          if (fc) {
+            if (options.agent) {
+              console.log(wrapInEnvelope('connections', fc));
+              return;
+            }
+            if (options.json) {
+              console.log(JSON.stringify(fc, null, 2));
+              return;
+            }
+            console.log(formatFileConnections(fc));
+            return;
+          }
+        }
+
         console.log(`Component "${componentName}" not found.`);
         const candidates = findCandidates(componentName, components);
         if (candidates.length > 0) {

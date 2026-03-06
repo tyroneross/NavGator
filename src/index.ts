@@ -103,6 +103,13 @@ export { toCompactComponent, toCompactConnection } from './types.js';
 // Resolve
 export { resolveComponent, findCandidates } from './resolve.js';
 
+// File-level resolution
+export { resolveFileConnections, looksLikeFilePath, formatFileImpact, formatFileConnections } from './file-resolve.js';
+export type { FileConnections } from './file-resolve.js';
+
+// Import scanner
+export { scanImports } from './scanners/connections/import-scanner.js';
+
 // Classify
 export { classifyConnection, classifyAllConnections } from './classify.js';
 export type { SemanticClassification, SemanticInfo } from './classify.js';

@@ -24,6 +24,7 @@ import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
 import { traceLLMCalls, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 import { scanSwiftCode } from './scanners/swift/code-scanner.js';
+import { scanImports } from './scanners/connections/import-scanner.js';
 import {
   storeComponents,
   storeConnections,
@@ -137,7 +138,7 @@ export async function scan(
 
   const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py,swift,h,m}', {
     cwd: root,
-    ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '__pycache__/**', 'venv/**', '.git/**', '.build/**', 'DerivedData/**', '.swiftpm/**', 'Pods/**'],
+    ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/__pycache__/**', '**/venv/**', '**/.git/**', '**/.build/**', '**/DerivedData/**', '**/.swiftpm/**', '**/Pods/**', '**/coverage/**'],
   });
 
   let fileChanges: FileChangeResult | undefined;
@@ -251,6 +252,21 @@ export async function scan(
       allComponents.push(...serviceResult.components);
       allConnections.push(...serviceResult.connections);
       allWarnings.push(...serviceResult.warnings);
+    }
+
+    // File-level import graph (TS/JS local imports)
+    if (options.verbose) console.log('  - Scanning file imports...');
+    try {
+      const importResult = await scanImports(root, sourceFiles);
+      allConnections.push(...importResult.connections);
+      if (options.verbose) {
+        console.log(`    Found ${importResult.connections.length} file-level imports`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Import scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
     }
 
     // Swift code analysis (runtime deps, protocols, state, LLM calls)
