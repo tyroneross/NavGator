@@ -1,7 +1,7 @@
 {
   "name": "gator",
   "version": "0.2.2",
-  "description": "Architecture connection tracker — know your stack before you change it",
+  "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
   "author": { "name": "Tyrone Ross" },
   "homepage": "https://github.com/tyroneross/navgator",
   "repository": "https://github.com/tyroneross/navgator",
