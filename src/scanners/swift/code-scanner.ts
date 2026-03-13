@@ -20,6 +20,7 @@ import {
   generateConnectionId,
   ProjectMetadata,
 } from '../../types.js';
+import { scanSwiftUIViews } from './swiftui-scanner.js';
 
 // =============================================================================
 // TYPES
@@ -61,6 +62,14 @@ interface LLMApiCall {
   file: string;
   line: number;
   symbol: string;
+  snippet: string;
+}
+
+interface ActorIsolationHit {
+  type: 'main-actor' | 'nonisolated' | 'actor-declaration' | 'task-modifier' | 'task-spawn';
+  name: string;
+  file: string;
+  line: number;
   snippet: string;
 }
 
@@ -286,6 +295,136 @@ export async function scanSwiftCode(projectRoot: string): Promise<ScanResult & {
     }
   }
 
+  // ---- Actor isolation tracking ----
+  const actorHits = scanActorIsolation(files);
+  const actorComponents = new Map<string, string>(); // name -> component_id
+
+  for (const hit of actorHits) {
+    if (hit.type === 'actor-declaration') {
+      // Create component for actor declaration
+      const compId = generateComponentId('component', hit.name);
+      actorComponents.set(hit.name, compId);
+      components.push({
+        component_id: compId,
+        name: hit.name,
+        type: 'component',
+        role: { purpose: `Actor: ${hit.name}`, layer: 'backend', critical: false },
+        source: { detection_method: 'auto', config_files: [], confidence: 0.9 },
+        connects_to: [],
+        connected_from: [],
+        status: 'active',
+        tags: ['swift', 'actor-isolation', 'actor-declaration'],
+        metadata: { actorType: 'actor', file: hit.file, line: hit.line },
+        timestamp,
+        last_updated: timestamp,
+      });
+
+      connections.push({
+        connection_id: generateConnectionId('other'),
+        from: { component_id: compId, location: { file: hit.file, line: hit.line } },
+        to: { component_id: compId },
+        connection_type: 'other',
+        code_reference: {
+          file: hit.file,
+          symbol: hit.name,
+          symbol_type: 'class',
+          line_start: hit.line,
+          code_snippet: hit.snippet.slice(0, 100),
+        },
+        description: `Actor declaration: ${hit.name}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.9,
+        timestamp,
+        last_verified: timestamp,
+      });
+    } else if (hit.type === 'main-actor') {
+      // Add tag to existing component or create new one
+      const compId = generateComponentId('component', hit.name);
+      let comp = components.find(c => c.component_id === compId);
+      if (!comp) {
+        comp = {
+          component_id: compId,
+          name: hit.name,
+          type: 'component',
+          role: { purpose: `@MainActor: ${hit.name}`, layer: 'backend', critical: false },
+          source: { detection_method: 'auto', config_files: [], confidence: 0.9 },
+          connects_to: [],
+          connected_from: [],
+          status: 'active',
+          tags: ['swift', 'actor-isolation', 'main-actor'],
+          metadata: { actorType: '@MainActor', file: hit.file, line: hit.line },
+          timestamp,
+          last_updated: timestamp,
+        };
+        components.push(comp);
+      } else {
+        if (!comp.tags.includes('actor-isolation')) comp.tags.push('actor-isolation');
+        if (!comp.tags.includes('main-actor')) comp.tags.push('main-actor');
+      }
+
+      connections.push({
+        connection_id: generateConnectionId('other'),
+        from: { component_id: compId, location: { file: hit.file, line: hit.line } },
+        to: { component_id: compId },
+        connection_type: 'other',
+        code_reference: {
+          file: hit.file,
+          symbol: hit.name,
+          symbol_type: 'class',
+          line_start: hit.line,
+          code_snippet: hit.snippet.slice(0, 100),
+        },
+        description: `@MainActor isolation: ${hit.name}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.9,
+        timestamp,
+        last_verified: timestamp,
+      });
+    } else if (hit.type === 'nonisolated') {
+      // Create connection for nonisolated member
+      const compId = generateComponentId('component', hit.name);
+      connections.push({
+        connection_id: generateConnectionId('other'),
+        from: { component_id: compId, location: { file: hit.file, line: hit.line } },
+        to: { component_id: compId },
+        connection_type: 'other',
+        code_reference: {
+          file: hit.file,
+          symbol: hit.name,
+          symbol_type: 'function',
+          line_start: hit.line,
+          code_snippet: hit.snippet.slice(0, 100),
+        },
+        description: `nonisolated member: ${hit.name}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.85,
+        timestamp,
+        last_verified: timestamp,
+      });
+    } else if (hit.type === 'task-modifier' || hit.type === 'task-spawn') {
+      // Create connection for task spawning
+      const compId = generateComponentId('component', hit.name);
+      connections.push({
+        connection_id: generateConnectionId('other'),
+        from: { component_id: compId, location: { file: hit.file, line: hit.line } },
+        to: { component_id: compId },
+        connection_type: 'other',
+        code_reference: {
+          file: hit.file,
+          symbol: hit.name,
+          symbol_type: 'function',
+          line_start: hit.line,
+          code_snippet: hit.snippet.slice(0, 100),
+        },
+        description: `${hit.type === 'task-modifier' ? '.task modifier' : 'Task spawning'} in ${hit.name}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.85,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
+  }
+
   // ---- LLM API calls ----
   const llmCalls = scanLLMCalls(files);
   for (const call of llmCalls) {
@@ -401,6 +540,11 @@ export async function scanSwiftCode(projectRoot: string): Promise<ScanResult & {
       last_verified: timestamp,
     });
   }
+
+  // ---- SwiftUI view composition & navigation ----
+  const swiftuiResult = scanSwiftUIViews(files);
+  components.push(...swiftuiResult.components);
+  connections.push(...swiftuiResult.connections);
 
   // ---- Build project metadata ----
   const projectMeta = buildProjectMetadata(files, frameworkImports, projectRoot, fragileKeys, entitlementReqs);
@@ -732,6 +876,88 @@ function scanFrameworkImports(files: SwiftFileInfo[]): { framework: string; file
     seen.add(r.framework);
     return true;
   });
+}
+
+// =============================================================================
+// ACTOR ISOLATION DETECTION
+// =============================================================================
+
+function scanActorIsolation(files: SwiftFileInfo[]): ActorIsolationHit[] {
+  const hits: ActorIsolationHit[] = [];
+
+  for (const file of files) {
+    for (let i = 0; i < file.lines.length; i++) {
+      const line = file.lines[i];
+      const trimmed = line.trim();
+
+      // Skip comments
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+
+      // Match: @MainActor class/struct/func/var
+      const mainActorMatch = line.match(/@MainActor\s+(?:(?:public|private|internal|open|final|static)\s+)*(?:class|struct|func|var)\s+(\w+)/);
+      if (mainActorMatch) {
+        hits.push({
+          type: 'main-actor',
+          name: mainActorMatch[1],
+          file: file.relativePath,
+          line: i + 1,
+          snippet: trimmed,
+        });
+      }
+
+      // Match: nonisolated func/var
+      const nonisolatedMatch = line.match(/nonisolated\s+(?:(?:public|private|internal|open|static)\s+)*(?:func|var)\s+(\w+)/);
+      if (nonisolatedMatch) {
+        hits.push({
+          type: 'nonisolated',
+          name: nonisolatedMatch[1],
+          file: file.relativePath,
+          line: i + 1,
+          snippet: trimmed,
+        });
+      }
+
+      // Match: actor MyActor { (standalone actor declarations)
+      const actorDeclMatch = line.match(/^\s*(?:(?:public|private|internal|open|final|@\w+)\s+)*actor\s+(\w+)\s*(?:<[^>]*>)?\s*(?::\s*[^{]+)?\s*\{/);
+      if (actorDeclMatch) {
+        hits.push({
+          type: 'actor-declaration',
+          name: actorDeclMatch[1],
+          file: file.relativePath,
+          line: i + 1,
+          snippet: trimmed,
+        });
+      }
+
+      // Match: .task { } (SwiftUI view modifier)
+      const taskModifierMatch = line.match(/\.task\s*\{/);
+      if (taskModifierMatch) {
+        const name = extractNearestSymbol(file.lines, i) || `task_${file.relativePath}:${i + 1}`;
+        hits.push({
+          type: 'task-modifier',
+          name,
+          file: file.relativePath,
+          line: i + 1,
+          snippet: trimmed,
+        });
+      }
+
+      // Match: Task { } or Task.detached { }
+      const taskSpawnMatch = line.match(/Task\s*(?:\.detached\s*)?\{/);
+      if (taskSpawnMatch) {
+        const name = extractNearestSymbol(file.lines, i) || `task_spawn_${file.relativePath}:${i + 1}`;
+        hits.push({
+          type: 'task-spawn',
+          name,
+          file: file.relativePath,
+          line: i + 1,
+          snippet: trimmed,
+        });
+      }
+    }
+  }
+
+  return hits;
 }
 
 // =============================================================================

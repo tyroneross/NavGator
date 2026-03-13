@@ -94,7 +94,7 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 async function enrichProject(project: RegisteredProject): Promise<ProjectWithStatus> {
-  const indexPath = path.join(project.path, ".claude", "architecture", "index.json");
+  const indexPath = path.join(project.path, ".navgator", "architecture", "index.json");
   try {
     const content = await fs.readFile(indexPath, "utf-8");
     const index = JSON.parse(content);

@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
       process.env.NAVGATOR_PROJECT_PATH ||
       process.cwd().replace(/\/web$/, "");
 
-    const componentsDir = path.join(root, ".claude", "architecture", "components");
-    const connectionsDir = path.join(root, ".claude", "architecture", "connections");
+    const componentsDir = path.join(root, ".navgator", "architecture", "components");
+    const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
 
     // Load components
     const components = await loadJsonDir(componentsDir);

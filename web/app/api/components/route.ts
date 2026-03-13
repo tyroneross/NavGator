@@ -112,7 +112,7 @@ async function loadComponentData(
     process.cwd().replace(/\/web$/, "");
 
   // Try to load from NavGator storage
-  const componentsDir = path.join(root, ".claude", "architecture", "components");
+  const componentsDir = path.join(root, ".navgator", "architecture", "components");
 
   try {
     const files = await fs.readdir(componentsDir);

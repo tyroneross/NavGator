@@ -1,7 +1,7 @@
 /**
  * API Route: /api/settings
  *
- * Loads and saves NavGator settings to .claude/settings.json
+ * Loads and saves NavGator settings to .navgator/settings.json
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -94,7 +94,7 @@ function getSettingsPath(projectPath?: string | null): string {
     projectPath ||
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
-  return path.join(root, ".claude", "settings.json");
+  return path.join(root, ".navgator", "settings.json");
 }
 
 async function loadSettings(

@@ -30,7 +30,7 @@ Load on demand when you need full detail about a specific component or connectio
 
 **Always read `SUMMARY.md` at the start of a session.** It's located at:
 ```
-<project-root>/.claude/architecture/SUMMARY.md
+<project-root>/.navgator/architecture/SUMMARY.md
 ```
 
 **Before editing tracked files:** If you're about to edit a file that belongs to a tracked component, read the component's detail file first. The architecture-check hook will remind you.
@@ -90,9 +90,9 @@ When `--track-branch` is used during scan:
 
 ## Architecture Data Location
 
-All data lives in `<project-root>/.claude/architecture/`:
+All data lives in `<project-root>/.navgator/architecture/`:
 ```
-.claude/architecture/
+.navgator/architecture/
 ├── SUMMARY.md          ← Read this first (hot context)
 ├── SUMMARY_FULL.md     ← Full version if compressed
 ├── index.json          ← Master index

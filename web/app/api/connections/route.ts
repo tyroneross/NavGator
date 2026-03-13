@@ -108,7 +108,7 @@ async function loadConnectionData(
     process.cwd().replace(/\/web$/, "");
 
   // Try to load from NavGator storage
-  const connectionsDir = path.join(root, ".claude", "architecture", "connections");
+  const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
 
   try {
     const files = await fs.readdir(connectionsDir);

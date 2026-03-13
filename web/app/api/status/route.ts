@@ -73,7 +73,7 @@ async function loadStatusData(projectPath?: string | null): Promise<ProjectStatu
   const root = projectPath ||
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
-  const indexPath = path.join(root, ".claude", "architecture", "index.json");
+  const indexPath = path.join(root, ".navgator", "architecture", "index.json");
 
   try {
     const content = await fs.readFile(indexPath, "utf-8");

@@ -185,7 +185,7 @@ export function getBuiltinRules(): ArchitectureRule[] {
 }
 
 /**
- * JSON format for custom rules in .claude/architecture/rules.json
+ * JSON format for custom rules in .navgator/architecture/rules.json
  */
 interface CustomRuleJSON {
   id: string;
@@ -204,11 +204,11 @@ interface CustomRuleJSON {
 }
 
 /**
- * Load custom rules from .claude/architecture/rules.json
+ * Load custom rules from .navgator/architecture/rules.json
  */
 export function loadCustomRules(projectRoot?: string): ArchitectureRule[] {
   const root = projectRoot || process.cwd();
-  const rulesPath = path.join(root, '.claude', 'architecture', 'rules.json');
+  const rulesPath = path.join(root, '.navgator', 'architecture', 'rules.json');
 
   if (!fs.existsSync(rulesPath)) return [];
 

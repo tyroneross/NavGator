@@ -293,6 +293,61 @@ export async function scan(
           message: `Swift code scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         });
       }
+
+      // Xcode project analysis (.pbxproj + storyboards)
+      try {
+        const { findXcodeProject } = await import('./scanners/packages/swift.js');
+        const pbxprojPath = findXcodeProject(root);
+
+        if (pbxprojPath) {
+          if (options.verbose) console.log('  - Scanning Xcode project...');
+          const { parseXcodeProject, mapTargetToComponent, mapSourceMembership } = await import('./scanners/xcode/pbxproj-parser.js');
+          const xcodeData = parseXcodeProject(pbxprojPath);
+          const timestamp = Date.now();
+
+          for (const target of xcodeData.targets) {
+            const comp = mapTargetToComponent(target, timestamp);
+            allComponents.push(comp);
+            const memberConns = mapSourceMembership(target, comp.component_id, timestamp);
+            allConnections.push(...memberConns);
+          }
+
+          // Enrich project metadata with Xcode target info
+          if (projectMetadata) {
+            projectMetadata.targets = xcodeData.targets.map(t => ({
+              name: t.name,
+              type: t.type,
+              dependencies: t.frameworks,
+            }));
+            projectMetadata.xcodeProject = {
+              path: pbxprojPath,
+              targets: xcodeData.targets.map(t => ({
+                name: t.name,
+                type: t.type,
+                bundleId: t.bundleId,
+              })),
+            };
+          }
+
+          if (options.verbose) {
+            console.log(`    Xcode: ${xcodeData.targets.length} targets`);
+          }
+        }
+
+        // Storyboard/XIB scanning
+        const { scanStoryboards } = await import('./scanners/xcode/storyboard-scanner.js');
+        const storyboardResult = await scanStoryboards(root);
+        allComponents.push(...storyboardResult.components);
+        allConnections.push(...storyboardResult.connections);
+        if (options.verbose && storyboardResult.components.length > 0) {
+          console.log(`    Storyboards: ${storyboardResult.components.length} VCs, ${storyboardResult.connections.length} segues`);
+        }
+      } catch (error) {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Xcode project scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
     }
 
     // AI prompts & LLM call tracing

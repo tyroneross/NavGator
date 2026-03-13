@@ -5,7 +5,7 @@ node_modules/
 dist/
 
 # Architecture data (generated per-project)
-.claude/architecture/
+.navgator/architecture/
 
 # IDE
 .idea/

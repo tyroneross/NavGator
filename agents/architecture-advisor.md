@@ -42,12 +42,12 @@ When advising on architecture:
 
 1. First, check if NavGator has scanned the project:
    ```bash
-   ls -la .claude/architecture/
+   ls -la .navgator/architecture/
    ```
 
 2. If scanned, read the index for quick overview:
    ```bash
-   cat .claude/architecture/index.json
+   cat .navgator/architecture/index.json
    ```
 
 3. For specific impact analysis:

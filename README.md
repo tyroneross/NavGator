@@ -302,10 +302,10 @@ Scan and analyze AI prompts in the codebase.
 
 ## Storage
 
-Data is stored in `.claude/architecture/` within your project:
+Data is stored in `.navgator/architecture/` within your project:
 
 ```
-.claude/architecture/
+.navgator/architecture/
 ├── SUMMARY.md           ← Hot context (read first)
 ├── SUMMARY_FULL.md      ← Full version if compressed
 ├── components/           # Individual component JSON files
@@ -376,7 +376,7 @@ Without `ts-morph`, NavGator uses regex-based scanning which is faster but may m
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NAVGATOR_MODE` | Storage mode: `local` or `shared` | `local` |
-| `NAVGATOR_PATH` | Custom storage path | `.claude/architecture` |
+| `NAVGATOR_PATH` | Custom storage path | `.navgator/architecture` |
 | `NAVGATOR_AUTO_SCAN` | Auto-scan on session start | `false` |
 | `NAVGATOR_HEALTH_CHECK` | Enable health checks | `false` |
 | `NAVGATOR_SCAN_DEPTH` | `shallow` or `deep` | `shallow` |

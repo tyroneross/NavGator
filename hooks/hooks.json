@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Check if NavGator architecture data exists and is fresh:\n1. Look for .claude/architecture/index.json\n2. If missing: 'This project hasn't been scanned. Run the navgator `scan` MCP tool to map the architecture.'\n3. If >24h old: 'Architecture data is stale. Consider running the navgator `scan` MCP tool to refresh.'\n4. If fresh: Note the component and connection counts for context.\n\nWhen architecture data exists, you should consult it BEFORE making changes to:\n- Database schemas or queries\n- API endpoints\n- External service integrations (Stripe, OpenAI, etc.)\n- Queue workers or job handlers\n- Shared utilities used across the codebase"
+            "prompt": "Check if NavGator architecture data exists and is fresh:\n1. Look for .navgator/architecture/index.json\n2. If missing: 'This project hasn't been scanned. Run the navgator `scan` MCP tool to map the architecture.'\n3. If >24h old: 'Architecture data is stale. Consider running the navgator `scan` MCP tool to refresh.'\n4. If fresh: Note the component and connection counts for context.\n\nWhen architecture data exists, you should consult it BEFORE making changes to:\n- Database schemas or queries\n- API endpoints\n- External service integrations (Stripe, OpenAI, etc.)\n- Queue workers or job handlers\n- Shared utilities used across the codebase"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You're about to edit a file. If it involves architecture-critical code (database/ORM files, API routes, external service integrations, queue/worker files, or shared utilities), consider running the navgator `impact` MCP tool first to understand downstream effects before making changes."
+            "prompt": "You're about to edit a file. If it involves architecture-critical code (database/ORM files, API routes, external service integrations, queue/worker files, shared utilities, Package.swift, .pbxproj, Podfile, .entitlements, or Info.plist), consider running the navgator `impact` MCP tool first to understand downstream effects before making changes."
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "If you just ran a package install/remove command (npm install, yarn add, pip install, cargo add, go get) or a database migration (prisma migrate, drizzle push, alembic), run the navgator `scan` MCP tool to update architecture tracking."
+            "prompt": "If you just ran a package install/remove command (npm install, yarn add, pip install, cargo add, go get), a database migration (prisma migrate, drizzle push, alembic), or a Swift/Xcode command (swift package update, swift package resolve, pod install, pod update, xcodebuild), run the navgator `scan` MCP tool to update architecture tracking."
           }
         ]
       },
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "If you've modified 3+ files or changed API routes, database schemas, or service connections during this task, run the navgator `scan` MCP tool to update architecture tracking."
+            "prompt": "If you've modified 3+ files, changed API routes, database schemas, service connections, or edited architecture-critical Apple platform files (Package.swift, .pbxproj, Podfile, .entitlements, Info.plist) during this task, run the navgator `scan` MCP tool to update architecture tracking."
           }
         ]
       }

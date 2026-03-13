@@ -119,6 +119,10 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
     lineStyle: '-->',
     label: 'navigates',
   },
+  presents: {
+    lineStyle: '-->',
+    label: 'presents',
+  },
   'requires-entitlement': {
     lineStyle: '-.->',
     label: 'requires',
@@ -126,6 +130,10 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
   'target-contains': {
     lineStyle: '-->',
     label: 'contains',
+  },
+  'build-phase-includes': {
+    lineStyle: '-->',
+    label: 'includes',
   },
   generates: {
     lineStyle: '==>',

@@ -18,7 +18,7 @@ export const SCHEMA_VERSION = '1.0.0';
 
 const DEFAULT_CONFIG: NavGatorConfig = {
   storageMode: 'local',
-  storagePath: '.claude/architecture',
+  storagePath: '.navgator/architecture',
   autoScan: false,
   healthCheckEnabled: false,
   scanDepth: 'shallow',
@@ -204,13 +204,77 @@ export function getHistoryLimit(): number {
 }
 
 // =============================================================================
+// LEGACY PATH MIGRATION
+// =============================================================================
+
+/** Previous storage path before the rename */
+const LEGACY_STORAGE_PATH = '.claude/architecture';
+
+/**
+ * Migrate data from the legacy .claude/architecture path to .navgator/architecture.
+ * Moves all files and subdirectories, then removes the legacy directory.
+ * Safe to call multiple times — no-ops if legacy path doesn't exist or new path already has data.
+ */
+function migrateLegacyStorage(config: NavGatorConfig, projectRoot?: string): void {
+  const root = projectRoot || process.cwd();
+  const legacyPath = path.join(root, LEGACY_STORAGE_PATH);
+  const newPath = getStoragePath(config, root);
+
+  // Skip if no legacy data exists
+  if (!fs.existsSync(legacyPath)) return;
+
+  // Skip if new path already has an index (already migrated or fresh scan)
+  const newIndex = path.join(newPath, 'index.json');
+  if (fs.existsSync(newIndex)) return;
+
+  // Ensure new directory structure exists
+  fs.mkdirSync(newPath, { recursive: true });
+
+  // Move contents recursively
+  const moveRecursive = (src: string, dest: string): void => {
+    const entries = fs.readdirSync(src, { withFileTypes: true });
+    for (const entry of entries) {
+      const srcPath = path.join(src, entry.name);
+      const destPath = path.join(dest, entry.name);
+
+      if (entry.isDirectory()) {
+        fs.mkdirSync(destPath, { recursive: true });
+        moveRecursive(srcPath, destPath);
+        // Remove empty source directory after moving contents
+        try { fs.rmdirSync(srcPath); } catch { /* not empty or already gone */ }
+      } else {
+        fs.renameSync(srcPath, destPath);
+      }
+    }
+  };
+
+  try {
+    moveRecursive(legacyPath, newPath);
+    // Clean up legacy directory if empty
+    try { fs.rmdirSync(legacyPath); } catch { /* not empty */ }
+    // Try to clean up .claude/ if it's now empty (only if we created it for architecture)
+    const claudeDir = path.join(root, '.claude');
+    try {
+      const remaining = fs.readdirSync(claudeDir);
+      if (remaining.length === 0) fs.rmdirSync(claudeDir);
+    } catch { /* has other contents or doesn't exist */ }
+  } catch {
+    // Migration failed — not fatal, next scan will create fresh data
+  }
+}
+
+// =============================================================================
 // DIRECTORY INITIALIZATION
 // =============================================================================
 
 /**
- * Ensure all storage directories exist
+ * Ensure all storage directories exist.
+ * Migrates from legacy .claude/architecture path if found.
  */
 export function ensureStorageDirectories(config: NavGatorConfig, projectRoot?: string): void {
+  // Migrate legacy data before creating directories
+  migrateLegacyStorage(config, projectRoot);
+
   const basePath = getStoragePath(config, projectRoot);
   const directories = [
     basePath,
@@ -227,11 +291,16 @@ export function ensureStorageDirectories(config: NavGatorConfig, projectRoot?: s
 }
 
 /**
- * Check if storage has been initialized
+ * Check if storage has been initialized (checks new path and legacy path)
  */
 export function isStorageInitialized(config: NavGatorConfig, projectRoot?: string): boolean {
   const indexPath = getIndexPath(config, projectRoot);
-  return fs.existsSync(indexPath);
+  if (fs.existsSync(indexPath)) return true;
+
+  // Check legacy path — migration will happen on next write
+  const root = projectRoot || process.cwd();
+  const legacyIndex = path.join(root, LEGACY_STORAGE_PATH, 'index.json');
+  return fs.existsSync(legacyIndex);
 }
 
 /**

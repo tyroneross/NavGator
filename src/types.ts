@@ -32,6 +32,7 @@ export type ComponentType =
   | 'prompt'         // AI prompts (Claude, OpenAI)
   | 'worker'         // Queue workers/handlers
   | 'component'      // UI components (React, Vue)
+  | 'xcode-target'   // Xcode build targets
   | 'other';
 
 /**
@@ -155,9 +156,11 @@ export type ConnectionType =
   | 'conforms-to'         // Type conforms to protocol
   | 'notifies'            // NotificationCenter post ↔ observe
   | 'stores'              // Code ↔ UserDefaults/Keychain/@AppStorage key
-  | 'navigates-to'        // View A → View B (NavigationLink, push, present)
+  | 'navigates-to'        // View A → View B (NavigationLink, push navigation)
+  | 'presents'            // View A presents View B (sheet, fullScreenCover, popover)
   | 'requires-entitlement' // Framework usage ↔ .entitlements entry
   | 'target-contains'     // Xcode target ↔ source files/frameworks
+  | 'build-phase-includes' // Xcode build phase ↔ source files
   | 'generates'           // Build script/schema → generated source file
   | 'other';
 
@@ -273,6 +276,7 @@ export interface ProjectMetadata {
   targets?: { name: string; type: string; dependencies: string[] }[];
   entitlements?: { key: string; file: string }[];
   fragile_keys?: { key: string; type: string; files: string[] }[]; // String-keyed runtime deps
+  xcodeProject?: { path: string; targets: { name: string; type: string; bundleId?: string }[] };
 }
 
 export interface ArchitectureIndex {

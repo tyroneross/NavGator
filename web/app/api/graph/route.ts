@@ -178,8 +178,8 @@ export async function GET(request: NextRequest) {
     const basePath = projectPath
       || process.env.NAVGATOR_PROJECT_PATH
       || process.cwd();
-    const graphPath = path.join(basePath, ".claude", "architecture", "graph.json");
-    const componentsDir = path.join(basePath, ".claude", "architecture", "components");
+    const graphPath = path.join(basePath, ".navgator", "architecture", "graph.json");
+    const componentsDir = path.join(basePath, ".navgator", "architecture", "components");
 
     const content = await fs.readFile(graphPath, "utf-8");
     const graph = JSON.parse(content);
@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
     inferHosting(enrichedNodes, graph.edges);
 
     // Derive inter-node flow edges from connection files
-    const connectionsDir = path.join(basePath, ".claude", "architecture", "connections");
+    const connectionsDir = path.join(basePath, ".navgator", "architecture", "connections");
     const flowEdges = await deriveFlowEdges(connectionsDir, enrichedNodes);
 
     const data = {

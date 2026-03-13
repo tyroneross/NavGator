@@ -370,6 +370,32 @@ export async function scanSpmPackages(projectRoot: string): Promise<ScanResult> 
 }
 
 // =============================================================================
+// XCODE PROJECT DETECTION
+// =============================================================================
+
+/**
+ * Find the Xcode project file in the project root
+ * Returns path to project.pbxproj if found, null otherwise
+ */
+export function findXcodeProject(projectRoot: string): string | null {
+  try {
+    const entries = fs.readdirSync(projectRoot);
+    const xcodeproj = entries.find(e => e.endsWith('.xcodeproj'));
+
+    if (xcodeproj) {
+      const pbxprojPath = path.join(projectRoot, xcodeproj, 'project.pbxproj');
+      if (fs.existsSync(pbxprojPath)) {
+        return pbxprojPath;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 

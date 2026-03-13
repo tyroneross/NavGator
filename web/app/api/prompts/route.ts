@@ -187,7 +187,7 @@ async function loadScanData(
 
   // Try to load from NavGator storage
   const storagePaths = [
-    path.join(root, ".claude", "architecture", "prompts.json"),
+    path.join(root, ".navgator", "architecture", "prompts.json"),
     path.join(root, ".navgator", "prompts.json"),
   ];
 
@@ -203,7 +203,7 @@ async function loadScanData(
   }
 
   // Try to load from component files
-  const componentsDir = path.join(root, ".claude", "architecture", "components");
+  const componentsDir = path.join(root, ".navgator", "architecture", "components");
   try {
     const files = await fs.readdir(componentsDir);
     const promptFiles = files.filter((f) => f.includes("prompt") && f.endsWith(".json"));
