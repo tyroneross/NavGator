@@ -258,9 +258,10 @@ export async function scan(
     if (options.verbose) console.log('  - Scanning file imports...');
     try {
       const importResult = await scanImports(root, sourceFiles);
+      allComponents.push(...importResult.components);
       allConnections.push(...importResult.connections);
       if (options.verbose) {
-        console.log(`    Found ${importResult.connections.length} file-level imports`);
+        console.log(`    Found ${importResult.components.length} internal modules, ${importResult.connections.length} file-level imports`);
       }
     } catch (error) {
       allWarnings.push({

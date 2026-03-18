@@ -7,8 +7,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
+  ArchitectureComponent,
   ArchitectureConnection,
   ScanResult,
+  generateComponentId,
   generateConnectionId,
 } from '../../types.js';
 
@@ -106,6 +108,60 @@ function findImportLine(content: string, specifier: string): number {
   return line;
 }
 
+function componentNameFromFile(file: string): string {
+  const normalized = file.replace(/\\/g, '/');
+  const withoutExtension = normalized.replace(/\.[^.]+$/, '');
+  const segments = withoutExtension.split('/').filter(Boolean);
+
+  if (segments[0] === 'src' || segments[0] === 'app' || segments[0] === 'lib') {
+    segments.shift();
+  }
+
+  if (segments[segments.length - 1] === 'index' && segments.length > 1) {
+    segments.pop();
+  }
+
+  return segments.join('/') || path.basename(withoutExtension);
+}
+
+function inferLayerFromFile(file: string): 'frontend' | 'backend' | 'database' | 'queue' | 'infra' | 'external' {
+  const normalized = file.replace(/\\/g, '/').toLowerCase();
+  if (/(^|\/)(ui|components|views|pages|frontend|web)(\/|$)/.test(normalized)) return 'frontend';
+  if (/(^|\/)(db|database|prisma|drizzle|migrations)(\/|$)/.test(normalized)) return 'database';
+  if (/(^|\/)(queue|queues|jobs|workers)(\/|$)/.test(normalized)) return 'queue';
+  if (/(^|\/)(infra|infrastructure|terraform|k8s|docker)(\/|$)/.test(normalized)) return 'infra';
+  return 'backend';
+}
+
+function buildFileComponent(file: string, timestamp: number): ArchitectureComponent {
+  const name = componentNameFromFile(file);
+  return {
+    component_id: generateComponentId('component', name),
+    name,
+    type: 'component',
+    role: {
+      purpose: `Internal module at ${file}`,
+      layer: inferLayerFromFile(file),
+      critical: false,
+    },
+    source: {
+      detection_method: 'auto',
+      config_files: [file],
+      confidence: 0.95,
+    },
+    connects_to: [],
+    connected_from: [],
+    status: 'active',
+    tags: ['internal', 'module'],
+    metadata: {
+      file,
+      kind: 'source-file',
+    },
+    timestamp,
+    last_updated: timestamp,
+  };
+}
+
 /**
  * Scan source files and build file-level import connections.
  * Accepts the already-discovered source file list from the main scanner
@@ -115,6 +171,7 @@ export async function scanImports(
   projectRoot: string,
   sourceFiles?: string[]
 ): Promise<ScanResult> {
+  const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
 
   // Filter to TS/JS files only
@@ -141,6 +198,13 @@ export async function scanImports(
   // Build a Set of known files for O(1) resolution lookups
   const knownFiles = new Set(files);
   const now = Date.now();
+  const componentIdByFile = new Map<string, string>();
+
+  for (const file of files) {
+    const component = buildFileComponent(file, now);
+    components.push(component);
+    componentIdByFile.set(file, component.component_id);
+  }
 
   // Read files in batches
   const batchSize = 100;
@@ -175,11 +239,11 @@ export async function scanImports(
         connections.push({
           connection_id: generateConnectionId('imports'),
           from: {
-            component_id: `FILE:${file}`,
+            component_id: componentIdByFile.get(file) || `FILE:${file}`,
             location: { file, line },
           },
           to: {
-            component_id: `FILE:${resolved}`,
+            component_id: componentIdByFile.get(resolved) || `FILE:${resolved}`,
             location: { file: resolved, line: 1 },
           },
           connection_type: 'imports',
@@ -199,7 +263,7 @@ export async function scanImports(
   }
 
   return {
-    components: [],
+    components,
     connections,
     warnings: [],
   };

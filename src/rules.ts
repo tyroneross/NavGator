@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ArchitectureComponent, ArchitectureConnection } from './types.js';
+import { detectImportCycles, detectLayerViolations, getTopFanOut, getTopHotspots } from './architecture-insights.js';
 
 export interface ArchitectureRule {
   id: string;
@@ -179,6 +180,70 @@ export function getBuiltinRules(): ArchitectureRule[] {
             message: `${c.name} has ${dependentCounts.get(c.component_id)} dependents — single point of failure`,
             suggestion: 'Consider adding redundancy or splitting responsibilities',
           }));
+      },
+    },
+    {
+      id: 'hotspot-module',
+      name: 'Hotspot Module',
+      description: 'Internal module with high fan-in',
+      severity: 'warning',
+      check: (components, connections) => {
+        return getTopHotspots(components, connections, 20)
+          .filter((entry) => entry.count >= 5)
+          .map((entry) => ({
+            rule_id: 'hotspot-module',
+            severity: 'warning' as const,
+            component: entry.component.name,
+            message: `${entry.component.name} has ${entry.count} dependents — architectural hotspot`,
+            suggestion: 'Treat changes here as high blast-radius and review downstream imports first',
+          }));
+      },
+    },
+    {
+      id: 'high-fan-out',
+      name: 'High Fan-Out',
+      description: 'Internal module imports many other modules',
+      severity: 'warning',
+      check: (components, connections) => {
+        return getTopFanOut(components, connections, 20)
+          .filter((entry) => entry.count >= 8)
+          .map((entry) => ({
+            rule_id: 'high-fan-out',
+            severity: 'warning' as const,
+            component: entry.component.name,
+            message: `${entry.component.name} imports ${entry.count} modules — possible god-object`,
+            suggestion: 'Consider splitting responsibilities or introducing narrower abstractions',
+          }));
+      },
+    },
+    {
+      id: 'layer-violation',
+      name: 'Layer Violation',
+      description: 'Internal module imports upward into a higher inferred layer',
+      severity: 'error',
+      check: (components, connections) => {
+        return detectLayerViolations(components, connections).map((violation) => ({
+          rule_id: 'layer-violation',
+          severity: 'error' as const,
+          component: violation.from.name,
+          message: `${violation.from.name} imports ${violation.to.name} across inferred layers (${violation.fromTier} → ${violation.toTier})`,
+          suggestion: 'Reverse the dependency or extract a lower-level shared module',
+        }));
+      },
+    },
+    {
+      id: 'circular-dependency',
+      name: 'Circular Dependency',
+      description: 'Internal import graph contains a cycle',
+      severity: 'error',
+      check: (components, connections) => {
+        return detectImportCycles(components, connections, 20).map((cycle) => ({
+          rule_id: 'circular-dependency',
+          severity: 'error' as const,
+          component: cycle[0],
+          message: `Import cycle detected: ${cycle.join(' → ')}`,
+          suggestion: 'Break the cycle by extracting shared contracts or inverting one dependency',
+        }));
       },
     },
   ];

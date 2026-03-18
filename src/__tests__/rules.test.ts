@@ -196,6 +196,87 @@ describe('Architecture Rules', () => {
     });
   });
 
+  describe('hotspot-module', () => {
+    it('detects internal modules with high fan-in', () => {
+      const hotspot = createComponent({ name: 'core/types', type: 'component', file: 'src/core/types.ts' });
+      const components = [hotspot];
+      const connections = [];
+
+      for (let i = 0; i < 5; i++) {
+        const dependent = createComponent({ name: `cdp/dep-${i}`, type: 'component', file: `src/cdp/dep-${i}.ts` });
+        components.push(dependent);
+        connections.push(createConnection(dependent, hotspot, { connection_type: 'imports' }));
+      }
+
+      const rule = getBuiltinRules().find(r => r.id === 'hotspot-module')!;
+      const violations = rule.check(components, connections);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].component).toBe('core/types');
+      expect(violations[0].message).toContain('5 dependents');
+    });
+  });
+
+  describe('high-fan-out', () => {
+    it('detects internal modules with high fan-out', () => {
+      const driver = createComponent({ name: 'cdp/driver', type: 'component', file: 'src/cdp/driver.ts' });
+      const components = [driver];
+      const connections = [];
+
+      for (let i = 0; i < 8; i++) {
+        const dep = createComponent({ name: `core/dep-${i}`, type: 'component', file: `src/core/dep-${i}.ts` });
+        components.push(dep);
+        connections.push(createConnection(driver, dep, { connection_type: 'imports' }));
+      }
+
+      const rule = getBuiltinRules().find(r => r.id === 'high-fan-out')!;
+      const violations = rule.check(components, connections);
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].component).toBe('cdp/driver');
+      expect(violations[0].message).toContain('imports 8 modules');
+    });
+  });
+
+  describe('layer-violation', () => {
+    it('detects upward import violations', () => {
+      const core = createComponent({ name: 'core/types', type: 'component', file: 'src/core/types.ts' });
+      const cdp = createComponent({ name: 'cdp/driver', type: 'component', file: 'src/cdp/driver.ts' });
+
+      const rule = getBuiltinRules().find(r => r.id === 'layer-violation')!;
+      const violations = rule.check(
+        [core, cdp],
+        [createConnection(cdp, core, { connection_type: 'imports' }), createConnection(core, cdp, { connection_type: 'imports' })]
+      );
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].component).toBe('cdp/driver');
+      expect(violations[0].message).toContain('core/types');
+    });
+  });
+
+  describe('circular-dependency', () => {
+    it('detects import cycles', () => {
+      const a = createComponent({ name: 'core/a', type: 'component', file: 'src/core/a.ts' });
+      const b = createComponent({ name: 'core/b', type: 'component', file: 'src/core/b.ts' });
+      const c = createComponent({ name: 'core/c', type: 'component', file: 'src/core/c.ts' });
+
+      const rule = getBuiltinRules().find(r => r.id === 'circular-dependency')!;
+      const violations = rule.check(
+        [a, b, c],
+        [
+          createConnection(a, b, { connection_type: 'imports' }),
+          createConnection(b, c, { connection_type: 'imports' }),
+          createConnection(c, a, { connection_type: 'imports' }),
+        ]
+      );
+
+      expect(violations).toHaveLength(1);
+      expect(violations[0].message).toContain('core/a');
+      expect(violations[0].message).toContain('core/c');
+    });
+  });
+
   describe('checkRules', () => {
     it('should run all rules and return combined violations', () => {
       const orphan = createComponent({ name: 'Orphan', layer: 'frontend' });

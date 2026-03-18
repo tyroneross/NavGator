@@ -41,6 +41,12 @@ import {
   isValidConnectionId,
   SCHEMA_VERSION,
 } from './config.js';
+import {
+  detectImportCycles,
+  detectLayerViolations,
+  getTopFanOut,
+  getTopHotspots,
+} from './architecture-insights.js';
 
 // =============================================================================
 // COMPONENT STORAGE
@@ -693,6 +699,57 @@ export async function buildSummary(
     lines.push('');
   }
 
+  const hotspots = getTopHotspots(components, connections, 5);
+  if (hotspots.length > 0) {
+    lines.push('## Hotspots');
+    lines.push('> Highest fan-in internal modules. Changes here ripple broadly.');
+    lines.push('');
+    for (const hotspot of hotspots) {
+      const file = hotspot.component.source.config_files?.[0];
+      lines.push(`- **${hotspot.component.name}** — ${hotspot.count} dependents${file ? ` (${file})` : ''}`);
+    }
+    lines.push('');
+  }
+
+  const fanOut = getTopFanOut(components, connections, 5).filter((entry) => entry.count >= 5);
+  if (fanOut.length > 0) {
+    lines.push('## Fan-Out Risks');
+    lines.push('> High fan-out modules often accumulate too many responsibilities.');
+    lines.push('');
+    for (const entry of fanOut) {
+      const file = entry.component.source.config_files?.[0];
+      lines.push(`- **${entry.component.name}** — imports ${entry.count} modules${file ? ` (${file})` : ''}`);
+    }
+    lines.push('');
+  }
+
+  const layerViolations = detectLayerViolations(components, connections);
+  lines.push('## Layer Health');
+  if (layerViolations.length === 0) {
+    lines.push('- No upward import violations detected from inferred internal layers.');
+  } else {
+    for (const violation of layerViolations.slice(0, 5)) {
+      const file = violation.connection.code_reference?.file || violation.from.source.config_files?.[0] || '';
+      const line = violation.connection.code_reference?.line_start ? `:${violation.connection.code_reference.line_start}` : '';
+      lines.push(`- ${violation.from.name} → ${violation.to.name} (${file}${line}) crosses from tier ${violation.fromTier} to ${violation.toTier}`);
+    }
+    if (layerViolations.length > 5) {
+      lines.push(`- ... and ${layerViolations.length - 5} more`);
+    }
+  }
+  lines.push('');
+
+  const cycles = detectImportCycles(components, connections, 5);
+  lines.push('## Circular Dependencies');
+  if (cycles.length === 0) {
+    lines.push('- No import cycles detected.');
+  } else {
+    for (const cycle of cycles) {
+      lines.push(`- ${cycle.join(' → ')}`);
+    }
+  }
+  lines.push('');
+
   // Delta — use structured diff from timeline if available, else fall back to naive comparison
   const summaryPath = getSummaryPath(cfg, root);
   if (latestDiff && latestDiff.diff.stats.total_changes > 0) {
@@ -846,6 +903,42 @@ export async function buildSummary(
       }
       compressed.push('');
     }
+
+    if (hotspots.length > 0) {
+      compressed.push('## Hotspots');
+      for (const hotspot of hotspots) {
+        compressed.push(`- **${hotspot.component.name}** — ${hotspot.count} dependents`);
+      }
+      compressed.push('');
+    }
+
+    if (fanOut.length > 0) {
+      compressed.push('## Fan-Out Risks');
+      for (const entry of fanOut) {
+        compressed.push(`- **${entry.component.name}** — imports ${entry.count} modules`);
+      }
+      compressed.push('');
+    }
+
+    compressed.push('## Layer Health');
+    if (layerViolations.length === 0) {
+      compressed.push('- No upward import violations detected.');
+    } else {
+      for (const violation of layerViolations.slice(0, 5)) {
+        compressed.push(`- ${violation.from.name} → ${violation.to.name} crosses from tier ${violation.fromTier} to ${violation.toTier}`);
+      }
+    }
+    compressed.push('');
+
+    compressed.push('## Circular Dependencies');
+    if (cycles.length === 0) {
+      compressed.push('- No import cycles detected.');
+    } else {
+      for (const cycle of cycles) {
+        compressed.push(`- ${cycle.join(' → ')}`);
+      }
+    }
+    compressed.push('');
 
     // Add prompts pointer if available
     if (promptScan && promptScan.prompts.length > 0) {
