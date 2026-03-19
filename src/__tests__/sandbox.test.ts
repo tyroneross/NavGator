@@ -131,7 +131,9 @@ describe('sandbox', () => {
 
     delete process.env.NAVGATOR_SANDBOX;
 
-    // With TTY
+    // With TTY (also clear CI to avoid CI-detection branch)
+    const originalCI = process.env.CI;
+    delete process.env.CI;
     const originalStdoutTTY = process.stdout.isTTY;
     const originalStdinTTY = process.stdin.isTTY;
     Object.defineProperty(process.stdout, 'isTTY', {
@@ -158,6 +160,7 @@ describe('sandbox', () => {
       writable: true,
       configurable: true,
     });
+    if (originalCI !== undefined) process.env.CI = originalCI;
   });
 
   it('getSandboxRestrictions returns current restrictions', () => {
