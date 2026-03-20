@@ -1,0 +1,32 @@
+{
+  "connection_id": "CONN_imports_xmi1rc",
+  "from": {
+    "component_id": "FILE:src/__tests__/agent-output.test.ts",
+    "location": {
+      "file": "src/__tests__/agent-output.test.ts",
+      "line": 6
+    }
+  },
+  "to": {
+    "component_id": "FILE:src/agent-output.ts",
+    "location": {
+      "file": "src/agent-output.ts",
+      "line": 1
+    }
+  },
+  "connection_type": "imports",
+  "code_reference": {
+    "file": "src/__tests__/agent-output.test.ts",
+    "symbol": "../agent-output.js",
+    "symbol_type": "import",
+    "line_start": 6
+  },
+  "detected_from": "import-scanner",
+  "confidence": 1,
+  "timestamp": 1772785869011,
+  "last_verified": 1772785869011,
+  "semantic": {
+    "classification": "unknown",
+    "confidence": 0.3
+  }
+}

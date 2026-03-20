@@ -1,0 +1,32 @@
+{
+  "connection_id": "CONN_imports_73a7sq",
+  "from": {
+    "component_id": "FILE:src/index.ts",
+    "location": {
+      "file": "src/index.ts",
+      "line": 104
+    }
+  },
+  "to": {
+    "component_id": "FILE:src/resolve.ts",
+    "location": {
+      "file": "src/resolve.ts",
+      "line": 1
+    }
+  },
+  "connection_type": "imports",
+  "code_reference": {
+    "file": "src/index.ts",
+    "symbol": "./resolve.js",
+    "symbol_type": "import",
+    "line_start": 104
+  },
+  "detected_from": "import-scanner",
+  "confidence": 1,
+  "timestamp": 1772785869011,
+  "last_verified": 1772785869011,
+  "semantic": {
+    "classification": "unknown",
+    "confidence": 0.3
+  }
+}

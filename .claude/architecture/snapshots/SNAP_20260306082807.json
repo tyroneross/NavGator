@@ -1,0 +1,85 @@
+{
+  "snapshot_id": "SNAP_20260306082807",
+  "snapshot_version": "2.0",
+  "timestamp": 1772785687377,
+  "reason": "pre-scan",
+  "components": [
+    {
+      "component_id": "COMP_npm__types_jest_ko33",
+      "name": "@types/jest",
+      "type": "npm",
+      "version": "30.0.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    },
+    {
+      "component_id": "COMP_npm__types_node_lwl6",
+      "name": "@types/node",
+      "type": "npm",
+      "version": "22.0.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    },
+    {
+      "component_id": "COMP_npm_commander_dued",
+      "name": "commander",
+      "type": "npm",
+      "version": "14.0.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": true
+    },
+    {
+      "component_id": "COMP_npm_glob_m19k",
+      "name": "glob",
+      "type": "npm",
+      "version": "13.0.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": true
+    },
+    {
+      "component_id": "COMP_npm_jest_o06c",
+      "name": "jest",
+      "type": "npm",
+      "version": "30.2.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    },
+    {
+      "component_id": "COMP_npm_ts_jest_ba0r",
+      "name": "ts-jest",
+      "type": "npm",
+      "version": "29.4.6",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    },
+    {
+      "component_id": "COMP_npm_typescript_ta64",
+      "name": "typescript",
+      "type": "npm",
+      "version": "5.3.0",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    },
+    {
+      "component_id": "COMP_npm_vitest_q3qt",
+      "name": "vitest",
+      "type": "npm",
+      "version": "4.0.18",
+      "status": "active",
+      "layer": "backend",
+      "critical": false
+    }
+  ],
+  "connections": [],
+  "stats": {
+    "total_components": 8,
+    "total_connections": 0
+  }
+}

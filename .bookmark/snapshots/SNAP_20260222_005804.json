@@ -1,0 +1,18 @@
+{
+  "snapshot_id": "SNAP_20260222_005804",
+  "timestamp": 1771750684778,
+  "session_id": "",
+  "project_path": "/Users/tyroneross/Desktop/git-folder/NavGator",
+  "trigger": "manual",
+  "compaction_cycle": 0,
+  "context_remaining_pct": 1,
+  "token_estimate": 0,
+  "current_status": "No status available",
+  "decisions": [],
+  "open_items": [],
+  "unknowns": [],
+  "files_changed": [],
+  "errors_encountered": [],
+  "tools_summary": {},
+  "prior_snapshot_id": "SNAP_20260222_005641"
+}

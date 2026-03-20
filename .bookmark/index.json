@@ -1,0 +1,64 @@
+{
+  "version": "1.0.0",
+  "project_path": "/Users/tyroneross/Desktop/git-folder/NavGator",
+  "last_updated": 1773893398894,
+  "stats": {
+    "total_snapshots": 6,
+    "compaction_cycles": 0,
+    "last_compaction": 0,
+    "last_snapshot": 1773893398893,
+    "last_time_based": 0
+  },
+  "snapshots": [
+    {
+      "id": "SNAP_20260318_210958",
+      "timestamp": 1773893398893,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260318_210826",
+      "timestamp": 1773893306188,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260315_083152",
+      "timestamp": 1773588712527,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260315_083119",
+      "timestamp": 1773588679520,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260222_005804",
+      "timestamp": 1771750684778,
+      "trigger": "manual",
+      "compaction_cycle": 0,
+      "context_remaining_pct": 1,
+      "token_estimate": 0,
+      "decisions_count": 0,
+      "files_changed_count": 0,
+      "open_items_count": 0
+    },
+    {
+      "id": "SNAP_20260222_005641",
+      "timestamp": 1771750601702,
+      "trigger": "manual",
+      "compaction_cycle": 0,
+      "context_remaining_pct": 1,
+      "token_estimate": 6,
+      "decisions_count": 0,
+      "files_changed_count": 0,
+      "open_items_count": 0
+    }
+  ]
+}

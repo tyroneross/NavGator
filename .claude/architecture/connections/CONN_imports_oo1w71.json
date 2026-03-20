@@ -1,0 +1,32 @@
+{
+  "connection_id": "CONN_imports_oo1w71",
+  "from": {
+    "component_id": "FILE:src/index.ts",
+    "location": {
+      "file": "src/index.ts",
+      "line": 33
+    }
+  },
+  "to": {
+    "component_id": "FILE:src/diagram.ts",
+    "location": {
+      "file": "src/diagram.ts",
+      "line": 1
+    }
+  },
+  "connection_type": "imports",
+  "code_reference": {
+    "file": "src/index.ts",
+    "symbol": "./diagram.js",
+    "symbol_type": "import",
+    "line_start": 33
+  },
+  "detected_from": "import-scanner",
+  "confidence": 1,
+  "timestamp": 1772785869011,
+  "last_verified": 1772785869011,
+  "semantic": {
+    "classification": "unknown",
+    "confidence": 0.3
+  }
+}

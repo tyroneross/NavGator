@@ -1,0 +1,1008 @@
+{
+  "schema_version": "1.0.0",
+  "nodes": [
+    {
+      "id": "COMP_npm__types_jest_ef0b",
+      "name": "@types/jest",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm__types_node_qfcg",
+      "name": "@types/node",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_commander_fegk",
+      "name": "commander",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_glob_yxyq",
+      "name": "glob",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_jest_omu7",
+      "name": "jest",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_ts_jest_wpda",
+      "name": "ts-jest",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_typescript_18jc",
+      "name": "typescript",
+      "type": "npm",
+      "layer": "backend"
+    },
+    {
+      "id": "COMP_npm_vitest_f6gv",
+      "name": "vitest",
+      "type": "npm",
+      "layer": "backend"
+    }
+  ],
+  "edges": [
+    {
+      "id": "CONN_imports_0a6tav",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_0g08r7",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-prompts.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_0t3mgu",
+      "source": "FILE:web/lib/hooks/use-subgraph.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_1gkrr3",
+      "source": "FILE:src/diff.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_2lw3yg",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/prompts/index.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_2sc6eo",
+      "source": "FILE:src/setup.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_2tygc4",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/classify.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_3075oa",
+      "source": "FILE:web/lib/transform.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_3h5hwp",
+      "source": "FILE:src/git.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_3lx75n",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/infrastructure/index.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_3uev5q",
+      "source": "FILE:src/__tests__/subgraph.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_3w77j6",
+      "source": "FILE:web/lib/hooks/use-prompts.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_4393lq",
+      "source": "FILE:web/lib/hooks/use-prompts.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_48bezx",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/diagram.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_4cya4q",
+      "source": "FILE:src/scanners/packages/pip.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_4dlnk1",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/subgraph.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_4fkfqk",
+      "source": "FILE:src/scanners/connections/ast-scanner.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_56me3o",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-status.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_5905hi",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/rules.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_5du86x",
+      "source": "FILE:src/diff.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_5fop5i",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-components.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_5q141j",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_5u6ol6",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/setup.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_637y0b",
+      "source": "FILE:src/subgraph.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_6abyc3",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_6cfk25",
+      "source": "FILE:web/lib/hooks/use-status.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_6drehy",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-trace.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_6ikx5s",
+      "source": "FILE:src/setup.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_6p5ofj",
+      "source": "FILE:src/classify.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_73a7sq",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_74xdky",
+      "source": "FILE:src/diff.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_78tfuo",
+      "source": "FILE:src/__tests__/trace.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_7ie8bu",
+      "source": "FILE:src/scanners/prompts/index.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_7n1m81",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_7ntkn6",
+      "source": "FILE:src/__tests__/sandbox.test.ts",
+      "target": "FILE:src/sandbox.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_7ra7t0",
+      "source": "FILE:src/__tests__/classify.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_7sxhpi",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/scanners/prompts/index.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_82020w",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/connections/ast-scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_86a5t3",
+      "source": "FILE:src/setup.ts",
+      "target": "FILE:src/scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_8g11ln",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/sandbox.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_97lval",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/trace.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_9807zh",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_a1feue",
+      "source": "FILE:src/agent-output.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ahlpvt",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/file-resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_algga2",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/agent-output.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_aoxz1x",
+      "source": "FILE:src/coverage.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_b3vvlz",
+      "source": "FILE:src/__tests__/coverage.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_b7bbon",
+      "source": "FILE:src/__tests__/subgraph.test.ts",
+      "target": "FILE:src/subgraph.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_bgyosv",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/swift/code-scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_bswvmz",
+      "source": "FILE:src/scanners/packages/swift.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_byxjws",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ce2tsb",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_cff2bg",
+      "source": "FILE:src/__tests__/impact.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_d0wug1",
+      "source": "FILE:web/lib/hooks/use-trace.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_d1sw69",
+      "source": "FILE:src/ui-server.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_dj29ue",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/git.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_dmjr7u",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/rules.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_e3d64t",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/coverage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_e7khwg",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/diff.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_e86k4j",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/diff.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_edaez8",
+      "source": "FILE:src/rules.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_er3ruu",
+      "source": "FILE:src/trace.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_f4iry1",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_fg3uku",
+      "source": "FILE:src/file-resolve.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_gh5bhd",
+      "source": "FILE:src/__tests__/impact.test.ts",
+      "target": "FILE:src/impact.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ghjy40",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/file-resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_gium3g",
+      "source": "FILE:src/storage.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_gkvgmf",
+      "source": "FILE:src/__tests__/classify.test.ts",
+      "target": "FILE:src/classify.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_gykyy3",
+      "source": "FILE:src/scanners/packages/npm.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_hcx3ur",
+      "source": "FILE:src/__tests__/subgraph.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_hluj6i",
+      "source": "FILE:web/lib/hooks/use-components.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_irj4sp",
+      "source": "FILE:src/__tests__/resolve.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_iyb7q5",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/packages/swift.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_j2b2o4",
+      "source": "FILE:src/__tests__/agent-output.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jdf3dk",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jdqr81",
+      "source": "FILE:web/lib/hooks/use-coverage.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jqarcl",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/diff.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jvwhdx",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-connections.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jxwjid",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/connections/llm-call-tracer.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jxz6ob",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/impact.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_jzn2dt",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/connections/import-scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_keh9nf",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_khsy02",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/impact.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_kopzjw",
+      "source": "FILE:src/scanners/prompts/index.ts",
+      "target": "FILE:src/scanners/prompts/detector.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_krgo9e",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/git.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ksbezo",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/sandbox.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_l0e3kd",
+      "source": "FILE:src/ui-server.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_l11vkw",
+      "source": "FILE:web/lib/hooks/use-connections.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_l40op9",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/projects.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_l5cqr5",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/git.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_lh7f2m",
+      "source": "FILE:src/scanners/connections/service-calls.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_lk0xh6",
+      "source": "FILE:src/setup.ts",
+      "target": "FILE:src/diagram.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_lr2v74",
+      "source": "FILE:src/__tests__/coverage.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_lttbx5",
+      "source": "FILE:src/storage.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_lxcr4k",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/trace.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_m7asul",
+      "source": "FILE:src/storage.ts",
+      "target": "FILE:src/diff.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_mbsf37",
+      "source": "FILE:src/__tests__/coverage.test.ts",
+      "target": "FILE:src/coverage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_mwmca7",
+      "source": "FILE:src/__tests__/rules.test.ts",
+      "target": "FILE:src/rules.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_n1dqtz",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_n5ndb0",
+      "source": "FILE:src/diagram.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_nc3ijy",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/packages/pip.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_nh8eup",
+      "source": "FILE:src/scanners/infrastructure/index.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ni5q6v",
+      "source": "FILE:src/mcp/tools.ts",
+      "target": "FILE:src/diagram.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_nmj0oy",
+      "source": "FILE:src/mcp/server.ts",
+      "target": "FILE:src/mcp/tools.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_nv515e",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_nx1it6",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/sandbox.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_o53pva",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/projects.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_o6au4d",
+      "source": "FILE:src/__tests__/resolve.test.ts",
+      "target": "FILE:src/resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_oazlvf",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/trace.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ocsrv2",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/impact.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_oo1w71",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/diagram.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_oug0mi",
+      "source": "FILE:src/subgraph.ts",
+      "target": "FILE:src/resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_out3gk",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-projects.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_p5imt3",
+      "source": "FILE:src/scanners/connections/import-scanner.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_pdwqyj",
+      "source": "FILE:web/lib/hooks/use-components.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_pqaigb",
+      "source": "FILE:src/scanners/swift/code-scanner.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_q4a6l3",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/agent-output.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_qdnzs7",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/connections/service-calls.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_quthf9",
+      "source": "FILE:web/lib/hooks/use-connections.ts",
+      "target": "FILE:web/lib/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_qvc7ll",
+      "source": "FILE:src/__tests__/helpers.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_qx7g8b",
+      "source": "FILE:src/__tests__/resolve.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_r2hpw5",
+      "source": "FILE:src/scanners/prompts/detector.ts",
+      "target": "FILE:src/scanners/prompts/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_r8m875",
+      "source": "FILE:src/__tests__/trace.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ri3jtp",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/classify.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_rm9myt",
+      "source": "FILE:src/agent-output.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_rwuwrm",
+      "source": "FILE:src/__tests__/agent-output.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_s6hk5d",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-subgraph.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_sjdeo4",
+      "source": "FILE:src/scanners/prompts/index.ts",
+      "target": "FILE:src/scanners/prompts/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_sldl6n",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/projects.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_smkzpg",
+      "source": "FILE:web/lib/hooks/use-coverage.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_sn6t4k",
+      "source": "FILE:web/lib/hooks/use-status.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_t0lege",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/subgraph.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_tvkyy3",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/coverage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ucz1im",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/config.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_unvbjb",
+      "source": "FILE:src/scanners/connections/llm-call-tracer.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_upvmnv",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/agent-output.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_us6u76",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/scanners/connections/import-scanner.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_v43w7e",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-coverage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_v4lrz7",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/git.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_v810xw",
+      "source": "FILE:src/index.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_vuixzp",
+      "source": "FILE:src/setup.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_vxq5hs",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/setup.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_w267qt",
+      "source": "FILE:web/lib/hooks/index.ts",
+      "target": "FILE:web/lib/hooks/use-settings.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_wd717q",
+      "source": "FILE:src/resolve.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_wwmmdc",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/resolve.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_wxqmbt",
+      "source": "FILE:src/__tests__/rules.test.ts",
+      "target": "FILE:src/__tests__/helpers.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_x8ukab",
+      "source": "FILE:web/lib/hooks/use-subgraph.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_xkwnzb",
+      "source": "FILE:src/projects.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_xmi1rc",
+      "source": "FILE:src/__tests__/agent-output.test.ts",
+      "target": "FILE:src/agent-output.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_xv8sll",
+      "source": "FILE:src/cli/index.ts",
+      "target": "FILE:src/storage.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_xxmi5p",
+      "source": "FILE:src/__tests__/trace.test.ts",
+      "target": "FILE:src/trace.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_yow26n",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ysaqlp",
+      "source": "FILE:src/impact.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_ysbxje",
+      "source": "FILE:src/__tests__/impact.test.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_zkcexk",
+      "source": "FILE:src/config.ts",
+      "target": "FILE:src/types.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_zqsx1a",
+      "source": "FILE:web/lib/hooks/use-trace.ts",
+      "target": "FILE:web/lib/project-context.tsx",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_zsv7o8",
+      "source": "FILE:src/scanners/prompts/types.ts",
+      "target": "FILE:src/scanners/connections/llm-call-tracer.ts",
+      "type": "imports"
+    },
+    {
+      "id": "CONN_imports_zyzi1i",
+      "source": "FILE:src/scanner.ts",
+      "target": "FILE:src/scanners/packages/npm.ts",
+      "type": "imports"
+    }
+  ],
+  "metadata": {
+    "generated_at": 1772785869093,
+    "component_count": 8,
+    "connection_count": 158
+  }
+}
