@@ -105,6 +105,13 @@ export const PROMPT_DEFINITION_PATTERNS = [
 
   // Python style
   /^(?:PROMPT|SYSTEM_PROMPT|USER_PROMPT)\s*=\s*(?:"""|\\'\\'\\'|")/m,
+
+  // Object property patterns (prompts stored in config objects/arrays)
+  /systemPrompt\s*:\s*[`'"]/,
+  /system_prompt\s*:\s*[`'"]/i,
+
+  // "You are..." patterns (strong AI prompt signal even without variable name)
+  /content\s*:\s*[`'"]You are/,
 ];
 
 /**
@@ -136,6 +143,8 @@ export interface DetectorOptions {
   requireAPICallAnchor?: boolean;
   /** Minimum corroborating signals to surface a prompt (default: 2) */
   minCorroborationSignals?: number;
+  /** Lower thresholds for thorough prompt detection (used with --prompts flag) */
+  aggressive?: boolean;
 }
 
 /**
@@ -149,8 +158,9 @@ export class PromptDetector {
       maxPromptLength: options.maxPromptLength ?? MAX_PROMPT_LENGTH,
       includeRawContent: options.includeRawContent ?? true,
       detectVariables: options.detectVariables ?? true,
-      requireAPICallAnchor: options.requireAPICallAnchor ?? true,
-      minCorroborationSignals: options.minCorroborationSignals ?? 2,
+      requireAPICallAnchor: options.requireAPICallAnchor ?? (options.aggressive ? false : true),
+      minCorroborationSignals: options.minCorroborationSignals ?? (options.aggressive ? 1 : 2),
+      aggressive: options.aggressive ?? false,
     };
   }
 
@@ -250,17 +260,17 @@ export class PromptDetector {
    * Check if a file is in a UI/component directory (likely false positive)
    */
   private isUIFile(filePath: string): boolean {
+    // Only exclude directories that are clearly client-side UI libraries
+    // Don't exclude /pages/, /components/, etc. broadly — server routes
+    // and shared schema files often live alongside them
     const uiPatterns = [
-      /\/components\//,
-      /\/pages\//,
-      /\/app\/.*\/page\.(tsx|jsx)$/,
-      /\/app\/.*\/layout\.(tsx|jsx)$/,
-      /\/ui\//,
-      /\/views\//,
-      /\/hooks\//,
-      /\/devtools\//,
-      /\/admin\/.*(?:editor|ui|panel)/i,
-      /\/dev\/.*(?:lab|editor|ui)/i,
+      /\/components\/ui\//,              // UI component libraries (shadcn, etc.)
+      /\/app\/.*\/page\.(tsx|jsx)$/,     // Next.js App Router pages
+      /\/app\/.*\/layout\.(tsx|jsx)$/,   // Next.js layouts
+      /\/devtools\//,                     // Dev tools
+      /\.test\.(ts|tsx|js|jsx)$/,        // Test files
+      /\.spec\.(ts|tsx|js|jsx)$/,        // Spec files
+      /\.stories\.(ts|tsx|js|jsx)$/,     // Storybook stories
     ];
     return uiPatterns.some(p => p.test(filePath));
   }
@@ -417,6 +427,42 @@ export class PromptDetector {
           type: 'template',
           name: varMatch?.[1],
         });
+        continue;
+      }
+
+      // Check for object property prompts (systemPrompt: `...` or systemPrompt: "...")
+      const propMatch = line.match(
+        /(?:systemPrompt|system_prompt)\s*:\s*([`'"])/i
+      );
+      if (propMatch) {
+        const quote = propMatch[1];
+        const endLine = this.findStringEnd(lines, i, quote);
+        // Infer name from nearby object properties
+        const nameContext = lines.slice(Math.max(0, i - 5), i).join(' ');
+        const titleMatch = nameContext.match(/(?:title|label|name)\s*:\s*['"]([^'"]+)['"]/);
+
+        matches.push({
+          lineStart: i + 1,
+          lineEnd: endLine + 1,
+          type: quote === '`' ? 'template' : 'string',
+          name: titleMatch ? `${titleMatch[1]}_systemPrompt` : undefined,
+        });
+        continue;
+      }
+
+      // Check for "You are" content patterns (strong AI prompt indicator)
+      const youAreMatch = line.match(/content\s*:\s*([`'"])You are/);
+      if (youAreMatch) {
+        const quote = youAreMatch[1];
+        const endLine = this.findStringEnd(lines, i, quote);
+
+        matches.push({
+          lineStart: i + 1,
+          lineEnd: endLine + 1,
+          type: quote === '`' ? 'template' : 'string',
+          name: undefined,
+        });
+        continue;
       }
     }
 

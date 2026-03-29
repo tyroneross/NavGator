@@ -386,8 +386,7 @@ export async function scan(
       promptScanResultHolder = await scanPrompts(root, {
         includeRawContent: true,
         detectVariables: true,
-        requireAPICallAnchor: true,
-        minCorroborationSignals: 2,
+        aggressive: true,
       });
 
       // Attach tracer results to prompt scan data (for web UI)
@@ -648,8 +647,7 @@ export async function scanPromptsOnly(
   const result = await scanPrompts(root, {
     includeRawContent: true,
     detectVariables: true,
-    requireAPICallAnchor: true,
-    minCorroborationSignals: 2,
+    aggressive: true,
   });
 
   // Attach tracer data
