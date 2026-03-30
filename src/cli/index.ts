@@ -398,6 +398,8 @@ program
   .option('--clear', 'Clear existing data before scanning')
   .option('--ast', 'Use AST-based scanning (more accurate, slightly slower)')
   .option('--track-branch', 'Capture git branch/commit in scan output')
+  .option('--field-usage', 'Analyze DB field usage across codebase (requires Prisma schema)')
+  .option('--typespec', 'Validate Prisma types against TypeScript interfaces')
   .option('--json', 'Output scan results as JSON')
   .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (options) => {
@@ -419,6 +421,8 @@ program
         clearFirst: options.clear,
         useAST: options.ast,
         trackBranch: options.trackBranch,
+        fieldUsage: options.fieldUsage,
+        typeSpec: options.typespec,
       });
 
       // Restore console for output
@@ -623,6 +627,20 @@ program
         }
         if (infraConnCounts.length > 0) {
           console.log(`  Connections: ${infraConnCounts.join(', ')}`);
+        }
+
+        // Show field usage summary if stored in component metadata
+        try {
+          const allComps = await loadAllComponents(config);
+          const summaryComp = allComps.find(c => c.name === 'DB Field Usage' && c.tags?.includes('field-usage'));
+          if (summaryComp?.metadata?.report) {
+            const r = summaryComp.metadata.report as { totalFields: number; unusedFields: number; writeOnlyFields: number; scannedModels: number };
+            console.log(`  Field usage: ${r.totalFields} fields across ${r.scannedModels} models`);
+            if (r.unusedFields > 0) console.log(`    Unused fields: ${r.unusedFields} (run 'navgator coverage --fields' for details)`);
+            if (r.writeOnlyFields > 0) console.log(`    Write-only fields: ${r.writeOnlyFields}`);
+          }
+        } catch {
+          // Field usage data not available — non-critical
         }
       }
 
@@ -1462,6 +1480,8 @@ program
   .command('coverage')
   .description('Show architecture tracking coverage and identify gaps')
   .option('--gaps-only', 'Show only gaps')
+  .option('--fields', 'Run DB field usage analysis (scans codebase for Prisma field references)')
+  .option('--typespec', 'Run TypeSpec validation (compare Prisma types vs TS interfaces)')
   .option('--json', 'Output as JSON')
   .option('--agent', 'Output wrapped in agent envelope (implies --json)')
   .action(async (options) => {
@@ -1473,6 +1493,54 @@ program
       const projectRoot = process.cwd();
 
       const report = await computeCoverage(components, connections, projectRoot, fileMap);
+
+      // --fields: run field usage analysis on-demand
+      if (options.fields) {
+        const { scanFieldUsage, canAnalyzeFieldUsage, formatFieldUsageReport } = await import('../scanners/infrastructure/field-usage-analyzer.js');
+        if (!canAnalyzeFieldUsage(projectRoot)) {
+          console.log('No Prisma schema found — field usage analysis skipped.');
+        } else {
+          const result = await scanFieldUsage(projectRoot) as { report?: import('../scanners/infrastructure/field-usage-analyzer.js').FieldUsageReport };
+          if (result.report) {
+            if (options.agent) {
+              console.log(wrapInEnvelope('coverage-fields', result.report));
+              return;
+            }
+            if (options.json) {
+              console.log(JSON.stringify(result.report, null, 2));
+              return;
+            }
+            console.log(formatFieldUsageReport(result.report));
+          } else {
+            console.log('Field usage analysis produced no results.');
+          }
+          return;
+        }
+      }
+
+      // --typespec: run TypeSpec validation on-demand
+      if (options.typespec) {
+        const { scanTypeSpecValidation, canValidateTypeSpec, formatTypeSpecReport } = await import('../scanners/infrastructure/typespec-validator.js');
+        if (!canValidateTypeSpec(projectRoot)) {
+          console.log('No Prisma schema found — TypeSpec validation skipped.');
+        } else {
+          const result = await scanTypeSpecValidation(projectRoot) as { report?: import('../scanners/infrastructure/typespec-validator.js').TypeSpecReport; warnings: unknown[] };
+          if (result.report) {
+            if (options.agent) {
+              console.log(wrapInEnvelope('coverage-typespec', result.report));
+              return;
+            }
+            if (options.json) {
+              console.log(JSON.stringify(result.report, null, 2));
+              return;
+            }
+            console.log(formatTypeSpecReport(result.report));
+          } else {
+            console.log('TypeSpec validation produced no results.');
+          }
+          return;
+        }
+      }
 
       if (options.agent) {
         console.log(wrapInEnvelope('coverage', report));

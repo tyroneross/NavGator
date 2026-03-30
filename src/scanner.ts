@@ -24,6 +24,8 @@ import { scanEnvVars, detectEnvFiles } from './scanners/infrastructure/env-scann
 import { scanQueues, detectQueues } from './scanners/infrastructure/queue-scanner.js';
 import { scanCronJobs, detectCrons } from './scanners/infrastructure/cron-scanner.js';
 import { scanDeployConfig } from './scanners/infrastructure/deploy-scanner.js';
+import { scanFieldUsage, canAnalyzeFieldUsage, FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer.js';
+import { scanTypeSpecValidation, canValidateTypeSpec, TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
 import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-scanner.js';
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
@@ -72,6 +74,8 @@ export interface ScanOptions {
   useAST?: boolean;          // Use AST-based scanning (more accurate, slightly slower)
   prompts?: boolean;         // Enhanced prompt scanning with full content
   trackBranch?: boolean;     // Opt-in: capture git branch/commit in scan output
+  fieldUsage?: boolean;      // Analyze DB field usage across codebase (FEATURE FLAG)
+  typeSpec?: boolean;        // Validate Prisma types against TS interfaces (FEATURE FLAG)
 }
 
 // =============================================================================
@@ -90,6 +94,8 @@ export async function scan(
   warnings: ScanWarning[];
   fileChanges?: FileChangeResult;
   promptScan?: PromptScanResult;
+  fieldUsageReport?: FieldUsageReport;
+  typeSpecReport?: TypeSpecReport;
   timelineEntry?: TimelineEntry;
   gitInfo?: GitInfo;
   stats: {
@@ -227,6 +233,48 @@ export async function scan(
       allWarnings.push({
         type: 'parse_error',
         message: `Prisma scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // DB field usage analyzer (opt-in via FEATURE FLAG: fieldUsage)
+  let fieldUsageReportResult: FieldUsageReport | undefined;
+  if (options.fieldUsage && canAnalyzeFieldUsage(root)) {
+    if (options.verbose) console.log('  - Analyzing DB field usage...');
+    try {
+      const fieldResult = await scanFieldUsage(root) as ScanResult & { report?: FieldUsageReport };
+      allComponents.push(...fieldResult.components);
+      allConnections.push(...fieldResult.connections);
+      allWarnings.push(...fieldResult.warnings);
+      fieldUsageReportResult = fieldResult.report;
+      if (options.verbose && fieldResult.report) {
+        const r = fieldResult.report;
+        console.log(`    Fields: ${r.totalFields} total, ${r.unusedFields} unused, ${r.writeOnlyFields} write-only`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Field usage analysis failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // TypeSpec validator (opt-in via FEATURE FLAG: typeSpec)
+  let typeSpecReportResult: TypeSpecReport | undefined;
+  if (options.typeSpec && canValidateTypeSpec(root)) {
+    if (options.verbose) console.log('  - Validating TypeSpec (Prisma vs TS interfaces)...');
+    try {
+      const tsResult = await scanTypeSpecValidation(root) as ScanResult & { report?: TypeSpecReport };
+      allWarnings.push(...tsResult.warnings);
+      typeSpecReportResult = tsResult.report;
+      if (options.verbose && tsResult.report) {
+        const r = tsResult.report;
+        console.log(`    Interfaces: ${r.modelsWithInterfaces}/${r.modelsChecked} matched, ${r.totalMismatches} mismatches`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `TypeSpec validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   }
@@ -688,6 +736,8 @@ export async function scan(
     warnings: allWarnings,
     fileChanges,
     promptScan: promptScanResultHolder,
+    fieldUsageReport: fieldUsageReportResult,
+    typeSpecReport: typeSpecReportResult,
     timelineEntry,
     gitInfo,
     stats: {
