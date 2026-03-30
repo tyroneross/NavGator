@@ -717,74 +717,41 @@ program
         // Runtime topology data not available — non-critical
       }
 
-      // AI/LLM use case summary (deduplication: count distinct providers and use cases)
+      // AI/LLM use case summary (3-layer dedup: filter → group by purpose → display)
       try {
+        const { deduplicateLLMUseCases } = await import('../llm-dedup.js');
         const aiComps = await loadAllComponents(config);
         const aiConns = await loadAllConnections(config);
 
-        // LLM provider components: type === 'llm' or known provider names
-        const AI_PROVIDER_NAMES_LOCAL = new Set([
-          'openai', '@anthropic-ai/sdk', '@langchain/core', '@langchain/openai',
-          '@langchain/anthropic', '@langchain/groq', 'groq-sdk', 'langsmith',
-          '@mistralai/mistralai', 'replicate', '@huggingface/inference',
-          '@google/generative-ai', '@vercel/ai', 'ai', 'cohere-ai',
-        ]);
-        const llmComponents = aiComps.filter(
-          c => c.type === 'llm' || AI_PROVIDER_NAMES_LOCAL.has(c.name.toLowerCase())
-        );
+        // Try to load prompt data for strongest grouping signal
+        let prompts;
+        try {
+          const promptsPath = path.join(config.storagePath, 'prompts.json');
+          const raw = await fs.promises.readFile(promptsPath, 'utf-8');
+          const data = JSON.parse(raw);
+          prompts = data?.prompts;
+        } catch { /* no prompts data — dedup falls back to function/file grouping */ }
 
-        if (llmComponents.length > 0) {
-          const llmComponentIds = new Set(llmComponents.map(c => c.component_id));
+        const dedup = deduplicateLLMUseCases(aiComps, aiConns, prompts);
 
-          // Filter to connections targeting LLM components, exclude test/dev-only
-          const llmConns = aiConns.filter(conn => {
-            if (!llmComponentIds.has(conn.to.component_id)) return false;
-            const classification = conn.semantic?.classification;
-            if (classification === 'test' || classification === 'dev-only') return false;
-            return true;
-          });
-
-          // Distinct providers = unique LLM component IDs that have at least one connection
-          const activeProviderIds = new Set(llmConns.map(c => c.to.component_id));
-          // Providers with no connections still count as present
-          const totalProviders = llmComponents.length;
-          const activeProviders = activeProviderIds.size || totalProviders;
-
-          // Distinct use cases = unique callers (from.component_id) per provider
-          // A "use case" is a unique (caller, provider) pair — avoids counting same caller N times
-          const useCaseKeys = new Set(llmConns.map(c => `${c.from.component_id}|${c.to.component_id}`));
-          const useCaseCount = useCaseKeys.size || activeProviders;
-
-          // Collect provider display names
-          const providerNames = llmComponents.map(c => {
-            // Normalize package names to readable labels
-            const nameMap: Record<string, string> = {
-              'openai': 'OpenAI',
-              '@anthropic-ai/sdk': 'Anthropic',
-              '@langchain/core': 'LangChain',
-              '@langchain/openai': 'LangChain/OpenAI',
-              '@langchain/anthropic': 'LangChain/Anthropic',
-              '@langchain/groq': 'LangChain/Groq',
-              'groq-sdk': 'Groq',
-              'langsmith': 'LangSmith',
-              '@mistralai/mistralai': 'Mistral',
-              'replicate': 'Replicate',
-              '@huggingface/inference': 'HuggingFace',
-              '@google/generative-ai': 'Gemini',
-              '@vercel/ai': 'Vercel AI',
-              'ai': 'Vercel AI',
-              'cohere-ai': 'Cohere',
-            };
-            return nameMap[c.name.toLowerCase()] ?? c.name;
-          });
-          const uniqueProviderNames = [...new Set(providerNames)];
-
+        if (dedup.useCases.length > 0) {
           console.log('\nAI/LLM:');
-          console.log(`  Use cases: ${useCaseCount} across ${activeProviders} provider${activeProviders !== 1 ? 's' : ''}`);
-          console.log(`  Providers: ${uniqueProviderNames.join(', ')}`);
+          console.log(`  ${dedup.useCases.length} use case${dedup.useCases.length !== 1 ? 's' : ''} across ${dedup.providers.length} provider${dedup.providers.length !== 1 ? 's' : ''} (${dedup.productionCallSites} production call sites)`);
+          if (dedup.providers.length > 0) {
+            console.log(`  Providers: ${dedup.providers.join(', ')}`);
+          }
+          // Show use case table if ≤15 use cases
+          if (dedup.useCases.length <= 15) {
+            console.log('');
+            for (const uc of dedup.useCases) {
+              const name = uc.name.padEnd(24);
+              const provider = uc.provider.padEnd(12);
+              console.log(`    ${name} ${provider} ${uc.primaryFile}`);
+            }
+          }
         }
       } catch {
-        // AI/LLM data not available — non-critical
+        // AI/LLM dedup not available — non-critical
       }
 
       if (hoursSince > 24) {
