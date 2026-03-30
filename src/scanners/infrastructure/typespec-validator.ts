@@ -11,6 +11,7 @@ import {
   ScanResult,
   ScanWarning,
 } from '../../types.js';
+import { parsePrismaModels } from './prisma-parser.js';
 
 // =============================================================================
 // TYPE MAPPING
@@ -93,12 +94,7 @@ function parsePrismaForValidation(content: string): PrismaModelDef[] {
     'Json', 'Bytes', 'BigInt', 'Decimal',
   ]);
 
-  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/gs;
-  let match: RegExpExecArray | null;
-
-  while ((match = modelRegex.exec(content)) !== null) {
-    const modelName = match[1];
-    const body = match[2];
+  for (const { name: modelName, body } of parsePrismaModels(content)) {
     const fields: PrismaScalarField[] = [];
 
     for (const line of body.split('\n')) {

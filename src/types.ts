@@ -169,6 +169,7 @@ export type ConnectionType =
   | 'target-contains'     // Xcode target ↔ source files/frameworks
   | 'build-phase-includes' // Xcode build phase ↔ source files
   | 'generates'           // Build script/schema → generated source file
+  | 'field-reference'     // Database model field → file that references it
   | 'other';
 
 /**

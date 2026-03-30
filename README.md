@@ -68,6 +68,9 @@ navgator scan --quick
 
 # With AI prompt detection
 navgator scan --prompts --verbose
+
+# With infrastructure analysis
+navgator scan --field-usage --typespec
 ```
 
 ### 3. Check Status
@@ -95,6 +98,12 @@ CONNECTIONS BY TYPE:
   service-call: 12
   api-calls-db: 8
   frontend-calls-api: 3
+
+INFRASTRUCTURE:
+  DB models: 12
+  Env vars: 34
+  Queues: 3
+  Cron jobs: 2
 ```
 
 ### 4. Analyze Impact
@@ -212,6 +221,8 @@ Scan project and update architecture tracking.
 | `-v, --verbose` | Detailed output |
 | `--clear` | Clear existing data before scan |
 | `--ast` | Use AST-based scanning (requires `ts-morph`) |
+| `--field-usage` | Analyze Prisma model field usage across codebase |
+| `--typespec` | Validate Prisma types against TypeScript interfaces |
 
 ### `navgator status`
 
@@ -274,6 +285,24 @@ Scan and analyze AI prompts in the codebase.
 | `-v, --verbose` | Show full prompt content |
 | `--json` | Output as JSON |
 | `--detail <name>` | Show detailed view of specific prompt |
+
+### `navgator coverage`
+
+Analyze database field usage and type alignment.
+
+```bash
+# Field usage analysis (requires Prisma schema)
+navgator coverage --fields
+
+# TypeSpec validation (Prisma vs TypeScript types)
+navgator coverage --typespec
+```
+
+| Option | Description |
+|--------|-------------|
+| `--fields` | Report unused, read-only, and write-only Prisma model fields |
+| `--typespec` | Compare Prisma model types against TypeScript interface definitions |
+| `--json` | Output as JSON |
 
 ## What Gets Detected
 

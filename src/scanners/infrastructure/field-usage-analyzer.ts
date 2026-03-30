@@ -15,6 +15,7 @@ import {
   generateComponentId,
   generateConnectionId,
 } from '../../types.js';
+import { parsePrismaModels } from './prisma-parser.js';
 
 // =============================================================================
 // TYPES
@@ -79,12 +80,7 @@ function extractModelsFromSchema(content: string): MinimalModel[] {
     'Json', 'Bytes', 'BigInt', 'Decimal',
   ]);
 
-  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/gs;
-  let match: RegExpExecArray | null;
-
-  while ((match = modelRegex.exec(content)) !== null) {
-    const modelName = match[1];
-    const body = match[2];
+  for (const { name: modelName, body } of parsePrismaModels(content)) {
     const fields: MinimalField[] = [];
 
     for (const line of body.split('\n')) {
@@ -362,8 +358,6 @@ export async function scanFieldUsage(projectRoot: string): Promise<ScanResult & 
     }
   }
 
-  console.log(`  Field usage: scanning ${models.length} models across ${fileContents.size} source files...`);
-
   // Build report
   const reportModels: ModelFieldUsage[] = [];
   let totalFields = 0;
@@ -463,7 +457,7 @@ export async function scanFieldUsage(projectRoot: string): Promise<ScanResult & 
     }
 
     for (const relFile of allReferencingFiles) {
-      const connId = generateConnectionId('other');
+      const connId = generateConnectionId('field-reference');
       connections.push({
         connection_id: connId,
         from: {
@@ -471,10 +465,10 @@ export async function scanFieldUsage(projectRoot: string): Promise<ScanResult & 
           location: { file: schemaFile || 'prisma/schema.prisma', line: 0 },
         },
         to: {
-          component_id: componentId, // self-ref; file components not always available
+          component_id: `FILE:${relFile}`,
           location: { file: relFile, line: 0 },
         },
-        connection_type: 'other',
+        connection_type: 'field-reference',
         code_reference: {
           file: relFile,
           symbol: `${model.name}-fields`,

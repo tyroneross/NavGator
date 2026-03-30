@@ -54,6 +54,8 @@ Load on demand when you need full detail about a specific component or connectio
 | `navgator diff [id]` | Show detailed diff (most recent if no ID) |
 | `navgator projects` | List all registered NavGator projects |
 | `navgator summary` | Executive summary with risks, blockers, next actions (JSON) |
+| `navgator coverage --fields` | Analyze DB field usage (unused, read-only, write-only) |
+| `navgator coverage --typespec` | Validate Prisma types against TypeScript interfaces |
 
 ## Agent/Machine Output
 
@@ -67,6 +69,18 @@ All commands that support `--json` also support `--agent`, which wraps output in
   "timestamp": 1234567890
 }
 ```
+
+### Infrastructure Scanning
+
+NavGator detects infrastructure beyond packages:
+- **Prisma models**: schema parsing, relations, indexes (`--field-usage` for usage analysis)
+- **Environment variables**: `.env` files + `process.env` references in source
+- **Queues**: BullMQ/Bull producers and consumers
+- **Cron jobs**: vercel.json, railway.json, node-cron patterns
+- **Deploy configs**: Vercel, Railway, Heroku service definitions
+- **TypeSpec validation**: Prisma model vs TypeScript interface comparison (`--typespec`)
+
+These are detected automatically during `navgator scan`. Use `navgator coverage --fields` or `--typespec` for detailed analysis.
 
 ### Scan Flags
 

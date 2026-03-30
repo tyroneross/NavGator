@@ -13,6 +13,7 @@ import {
   generateComponentId,
   generateConnectionId,
 } from '../../types.js';
+import { parsePrismaModels } from './prisma-parser.js';
 
 // =============================================================================
 // PRISMA MODEL PARSING
@@ -82,13 +83,7 @@ function findPrismaSchemas(projectRoot: string): string[] {
 function parsePrismaSchema(content: string): PrismaModel[] {
   const models: PrismaModel[] = [];
 
-  // Match model blocks: model Name { ... }
-  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/gs;
-  let match: RegExpExecArray | null;
-
-  while ((match = modelRegex.exec(content)) !== null) {
-    const modelName = match[1];
-    const body = match[2];
+  for (const { name: modelName, body } of parsePrismaModels(content)) {
 
     const fields: PrismaField[] = [];
     let tableName: string | undefined;

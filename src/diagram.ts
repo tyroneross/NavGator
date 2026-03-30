@@ -160,6 +160,10 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
     lineStyle: '-->',
     label: 'consumes',
   },
+  'field-reference': {
+    lineStyle: '-->',
+    label: 'references',
+  },
   other: {
     lineStyle: '-->',
   },

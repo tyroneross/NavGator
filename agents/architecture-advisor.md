@@ -60,6 +60,10 @@ When advising on architecture:
    npx @tyroneross/navgator connections "<component>"
    ```
 
+5. When Prisma is detected, suggest running `navgator coverage --fields` to identify unused database fields.
+
+6. When TypeScript interfaces mirror Prisma models, suggest `navgator coverage --typespec` to validate type alignment.
+
 ## Response Format
 
 When advising on changes:

@@ -127,7 +127,7 @@ async function findEnvReferences(
 
 type EnvCategory = 'database' | 'auth' | 'api-key' | 'service' | 'app-config' | 'infra' | 'other';
 
-function categorizeEnvVar(name: string): EnvCategory {
+export function categorizeEnvVar(name: string): EnvCategory {
   const n = name.toUpperCase();
 
   if (n.includes('DATABASE') || n.includes('DB_') || n.includes('POSTGRES') ||
@@ -139,8 +139,10 @@ function categorizeEnvVar(name: string): EnvCategory {
       n.includes('SESSION') || n.includes('NEXTAUTH') || n.includes('CLERK')) {
     return 'auth';
   }
-  if (n.includes('API_KEY') || n.includes('APIKEY') || n.includes('_KEY') ||
-      n.includes('TOKEN') && !n.includes('VERCEL_TOKEN')) {
+  if ((n.includes('API_KEY') && !n.includes('VERCEL')) ||
+      (n.includes('APIKEY') && !n.includes('VERCEL')) ||
+      (n.includes('_KEY') && !n.includes('VERCEL')) ||
+      (n.includes('TOKEN') && !n.includes('VERCEL'))) {
     return 'api-key';
   }
   if (n.includes('STRIPE') || n.includes('OPENAI') || n.includes('ANTHROPIC') ||

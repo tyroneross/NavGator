@@ -148,6 +148,49 @@ export interface DetectorOptions {
 }
 
 /**
+ * Find the end of an array definition, starting from startLine.
+ * The opening `[` on startLine is expected to be the first `[` encountered.
+ * Returns the line index of the closing `]`, or startLine + 50 as a fallback.
+ */
+export function findArrayEnd(lines: string[], startLine: number): number {
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+
+  for (let i = startLine; i < lines.length; i++) {
+    const line = lines[i];
+
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      const prevChar = j > 0 ? line[j - 1] : '';
+
+      // Handle string boundaries
+      if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+        if (!inString) {
+          inString = true;
+          stringChar = char;
+        } else if (char === stringChar) {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (char === '[' || char === '{') depth++;
+      if (char === ']' || char === '}') {
+        depth--;
+        if (depth === 0 && char === ']') {
+          return i;
+        }
+      }
+    }
+  }
+
+  return Math.min(startLine + 50, lines.length - 1);
+}
+
+/**
  * Detects prompts in source files using regex patterns
  */
 export class PromptDetector {
@@ -473,40 +516,7 @@ export class PromptDetector {
    * Find the end of an array definition
    */
   private findArrayEnd(lines: string[], startLine: number): number {
-    let depth = 0;
-    let inString = false;
-    let stringChar = '';
-
-    for (let i = startLine; i < lines.length; i++) {
-      const line = lines[i];
-
-      for (let j = 0; j < line.length; j++) {
-        const char = line[j];
-        const prevChar = j > 0 ? line[j - 1] : '';
-
-        // Handle string boundaries
-        if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
-          if (!inString) {
-            inString = true;
-            stringChar = char;
-          } else if (char === stringChar) {
-            inString = false;
-          }
-          continue;
-        }
-
-        if (inString) continue;
-
-        if (char === '[' || char === '{') depth++;
-        if (char === ']' || char === '}') depth--;
-
-        if (depth === 0 && char === ']') {
-          return i;
-        }
-      }
-    }
-
-    return Math.min(startLine + 50, lines.length - 1);
+    return findArrayEnd(lines, startLine);
   }
 
   /**
