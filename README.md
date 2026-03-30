@@ -194,6 +194,10 @@ When installed as a Claude Code plugin, all commands are available as `/gator:*`
 | `/gator:ui` | Launch the web dashboard |
 | `/gator:update` | Update NavGator to the latest version |
 | `/gator:install` | Install/reinstall the plugin (choose scope) |
+| `/gator:review` | Architectural integrity review (connections, flow, drift, lessons) |
+| `/gator:review --all` | Review entire architecture, not just changes |
+| `/gator:review --validate` | Validate lessons against current docs (internet research) |
+| `/gator:review learn "..."` | Record a manual architectural lesson |
 
 ### Hooks
 
@@ -223,6 +227,9 @@ Scan project and update architecture tracking.
 | `--ast` | Use AST-based scanning (requires `ts-morph`) |
 | `--field-usage` | Analyze Prisma model field usage across codebase |
 | `--typespec` | Validate Prisma types against TypeScript interfaces |
+| `--track-branch` | Capture git branch/commit in scan output |
+| `--json` | Output scan results as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 ### `navgator status`
 
@@ -304,6 +311,35 @@ navgator coverage --typespec
 | `--typespec` | Compare Prisma model types against TypeScript interface definitions |
 | `--json` | Output as JSON |
 
+### `navgator trace <component>`
+
+Trace dataflow paths forward and backward through the system.
+
+| Option | Description |
+|--------|-------------|
+| `--direction <dir>` | forward, backward, or both (default: both) |
+| `--depth <n>` | Max trace depth (default: 5) |
+| `--json` | Output as JSON |
+
+### `navgator rules`
+
+Check architecture rules and report violations.
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output as JSON |
+
+Built-in rules: orphan components, database isolation, frontend-direct-db, circular dependencies, hotspot modules, high fan-out, layer violations.
+
+### `navgator subgraph <component>`
+
+Extract a focused subgraph around a specific component.
+
+| Option | Description |
+|--------|-------------|
+| `--depth <n>` | Include connections up to N hops away (default: 2) |
+| `--json` | Output as JSON |
+
 ## What Gets Detected
 
 ### Components
@@ -328,6 +364,14 @@ navgator coverage --typespec
 | `queue-triggers` | Queue job → Handler function |
 | `prompt-location` | AI prompt definition location |
 | `prompt-usage` | Code that uses an AI prompt |
+| `env-dependency` | Component → environment variable it depends on |
+| `schema-relation` | Database model → related model (FK/relation) |
+| `cron-triggers` | Cron job → API route handler |
+| `queue-produces` | Producer → queue |
+| `queue-consumes` | Queue → consumer worker |
+| `field-reference` | Database model field → file that references it |
+| `runtime-binding` | Component → its runtime service/resource |
+| `queue-uses-cache` | Queue system → Redis/cache instance |
 
 ### Runtime Topology
 

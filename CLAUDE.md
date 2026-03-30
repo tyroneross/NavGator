@@ -51,6 +51,12 @@ Load on demand when you need full detail about a specific component or connectio
 | `/gator:ui` | Launch the web dashboard |
 | `/gator:update` | Update NavGator to the latest version |
 | `/gator:review` | Architectural integrity review (connections, flow, drift, lessons) |
+| `/gator:review --all` | Review entire architecture, not just changes |
+| `/gator:review --validate` | Trigger freshness validation (internet research) for lessons |
+| `/gator:review learn "..."` | Record a manual architectural lesson |
+| `navgator trace <component>` | Trace dataflow paths forward and backward through system |
+| `navgator rules` | Check architecture rules (orphans, layer violations, cycles, hotspots) |
+| `navgator subgraph <component>` | Extract focused subgraph around a component |
 | `navgator history` | Show architecture change timeline |
 | `navgator diff [id]` | Show detailed diff (most recent if no ID) |
 | `navgator projects` | List all registered NavGator projects |
@@ -88,6 +94,18 @@ These are detected automatically during `navgator scan`. Use `navgator coverage 
 NavGator annotates components with runtime identity — service names, connection endpoints, and deployment targets extracted from code and config. This enables backward tracing from runtime failures to code: "which code produces to this BullMQ queue?" or "what database engine does this Prisma schema connect to?"
 
 The `navgator status` command shows a RUNTIME TOPOLOGY section with all detected bindings.
+
+### LLM Use Case Tracking
+
+NavGator tracks distinct LLM use cases, not raw import counts. Instead of "154 service calls," it shows "8 use cases across 3 providers." Deduplication uses a priority cascade: prompt-based grouping (strongest), function name grouping, callType+model grouping, file-based (fallback). Test and dev-only connections are filtered automatically.
+
+The `navgator status` command shows an AI/LLM section with use case count, providers, and a table of distinct use cases.
+
+### Lessons System
+
+NavGator accumulates architectural lessons in `.navgator/lessons/lessons.json`. Lessons are patterns that caused issues — they're matched against future changes during `/gator:review`. Categories: api-contract, data-flow, component-communication, llm-architecture, infrastructure, typespec, database-structure.
+
+Record lessons manually with `/gator:review learn "description"`. Lessons are validated periodically against current documentation via `/gator:review --validate`.
 
 ### Scan Flags
 
