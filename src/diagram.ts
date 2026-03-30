@@ -139,6 +139,27 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
     lineStyle: '==>',
     label: 'generates',
   },
+  // Infrastructure connections
+  'env-dependency': {
+    lineStyle: '-.->',
+    label: 'env',
+  },
+  'schema-relation': {
+    lineStyle: '-->',
+    label: 'relates',
+  },
+  'cron-triggers': {
+    lineStyle: '-.->',
+    label: 'triggers',
+  },
+  'queue-produces': {
+    lineStyle: '-->',
+    label: 'produces',
+  },
+  'queue-consumes': {
+    lineStyle: '-->',
+    label: 'consumes',
+  },
   other: {
     lineStyle: '-->',
   },

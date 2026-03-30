@@ -19,6 +19,11 @@ import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
 import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
 import { scanInfrastructure } from './scanners/infrastructure/index.js';
+import { scanPrismaSchema, detectPrisma } from './scanners/infrastructure/prisma-scanner.js';
+import { scanEnvVars, detectEnvFiles } from './scanners/infrastructure/env-scanner.js';
+import { scanQueues, detectQueues } from './scanners/infrastructure/queue-scanner.js';
+import { scanCronJobs, detectCrons } from './scanners/infrastructure/cron-scanner.js';
+import { scanDeployConfig } from './scanners/infrastructure/deploy-scanner.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
 import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-scanner.js';
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
@@ -206,6 +211,98 @@ export async function scan(
   const infraResult = await scanInfrastructure(root);
   allComponents.push(...infraResult.components);
   allWarnings.push(...infraResult.warnings);
+
+  // Prisma schema → database models + relations
+  if (detectPrisma(root)) {
+    if (options.verbose) console.log('  - Detected Prisma schema');
+    try {
+      const prismaResult = await scanPrismaSchema(root);
+      allComponents.push(...prismaResult.components);
+      allConnections.push(...prismaResult.connections);
+      allWarnings.push(...prismaResult.warnings);
+      if (options.verbose) {
+        console.log(`    Models: ${prismaResult.components.length}, Relations: ${prismaResult.connections.length}`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Prisma scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // Environment variables → config components + dependency connections
+  if (detectEnvFiles(root)) {
+    if (options.verbose) console.log('  - Detected environment files');
+    try {
+      const envResult = await scanEnvVars(root);
+      allComponents.push(...envResult.components);
+      allConnections.push(...envResult.connections);
+      allWarnings.push(...envResult.warnings);
+      if (options.verbose) {
+        console.log(`    Env vars: ${envResult.components.length}, References: ${envResult.connections.length}`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Env scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // BullMQ/Bull queues → producer/consumer topology
+  if (detectQueues(root)) {
+    if (options.verbose) console.log('  - Detected queue system');
+    try {
+      const queueResult = await scanQueues(root);
+      allComponents.push(...queueResult.components);
+      allConnections.push(...queueResult.connections);
+      allWarnings.push(...queueResult.warnings);
+      if (options.verbose) {
+        console.log(`    Queues: ${queueResult.components.length}, Connections: ${queueResult.connections.length}`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Queue scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // Cron jobs → scheduled task components
+  if (detectCrons(root)) {
+    if (options.verbose) console.log('  - Detected cron jobs');
+    try {
+      const cronResult = await scanCronJobs(root);
+      allComponents.push(...cronResult.components);
+      allConnections.push(...cronResult.connections);
+      allWarnings.push(...cronResult.warnings);
+      if (options.verbose) {
+        console.log(`    Cron jobs: ${cronResult.components.length}, Route connections: ${cronResult.connections.length}`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Cron scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  }
+
+  // Deployment config → detailed infra metadata
+  if (options.verbose) console.log('  - Scanning deployment config...');
+  try {
+    const deployResult = await scanDeployConfig(root);
+    allComponents.push(...deployResult.components);
+    allWarnings.push(...deployResult.warnings);
+    if (options.verbose && deployResult.components.length > 0) {
+      console.log(`    Deploy configs: ${deployResult.components.length}`);
+    }
+  } catch (error) {
+    allWarnings.push({
+      type: 'parse_error',
+      message: `Deploy config scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    });
+  }
 
   // ==========================================================================
   // Phase 3: Connection Detection (unless quick mode)

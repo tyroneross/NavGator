@@ -597,6 +597,35 @@ program
         }
       }
 
+      // Infrastructure summary
+      const infraTypes = ['database', 'config', 'queue', 'cron', 'infra'];
+      const infraCounts: Record<string, number> = {};
+      for (const t of infraTypes) {
+        const count = index.stats.components_by_type[t];
+        if (count) infraCounts[t] = count;
+      }
+      if (Object.keys(infraCounts).length > 0) {
+        console.log('\nINFRASTRUCTURE:');
+        for (const [type, count] of Object.entries(infraCounts)) {
+          const label = type === 'database' ? 'DB models'
+            : type === 'config' ? 'Env vars'
+            : type === 'queue' ? 'Queues'
+            : type === 'cron' ? 'Cron jobs'
+            : 'Infra services';
+          console.log(`  ${label}: ${count}`);
+        }
+        // Show infra connection types
+        const infraConnTypes = ['schema-relation', 'env-dependency', 'queue-produces', 'queue-consumes', 'cron-triggers'];
+        const infraConnCounts: string[] = [];
+        for (const ct of infraConnTypes) {
+          const count = index.stats.connections_by_type[ct];
+          if (count) infraConnCounts.push(`${ct}: ${count}`);
+        }
+        if (infraConnCounts.length > 0) {
+          console.log(`  Connections: ${infraConnCounts.join(', ')}`);
+        }
+      }
+
       if (hoursSince > 24) {
         console.log('\n⚠️  Architecture data is stale. Consider running `navgator scan`');
       }

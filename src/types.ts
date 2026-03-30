@@ -26,6 +26,8 @@ export type ComponentType =
   | 'infra'          // Railway, Vercel, Docker, K8s
   | 'service'        // Stripe, Twilio, external APIs (non-AI)
   | 'llm'            // AI/LLM services: OpenAI, Claude, Groq, Anthropic
+  | 'config'         // Environment variables, feature flags, config
+  | 'cron'           // Scheduled jobs (Vercel crons, crontab, etc.)
   // Code-level components
   | 'api-endpoint'   // /api/users, /api/orders
   | 'db-table'       // users, orders, products tables
@@ -148,6 +150,11 @@ export type ConnectionType =
   | 'service-call'        // Code → external service (Stripe, OpenAI)
   | 'imports'             // File imports another file/module
   | 'deploys-to'          // Code → infrastructure
+  | 'env-dependency'      // Component → environment variable
+  | 'schema-relation'     // Database model → related model (FK/relation)
+  | 'cron-triggers'       // Cron job → API route handler
+  | 'queue-produces'      // Producer → queue
+  | 'queue-consumes'      // Queue → consumer worker
   | 'prompt-location'     // AI prompt definition location
   | 'prompt-usage'        // Code uses an AI prompt
   | 'uses-package'        // Code uses a package
