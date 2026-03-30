@@ -329,6 +329,18 @@ navgator coverage --typespec
 | `prompt-location` | AI prompt definition location |
 | `prompt-usage` | Code that uses an AI prompt |
 
+### Runtime Topology
+
+NavGator annotates architecture components with runtime identity information extracted from code and config:
+
+- **Database connections**: Parses `DATABASE_URL` and Prisma `datasource` to identify database engine (postgres, mysql, etc.), host, and port
+- **Redis/cache connections**: Extracts Redis URLs from BullMQ queue configurations and env vars
+- **Queue identity**: Maps queue names to their Redis backing store and producer/consumer relationships
+- **Deploy services**: Extracts service names from Railway, Vercel, Heroku (Procfile), and Nixpacks configs
+- **Cron handlers**: Links scheduled jobs to their handler functions and deployment platform
+
+Use `navgator status` to see the RUNTIME TOPOLOGY section showing all detected runtime bindings.
+
 ## Storage
 
 Data is stored in `.navgator/architecture/` within your project:

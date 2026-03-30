@@ -644,6 +644,149 @@ program
         }
       }
 
+      // Runtime topology section
+      try {
+        const runtimeComps = await loadAllComponents(config);
+        const withRuntime = runtimeComps.filter(c => c.runtime?.resource_type);
+
+        if (withRuntime.length > 0) {
+          const resourceTypeLabels: Record<string, string> = {
+            database: 'database',
+            cache: 'cache',
+            queue: 'queues',
+            worker: 'workers',
+            cron: 'crons',
+            api: 'apis',
+            storage: 'storage',
+          };
+
+          // Group by resource_type
+          const grouped: Record<string, typeof withRuntime> = {};
+          for (const comp of withRuntime) {
+            const rt = comp.runtime!.resource_type!;
+            if (!grouped[rt]) grouped[rt] = [];
+            grouped[rt].push(comp);
+          }
+
+          console.log('\nRUNTIME TOPOLOGY:');
+          const typeOrder = ['database', 'cache', 'queue', 'worker', 'cron', 'api', 'storage'];
+          for (const rt of typeOrder) {
+            if (!grouped[rt]) continue;
+            const label = resourceTypeLabels[rt] ?? rt;
+            const comps = grouped[rt];
+
+            if (rt === 'queue' || rt === 'worker' || rt === 'cron' || rt === 'api' || rt === 'storage') {
+              // Multi-item types: list names with extra context
+              const names = comps.map(c => {
+                const name = c.runtime?.service_name ?? c.name;
+                if (rt === 'cron' && c.runtime?.endpoint?.path) {
+                  const platform = c.runtime?.platform ? `, ${c.runtime.platform}` : '';
+                  return `${c.runtime.endpoint.path}${platform}`;
+                }
+                if (rt === 'worker' && c.runtime?.platform) {
+                  return `${name} (${c.runtime.platform})`;
+                }
+                if (rt === 'queue' && c.runtime?.engine) {
+                  return name;
+                }
+                return name;
+              });
+              // For queues, append engine info from first component
+              if (rt === 'queue') {
+                const engine = comps[0]?.runtime?.engine;
+                const engineSuffix = engine ? ` (${engine})` : '';
+                console.log(`  ${label}: ${names.join(', ')}${engineSuffix}`);
+              } else {
+                console.log(`  ${label}: ${names.join(', ')}`);
+              }
+            } else {
+              // Single-detail types: database, cache
+              for (const comp of comps) {
+                const r = comp.runtime!;
+                const enginePart = r.engine ?? comp.name;
+                const hostPart = r.endpoint?.host
+                  ? ` @ ${r.endpoint.host}${r.endpoint.port ? `:${r.endpoint.port}` : ''}`
+                  : '';
+                const envPart = r.connection_env_var ? ` (via ${r.connection_env_var})` : '';
+                console.log(`  ${label}: ${enginePart}${hostPart}${envPart}`);
+              }
+            }
+          }
+        }
+      } catch {
+        // Runtime topology data not available — non-critical
+      }
+
+      // AI/LLM use case summary (deduplication: count distinct providers and use cases)
+      try {
+        const aiComps = await loadAllComponents(config);
+        const aiConns = await loadAllConnections(config);
+
+        // LLM provider components: type === 'llm' or known provider names
+        const AI_PROVIDER_NAMES_LOCAL = new Set([
+          'openai', '@anthropic-ai/sdk', '@langchain/core', '@langchain/openai',
+          '@langchain/anthropic', '@langchain/groq', 'groq-sdk', 'langsmith',
+          '@mistralai/mistralai', 'replicate', '@huggingface/inference',
+          '@google/generative-ai', '@vercel/ai', 'ai', 'cohere-ai',
+        ]);
+        const llmComponents = aiComps.filter(
+          c => c.type === 'llm' || AI_PROVIDER_NAMES_LOCAL.has(c.name.toLowerCase())
+        );
+
+        if (llmComponents.length > 0) {
+          const llmComponentIds = new Set(llmComponents.map(c => c.component_id));
+
+          // Filter to connections targeting LLM components, exclude test/dev-only
+          const llmConns = aiConns.filter(conn => {
+            if (!llmComponentIds.has(conn.to.component_id)) return false;
+            const classification = conn.semantic?.classification;
+            if (classification === 'test' || classification === 'dev-only') return false;
+            return true;
+          });
+
+          // Distinct providers = unique LLM component IDs that have at least one connection
+          const activeProviderIds = new Set(llmConns.map(c => c.to.component_id));
+          // Providers with no connections still count as present
+          const totalProviders = llmComponents.length;
+          const activeProviders = activeProviderIds.size || totalProviders;
+
+          // Distinct use cases = unique callers (from.component_id) per provider
+          // A "use case" is a unique (caller, provider) pair — avoids counting same caller N times
+          const useCaseKeys = new Set(llmConns.map(c => `${c.from.component_id}|${c.to.component_id}`));
+          const useCaseCount = useCaseKeys.size || activeProviders;
+
+          // Collect provider display names
+          const providerNames = llmComponents.map(c => {
+            // Normalize package names to readable labels
+            const nameMap: Record<string, string> = {
+              'openai': 'OpenAI',
+              '@anthropic-ai/sdk': 'Anthropic',
+              '@langchain/core': 'LangChain',
+              '@langchain/openai': 'LangChain/OpenAI',
+              '@langchain/anthropic': 'LangChain/Anthropic',
+              '@langchain/groq': 'LangChain/Groq',
+              'groq-sdk': 'Groq',
+              'langsmith': 'LangSmith',
+              '@mistralai/mistralai': 'Mistral',
+              'replicate': 'Replicate',
+              '@huggingface/inference': 'HuggingFace',
+              '@google/generative-ai': 'Gemini',
+              '@vercel/ai': 'Vercel AI',
+              'ai': 'Vercel AI',
+              'cohere-ai': 'Cohere',
+            };
+            return nameMap[c.name.toLowerCase()] ?? c.name;
+          });
+          const uniqueProviderNames = [...new Set(providerNames)];
+
+          console.log('\nAI/LLM:');
+          console.log(`  Use cases: ${useCaseCount} across ${activeProviders} provider${activeProviders !== 1 ? 's' : ''}`);
+          console.log(`  Providers: ${uniqueProviderNames.join(', ')}`);
+        }
+      } catch {
+        // AI/LLM data not available — non-critical
+      }
+
       if (hoursSince > 24) {
         console.log('\n⚠️  Architecture data is stale. Consider running `navgator scan`');
       }

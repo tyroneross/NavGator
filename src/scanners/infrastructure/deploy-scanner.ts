@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   ArchitectureComponent,
+  RuntimeIdentity,
   ScanResult,
   ScanWarning,
   generateComponentId,
@@ -20,6 +21,7 @@ interface DeployConfig {
   platform: string;
   source: string;                    // Config file
   services: DeployService[];
+  projectName?: string;              // Project/app name from config (e.g. vercel.json "name")
   buildConfig?: {
     framework?: string;
     buildCommand?: string;
@@ -57,6 +59,7 @@ function parseVercelConfig(projectRoot: string): { config: DeployConfig | null; 
       platform: 'Vercel',
       source: 'vercel.json',
       services: [{ name: 'main', type: 'web' }],
+      projectName: typeof json.name === 'string' ? json.name : undefined,
       buildConfig: {
         framework: json.framework,
         buildCommand: json.buildCommand,
@@ -319,6 +322,71 @@ export async function scanDeployConfig(projectRoot: string): Promise<ScanResult>
     warnings.push(...w);
     if (!config) continue;
 
+    // Heroku/Procfile: emit one component per dyno so each has its own runtime identity
+    if (config.platform === 'Heroku/Procfile') {
+      for (const svc of config.services) {
+        const dynoName = svc.name;
+        const runtime: RuntimeIdentity = {
+          service_name: dynoName,
+          platform: 'heroku',
+          resource_type: dynoName === 'web' ? 'api' : 'worker',
+        };
+        const componentId = generateComponentId('infra', `heroku-${dynoName}`);
+        components.push({
+          component_id: componentId,
+          name: `Heroku/Procfile Config (${dynoName})`,
+          type: 'infra',
+          role: {
+            purpose: `Heroku dyno: ${dynoName} (${svc.startCommand ?? 'no command'})`,
+            layer: 'infra',
+            critical: true,
+          },
+          source: {
+            detection_method: 'auto',
+            config_files: [config.source],
+            confidence: 1.0,
+          },
+          connects_to: [],
+          connected_from: [],
+          status: 'active',
+          tags: ['deploy', 'heroku', 'procfile', dynoName],
+          metadata: {
+            platform: config.platform,
+            services: [svc],
+          },
+          runtime,
+          timestamp,
+          last_updated: timestamp,
+        });
+      }
+      continue;
+    }
+
+    // Build runtime identity for single-component platforms
+    let runtime: RuntimeIdentity | undefined;
+
+    if (config.platform === 'Railway') {
+      const primaryService = config.services[0];
+      const serviceName = primaryService?.name ?? 'main';
+      const serviceType = primaryService?.type ?? 'web';
+      runtime = {
+        service_name: serviceName,
+        platform: 'railway',
+        resource_type: serviceType === 'web' ? 'api' : serviceType === 'worker' ? 'worker' : 'api',
+      };
+    } else if (config.platform === 'Vercel') {
+      runtime = {
+        service_name: config.projectName ?? 'vercel-app',
+        platform: 'vercel',
+        resource_type: 'api',
+      };
+    } else if (config.platform === 'Nixpacks') {
+      runtime = {
+        platform: 'nixpacks',
+        resource_type: 'api',
+      };
+    }
+
     // Create a deploy-config component with rich metadata
     // (The basic platform component is already created by the infra scanner)
     const componentId = generateComponentId('infra', `${config.platform.toLowerCase()}-config`);
@@ -347,6 +415,7 @@ export async function scanDeployConfig(projectRoot: string): Promise<ScanResult>
         buildConfig: config.buildConfig,
         constraints: config.constraints,
       },
+      runtime,
       timestamp,
       last_updated: timestamp,
     });

@@ -83,6 +83,12 @@ NavGator detects infrastructure beyond packages:
 
 These are detected automatically during `navgator scan`. Use `navgator coverage --fields` or `--typespec` for detailed analysis.
 
+### Runtime Topology
+
+NavGator annotates components with runtime identity — service names, connection endpoints, and deployment targets extracted from code and config. This enables backward tracing from runtime failures to code: "which code produces to this BullMQ queue?" or "what database engine does this Prisma schema connect to?"
+
+The `navgator status` command shows a RUNTIME TOPOLOGY section with all detected bindings.
+
 ### Scan Flags
 
 | Flag | Purpose |

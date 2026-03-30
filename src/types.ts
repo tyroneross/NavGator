@@ -109,6 +109,9 @@ export interface ArchitectureComponent {
   repository_url?: string;
   metadata?: Record<string, unknown>;  // Extensible metadata (e.g., prompt details)
 
+  // Runtime identity (maps code component to runtime service/resource)
+  runtime?: RuntimeIdentity;
+
   // Timestamps
   timestamp: number;            // When first detected
   last_updated: number;         // When last verified/updated
@@ -134,6 +137,36 @@ export interface Vulnerability {
   title: string;
   fixed_in?: string;            // Version that fixes it
   url?: string;
+}
+
+// =============================================================================
+// RUNTIME IDENTITY (for runtime topology annotations)
+// =============================================================================
+
+/**
+ * Runtime identity annotation for architecture components.
+ * Maps code-level components to their runtime services/resources.
+ * Extracted from code and config — never from live service polling.
+ */
+export interface RuntimeIdentity {
+  /** Service/resource name as known at runtime (e.g., "email-queue", "worker") */
+  service_name?: string;
+  /** Deployment platform (vercel, railway, heroku, docker, local) */
+  platform?: string;
+  /** Parsed connection info (no secrets — just host, port, db name, protocol) */
+  endpoint?: {
+    protocol?: string;    // postgres, redis, https, amqp
+    host?: string;        // localhost, db.railway.internal, redis-12345.upstash.io
+    port?: number;
+    database?: string;    // database name
+    path?: string;        // API path prefix
+  };
+  /** Env var that provides the connection (e.g., "DATABASE_URL", "REDIS_URL") */
+  connection_env_var?: string;
+  /** Runtime resource type */
+  resource_type?: 'database' | 'cache' | 'queue' | 'api' | 'worker' | 'cron' | 'storage';
+  /** Provider/engine (postgres, mysql, redis, bullmq, openai, etc.) */
+  engine?: string;
 }
 
 // =============================================================================
@@ -170,6 +203,8 @@ export type ConnectionType =
   | 'build-phase-includes' // Xcode build phase ↔ source files
   | 'generates'           // Build script/schema → generated source file
   | 'field-reference'     // Database model field → file that references it
+  | 'runtime-binding'     // Component → its runtime service/resource (queue → Redis, Prisma → database)
+  | 'queue-uses-cache'    // Queue system → cache/Redis instance it connects through
   | 'other';
 
 /**

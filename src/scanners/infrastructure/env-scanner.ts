@@ -9,11 +9,114 @@ import { glob } from 'glob';
 import {
   ArchitectureComponent,
   ArchitectureConnection,
+  RuntimeIdentity,
   ScanResult,
   ScanWarning,
   generateComponentId,
   generateConnectionId,
 } from '../../types.js';
+
+// =============================================================================
+// CONNECTION URL PARSING
+// =============================================================================
+
+/**
+ * Parsed connection endpoint — credentials are never included.
+ */
+export interface ParsedEndpoint {
+  protocol: string;
+  host: string;
+  port?: number;
+  database?: string;
+  path?: string;
+}
+
+/**
+ * Parse a connection URL string into its structural components.
+ * Credentials (username, password) are stripped and never returned.
+ *
+ * Supported protocols: postgres, postgresql, mysql, mongodb, redis, rediss,
+ * amqp, amqps, http, https.
+ *
+ * Returns null for non-URL values (plain strings, numbers, empty input).
+ */
+export function parseConnectionUrl(value: string): ParsedEndpoint | null {
+  if (!value || typeof value !== 'string') return null;
+
+  // Quick pre-check: must look vaguely like a URL (contain ://)
+  if (!value.includes('://')) return null;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+
+  const protocol = parsed.protocol.replace(/:$/, ''); // strip trailing colon
+
+  const supportedProtocols = new Set([
+    'postgres', 'postgresql', 'mysql', 'mongodb',
+    'redis', 'rediss',
+    'amqp', 'amqps',
+    'http', 'https',
+  ]);
+
+  if (!supportedProtocols.has(protocol)) return null;
+
+  const host = parsed.hostname;
+  if (!host) return null;
+
+  const result: ParsedEndpoint = { protocol, host };
+
+  // Port — only include if explicitly present
+  if (parsed.port) {
+    result.port = parseInt(parsed.port, 10);
+  }
+
+  // Database / path handling
+  const rawPath = parsed.pathname; // e.g. "/dbname" or "/0" or "/v1"
+
+  if (protocol === 'https' || protocol === 'http') {
+    // For HTTP(S), expose path as-is (API base path)
+    if (rawPath && rawPath !== '/') {
+      result.path = rawPath;
+    }
+  } else {
+    // For DB/queue protocols, treat path segment as database name
+    if (rawPath && rawPath !== '/') {
+      result.database = rawPath.replace(/^\//, ''); // strip leading slash
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Map a connection protocol to a RuntimeIdentity resource_type.
+ */
+function inferResourceType(
+  protocol: string,
+): RuntimeIdentity['resource_type'] {
+  switch (protocol) {
+    case 'postgres':
+    case 'postgresql':
+    case 'mysql':
+    case 'mongodb':
+      return 'database';
+    case 'redis':
+    case 'rediss':
+      return 'cache';
+    case 'amqp':
+    case 'amqps':
+      return 'queue';
+    case 'https':
+    case 'http':
+      return 'api';
+    default:
+      return undefined;
+  }
+}
 
 // =============================================================================
 // ENV FILE PARSING
@@ -68,6 +171,38 @@ function parseEnvFile(content: string): string[] {
   }
 
   return vars;
+}
+
+/**
+ * Parse env file returning name → raw value pairs.
+ * Used only for URL detection — values are parsed and discarded immediately;
+ * raw values are never stored or returned to callers.
+ */
+function parseEnvFileWithValues(content: string): Map<string, string> {
+  const result = new Map<string, string>();
+  const lines = content.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    // Match KEY=value, KEY="value", KEY='value', export KEY=value
+    const match = trimmed.match(/^(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*)/);
+    if (!match) continue;
+
+    const name = match[1];
+    let val = match[2].trim();
+
+    // Strip surrounding quotes
+    if ((val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+
+    result.set(name, val);
+  }
+
+  return result;
 }
 
 /**
@@ -176,6 +311,8 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
   // Phase 1: Parse .env files
   const envFiles = findEnvFiles(projectRoot);
   const definedVars = new Map<string, string[]>(); // varName -> [envFile1, envFile2]
+  // Collect raw values only for URL parsing — never surfaced to callers
+  const envValues = new Map<string, string>(); // varName -> raw value
 
   for (const envFile of envFiles) {
     try {
@@ -188,6 +325,14 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
         const files = definedVars.get(v) || [];
         if (!files.includes(envFile)) files.push(envFile);
         definedVars.set(v, files);
+      }
+      // Collect values for URL detection (values are parsed immediately, not stored as-is)
+      const withValues = parseEnvFileWithValues(content);
+      for (const [name, val] of withValues) {
+        // Only store the first seen value; later files don't override
+        if (!envValues.has(name)) {
+          envValues.set(name, val);
+        }
       }
     } catch (error) {
       warnings.push({
@@ -237,6 +382,18 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
         : isDefined && !isReferenced ? 'unused'
         : 'active'; // referenced but not in .env = runtime-injected
 
+      // Attempt to parse a connection URL from the env var's value
+      const rawValue = envValues.get(envVar.name);
+      const parsedEndpoint = rawValue ? parseConnectionUrl(rawValue) : null;
+      const runtime: RuntimeIdentity | undefined = parsedEndpoint
+        ? {
+            connection_env_var: envVar.name,
+            resource_type: inferResourceType(parsedEndpoint.protocol),
+            engine: parsedEndpoint.protocol,
+            endpoint: parsedEndpoint,
+          }
+        : undefined;
+
       components.push({
         component_id: componentId,
         name: envVar.name,
@@ -261,6 +418,7 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
           referencedIn: envVar.referencedIn,
           hasDefault: envVar.hasDefault,
         },
+        runtime,
         timestamp,
         last_updated: timestamp,
       });

@@ -164,6 +164,14 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
     lineStyle: '-->',
     label: 'references',
   },
+  'runtime-binding': {
+    lineStyle: '-.->', // dotted = runtime relationship
+    label: 'runs on',
+  },
+  'queue-uses-cache': {
+    lineStyle: '-.->', // dotted = runtime relationship
+    label: 'via',
+  },
   other: {
     lineStyle: '-->',
   },

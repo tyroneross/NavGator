@@ -313,6 +313,7 @@ export async function scanCronJobs(projectRoot: string): Promise<ScanResult> {
   for (const cron of allCrons) {
     const componentId = generateComponentId('cron', cron.path.replace(/\//g, '_'));
 
+    const cronName = cron.path.split('/').filter(Boolean).pop() || cron.path;
     components.push({
       component_id: componentId,
       name: cron.path,
@@ -335,6 +336,12 @@ export async function scanCronJobs(projectRoot: string): Promise<ScanResult> {
         schedule: cron.schedule,
         scheduleDescription: cron.description,
         platform: cron.platform,
+      },
+      runtime: {
+        service_name: cron.path || cronName,
+        platform: cron.platform,
+        resource_type: 'cron',
+        engine: cron.platform === 'vercel' ? 'vercel-cron' : cron.platform === 'railway' ? 'railway-cron' : 'node-cron',
       },
       timestamp,
       last_updated: timestamp,

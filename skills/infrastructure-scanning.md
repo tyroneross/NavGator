@@ -16,7 +16,7 @@ NavGator detects infrastructure components beyond packages and services.
 | `navgator scan --typespec` | Compare Prisma model types against TypeScript interfaces |
 | `navgator coverage --fields` | Standalone field usage report |
 | `navgator coverage --typespec` | Standalone type validation report |
-| `navgator status` | Shows INFRASTRUCTURE section with counts |
+| `navgator status` | Shows INFRASTRUCTURE and RUNTIME TOPOLOGY sections with counts |
 
 ## What Gets Detected
 
@@ -31,3 +31,12 @@ NavGator detects infrastructure components beyond packages and services.
 **Deploy Configs** — Vercel, Railway, Heroku, Procfile, and nixpacks configurations with service definitions.
 
 **TypeSpec Validation** — Compares Prisma model field types against TypeScript interface definitions, flagging mismatches (e.g., `DateTime` vs `string` instead of `Date`).
+
+**Runtime Topology** — Annotates components with runtime identity extracted from code and config:
+- Database engine, host, and port from `DATABASE_URL` and Prisma `datasource` blocks
+- Redis endpoints from BullMQ queue configs and env vars
+- Queue-to-Redis backing store mappings with producer/consumer relationships
+- Deploy service names from Railway, Vercel, Heroku (Procfile), and Nixpacks configs
+- Cron handler linkage — scheduled jobs mapped to their handler functions and platform
+
+Run `navgator status` to see the RUNTIME TOPOLOGY section. Enables backward tracing: "which code produces to queue X?" or "what database engine does this schema connect to?"

@@ -28,6 +28,8 @@ interface QueueDefinition {
   concurrency?: number;
   retryAttempts?: number;
   symbol: string;            // Variable/function name
+  redisEnvVar?: string;      // e.g. "REDIS_URL"
+  redisEndpoint?: { host?: string; port?: number };
 }
 
 /**
@@ -63,6 +65,7 @@ async function findQueueDefinitions(
         const queueMatch = line.match(/new\s+Queue\s*\(\s*['"`]([^'"`]+)['"`]/);
         if (queueMatch) {
           const library = detectQueueLibrary(content);
+          const redisInfo = extractRedisConnection(lines, i);
           queues.push({
             name: queueMatch[1],
             file,
@@ -70,6 +73,7 @@ async function findQueueDefinitions(
             type: 'producer',
             library,
             symbol: extractSymbol(line, lines, i),
+            ...redisInfo,
           });
         }
 
@@ -78,6 +82,7 @@ async function findQueueDefinitions(
         if (workerMatch) {
           const concurrency = extractConcurrency(content, i, lines);
           const retryAttempts = extractRetryAttempts(content, i, lines);
+          const redisInfo = extractRedisConnection(lines, i);
           queues.push({
             name: workerMatch[1],
             file,
@@ -87,6 +92,7 @@ async function findQueueDefinitions(
             concurrency,
             retryAttempts,
             symbol: extractSymbol(line, lines, i),
+            ...redisInfo,
           });
         }
 
@@ -198,6 +204,41 @@ function extractSymbol(line: string, lines: string[], lineIndex: number): string
   return 'anonymous';
 }
 
+/**
+ * Best-effort extraction of Redis connection info from Queue/Worker constructor args.
+ * Looks at the options object in the lines around the constructor call.
+ * Handles:
+ *   { connection: process.env.REDIS_URL }
+ *   { connection: { host: 'redis.railway.internal', port: 6379 } }
+ */
+function extractRedisConnection(
+  lines: string[],
+  lineIndex: number
+): { redisEnvVar?: string; redisEndpoint?: { host?: string; port?: number } } {
+  // Capture up to 10 lines starting from the match line to cover multi-line constructors
+  const context = lines.slice(lineIndex, lineIndex + 10).join('\n');
+
+  // Check for process.env.SOMETHING as the connection value
+  const envMatch = context.match(/connection\s*:\s*process\.env\.([A-Z_][A-Z0-9_]*)/);
+  if (envMatch) {
+    return { redisEnvVar: envMatch[1] };
+  }
+
+  // Check for inline { host, port }
+  const hostMatch = context.match(/connection\s*:.*?host\s*:\s*['"`]([^'"`]+)['"`]/s);
+  const portMatch = context.match(/connection\s*:.*?port\s*:\s*(\d+)/s);
+  if (hostMatch || portMatch) {
+    return {
+      redisEndpoint: {
+        host: hostMatch?.[1],
+        port: portMatch ? parseInt(portMatch[1], 10) : undefined,
+      },
+    };
+  }
+
+  return {};
+}
+
 // =============================================================================
 // SCANNER
 // =============================================================================
@@ -242,6 +283,27 @@ export async function scanQueues(projectRoot: string): Promise<ScanResult> {
     const retryAttempts = consumers.find(c => c.retryAttempts)?.retryAttempts;
     const library = definitions[0].library;
 
+    // Best-effort: pick first definition that has Redis connection info
+    const redisEnvVar = definitions.find(d => d.redisEnvVar)?.redisEnvVar;
+    const redisEndpoint = definitions.find(d => d.redisEndpoint)?.redisEndpoint;
+
+    // Build runtime identity
+    const runtime = {
+      service_name: queueName,
+      resource_type: 'queue' as const,
+      engine: library,
+      ...(redisEnvVar ? { connection_env_var: redisEnvVar } : {}),
+      ...(redisEndpoint
+        ? {
+            endpoint: {
+              protocol: 'redis',
+              host: redisEndpoint.host,
+              port: redisEndpoint.port,
+            },
+          }
+        : {}),
+    };
+
     components.push({
       component_id: componentId,
       name: queueName,
@@ -267,6 +329,7 @@ export async function scanQueues(projectRoot: string): Promise<ScanResult> {
         producerFiles: producers.map(p => p.file),
         consumerFiles: consumers.map(c => c.file),
       },
+      runtime,
       timestamp,
       last_updated: timestamp,
     });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parsePrismaModels } from '../scanners/infrastructure/prisma-parser.js';
+import { parseDatasource } from '../scanners/infrastructure/prisma-scanner.js';
 
 describe('parsePrismaModels', () => {
   it('parses a model with no nested braces — all fields captured', () => {
@@ -157,5 +158,114 @@ model Template {
     const models = parsePrismaModels(schema);
     expect(models).toHaveLength(1);
     expect(models[0].body).toContain('fallback');
+  });
+});
+
+describe('parseDatasource', () => {
+  it('extracts postgresql provider and maps to postgres engine', () => {
+    const schema = `
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    expect(result!.engine).toBe('postgres');
+    expect(result!.connection_env_var).toBe('DATABASE_URL');
+  });
+
+  it('extracts mysql provider', () => {
+    const schema = `
+datasource db {
+  provider = "mysql"
+  url      = env("MYSQL_URL")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    expect(result!.engine).toBe('mysql');
+    expect(result!.connection_env_var).toBe('MYSQL_URL');
+  });
+
+  it('extracts sqlite provider', () => {
+    const schema = `
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    expect(result!.engine).toBe('sqlite');
+    // url is not env(), so no connection_env_var
+    expect(result!.connection_env_var).toBeUndefined();
+  });
+
+  it('extracts mongodb provider', () => {
+    const schema = `
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGODB_URI")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    expect(result!.engine).toBe('mongodb');
+    expect(result!.connection_env_var).toBe('MONGODB_URI');
+  });
+
+  it('extracts env var from url = env("DATABASE_URL")', () => {
+    const schema = `
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result!.connection_env_var).toBe('DATABASE_URL');
+  });
+
+  it('extracts url env var when directUrl is also present', () => {
+    const schema = `
+datasource db {
+  provider    = "postgresql"
+  url         = env("DATABASE_URL")
+  directUrl   = env("DIRECT_DATABASE_URL")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    // url takes precedence over directUrl
+    expect(result!.connection_env_var).toBe('DATABASE_URL');
+  });
+
+  it('returns null when no datasource block is present', () => {
+    const schema = `
+model User {
+  id    String @id
+  email String @unique
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for empty content', () => {
+    expect(parseDatasource('')).toBeNull();
+    expect(parseDatasource('   ')).toBeNull();
+  });
+
+  it('handles cockroachdb provider', () => {
+    const schema = `
+datasource db {
+  provider = "cockroachdb"
+  url      = env("COCKROACH_URL")
+}
+`;
+    const result = parseDatasource(schema);
+    expect(result).not.toBeNull();
+    expect(result!.engine).toBe('cockroachdb');
+    expect(result!.connection_env_var).toBe('COCKROACH_URL');
   });
 });

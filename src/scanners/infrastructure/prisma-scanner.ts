@@ -8,6 +8,7 @@ import * as path from 'path';
 import {
   ArchitectureComponent,
   ArchitectureConnection,
+  RuntimeIdentity,
   ScanResult,
   ScanWarning,
   generateComponentId,
@@ -191,6 +192,54 @@ function parsePrismaSchema(content: string): PrismaModel[] {
 }
 
 // =============================================================================
+// DATASOURCE PARSING
+// =============================================================================
+
+const PROVIDER_ENGINE_MAP: Record<string, string> = {
+  postgresql: 'postgres',
+  mysql: 'mysql',
+  sqlite: 'sqlite',
+  mongodb: 'mongodb',
+  cockroachdb: 'cockroachdb',
+};
+
+interface DatasourceInfo {
+  engine: string;
+  connection_env_var?: string;
+}
+
+/**
+ * Parse the datasource block from a Prisma schema to extract provider and
+ * connection env var.
+ *
+ * Handles:
+ *   datasource db {
+ *     provider = "postgresql"
+ *     url      = env("DATABASE_URL")
+ *   }
+ */
+export function parseDatasource(content: string): DatasourceInfo | null {
+  const blockMatch = content.match(/datasource\s+\w+\s*\{([^}]*)\}/s);
+  if (!blockMatch) return null;
+
+  const block = blockMatch[1];
+
+  // Extract provider value
+  const providerMatch = block.match(/provider\s*=\s*"([^"]+)"/);
+  if (!providerMatch) return null;
+
+  const providerRaw = providerMatch[1].toLowerCase();
+  const engine = PROVIDER_ENGINE_MAP[providerRaw] ?? providerRaw;
+
+  // Extract env var from url = env("VAR_NAME") or directUrl = env("VAR_NAME")
+  // Prefer url over directUrl
+  const urlMatch = block.match(/\burl\s*=\s*env\(\s*"([^"]+)"\s*\)/);
+  const connection_env_var = urlMatch ? urlMatch[1] : undefined;
+
+  return { engine, connection_env_var };
+}
+
+// =============================================================================
 // SCANNER
 // =============================================================================
 
@@ -210,6 +259,9 @@ export async function scanPrismaSchema(projectRoot: string): Promise<ScanResult>
 
   // Parse all schema files
   const allModels: PrismaModel[] = [];
+  // Track datasource info per schema file (used to populate runtime identity on components)
+  const datasourceByFile = new Map<string, DatasourceInfo>();
+
   for (const schemaFile of schemaFiles) {
     try {
       const content = await fs.promises.readFile(
@@ -221,6 +273,12 @@ export async function scanPrismaSchema(projectRoot: string): Promise<ScanResult>
         (model as PrismaModel & { _sourceFile: string })._sourceFile = schemaFile;
       }
       allModels.push(...models);
+
+      // Extract datasource provider/env var for this file
+      const dsInfo = parseDatasource(content);
+      if (dsInfo) {
+        datasourceByFile.set(schemaFile, dsInfo);
+      }
     } catch (error) {
       warnings.push({
         type: 'parse_error',
@@ -244,6 +302,18 @@ export async function scanPrismaSchema(projectRoot: string): Promise<ScanResult>
 
     const relationCount = model.fields.filter(f => f.isRelation).length;
     const fieldCount = model.fields.filter(f => !f.isRelation).length;
+
+    // Build runtime identity from datasource block (if available for this file)
+    const dsInfo = datasourceByFile.get(sourceFile);
+    const runtime: RuntimeIdentity | undefined = dsInfo
+      ? {
+          resource_type: 'database',
+          engine: dsInfo.engine,
+          ...(dsInfo.connection_env_var !== undefined
+            ? { connection_env_var: dsInfo.connection_env_var }
+            : {}),
+        }
+      : undefined;
 
     const component: ArchitectureComponent = {
       component_id: componentId,
@@ -279,6 +349,7 @@ export async function scanPrismaSchema(projectRoot: string): Promise<ScanResult>
           isUnique: f.isUnique,
         })),
       },
+      runtime,
       timestamp,
       last_updated: timestamp,
     };
