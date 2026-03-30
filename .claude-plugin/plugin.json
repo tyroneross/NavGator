@@ -1,6 +1,6 @@
 {
   "name": "gator",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
   "author": { "name": "Tyrone Ross" },
   "homepage": "https://github.com/tyroneross/navgator",
@@ -10,5 +10,6 @@
   "hooks": "../hooks/hooks.json",
   "skills": "../skills/",
   "agents": "../agents/",
+  "commands": "../commands/",
   "mcpServers": "../.mcp.json"
 }

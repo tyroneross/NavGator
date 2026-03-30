@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "project": "",
+  "lessons": [],
+  "_template": {
+    "id": "lesson-<category>-<short-slug>",
+    "category": "api-contract | data-flow | component-communication | llm-architecture | infrastructure | typespec | database-structure",
+    "pattern": "Human-readable description of the architectural pattern",
+    "signature": ["regex or code pattern that triggers this lesson"],
+    "severity": "critical | important | minor",
+    "context": {
+      "first_seen": "ISO date",
+      "last_seen": "ISO date",
+      "occurrences": 0,
+      "files_affected": [],
+      "resolution": "How to fix"
+    },
+    "example": {
+      "bad": "Code pattern that causes the issue",
+      "good": "Correct pattern",
+      "why": "Architectural reasoning"
+    },
+    "validation": {
+      "last_validated": "ISO date",
+      "source": "manual | URL",
+      "status": "current | stale | unvalidated"
+    }
+  }
+}

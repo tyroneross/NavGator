@@ -50,6 +50,7 @@ Load on demand when you need full detail about a specific component or connectio
 | `/gator:check` | Run health checks (outdated packages, vulnerabilities) |
 | `/gator:ui` | Launch the web dashboard |
 | `/gator:update` | Update NavGator to the latest version |
+| `/gator:review` | Architectural integrity review (connections, flow, drift, lessons) |
 | `navgator history` | Show architecture change timeline |
 | `navgator diff [id]` | Show detailed diff (most recent if no ID) |
 | `navgator projects` | List all registered NavGator projects |
