@@ -54,9 +54,27 @@ export function registerStatusCommand(program: Command): void {
         }
 
         if (Object.keys(index.stats.connections_by_type).length > 0) {
-          console.log('\nCONNECTIONS BY TYPE:');
+          // Split connections into architecture (meaningful) vs code (mechanical)
+          const archTypes = new Set(['queue-produces', 'queue-consumes', 'queue-uses-cache', 'deploys-to', 'cron-triggers', 'schema-relation', 'field-reference', 'runtime-binding', 'service-call', 'api-calls-db', 'frontend-calls-api', 'queue-triggers', 'prompt-location', 'prompt-usage']);
+          const codeTypes = new Set(['imports', 'env-dependency']);
+          let archCount = 0;
+          let codeCount = 0;
+          const archBreakdown: string[] = [];
+          const codeBreakdown: string[] = [];
           for (const [type, count] of Object.entries(index.stats.connections_by_type)) {
-            console.log(`  ${type}: ${count}`);
+            if (codeTypes.has(type)) {
+              codeCount += count as number;
+              codeBreakdown.push(`${type}: ${count}`);
+            } else {
+              archCount += count as number;
+              archBreakdown.push(`${type}: ${count}`);
+            }
+          }
+          console.log(`\nARCHITECTURE CONNECTIONS (${archCount}):`);
+          for (const s of archBreakdown) console.log(`  ${s}`);
+          if (codeCount > 0) {
+            console.log(`CODE CONNECTIONS (${codeCount}):`);
+            for (const s of codeBreakdown) console.log(`  ${s}`);
           }
         }
 
@@ -182,6 +200,31 @@ export function registerStatusCommand(program: Command): void {
         } catch {
           // Runtime topology data not available — non-critical
         }
+
+        // Dead code detection: orphan components with 0 connections
+        try {
+          const allComps = await loadAllComponents(config);
+          const allConns = await loadAllConnections(config);
+          const connectedIds = new Set<string>();
+          for (const conn of allConns) {
+            connectedIds.add(conn.from.component_id);
+            connectedIds.add(conn.to.component_id);
+          }
+          // Only flag non-code components (packages, queues, services, infra) — code components are too numerous
+          const orphanTypes = new Set(['npm', 'pip', 'spm', 'queue', 'service', 'llm', 'infra', 'database', 'framework']);
+          const orphans = allComps.filter(c =>
+            orphanTypes.has(c.type) &&
+            !connectedIds.has(c.component_id) &&
+            c.status === 'active'
+          );
+          if (orphans.length > 0) {
+            console.log(`\nPOTENTIAL DEAD CODE (${orphans.length} orphaned components):`);
+            for (const o of orphans.slice(0, 10)) {
+              console.log(`  ${o.name} (${o.type}) — 0 connections`);
+            }
+            if (orphans.length > 10) console.log(`  ... and ${orphans.length - 10} more`);
+          }
+        } catch { /* non-critical */ }
 
         // AI/LLM use case summary (3-layer dedup: filter → group by purpose → display)
         try {

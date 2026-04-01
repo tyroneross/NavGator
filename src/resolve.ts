@@ -49,9 +49,20 @@ export function resolveComponent(
   }
 
   // 4. Partial name match (substring, case-insensitive)
+  // When multiple matches exist, prefer the one with more connections (more architecturally relevant)
   const queryLower = query.toLowerCase();
-  const byPartialName = components.find(c => c.name.toLowerCase().includes(queryLower));
-  if (byPartialName) return byPartialName;
+  const partialMatches = components.filter(c => c.name.toLowerCase().includes(queryLower));
+  if (partialMatches.length === 1) return partialMatches[0];
+  if (partialMatches.length > 1) {
+    // Sort by connection count (descending), then by name length (shorter = more specific)
+    partialMatches.sort((a, b) => {
+      const aConns = a.connects_to.length + a.connected_from.length;
+      const bConns = b.connects_to.length + b.connected_from.length;
+      if (bConns !== aConns) return bConns - aConns;
+      return a.name.length - b.name.length;
+    });
+    return partialMatches[0];
+  }
 
   // 5. File path substring match
   const normalizedQuery = normalizePath(query);

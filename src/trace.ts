@@ -124,7 +124,23 @@ export function traceDataflow(
     }
 
     for (const { conn, nextId } of filteredConnections) {
-      const nextComp = componentMap.get(nextId);
+      let nextComp = componentMap.get(nextId);
+
+      // Handle FILE: references — create a synthetic component so trace can continue
+      if (!nextComp && nextId.startsWith('FILE:')) {
+        const filePath = nextId.slice(5);
+        nextComp = {
+          component_id: nextId,
+          name: filePath.split('/').pop()?.replace(/\.[^.]+$/, '') || filePath,
+          type: 'component',
+          role: { purpose: `Source file: ${filePath}`, layer: 'backend', critical: false },
+          source: { detection_method: 'auto', config_files: [filePath], confidence: 0.5 },
+          connects_to: [], connected_from: [],
+          status: 'active', tags: ['file-ref'],
+          timestamp: 0, last_updated: 0,
+        };
+      }
+
       if (!nextComp) continue;
 
       touchedIds.add(nextId);

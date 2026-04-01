@@ -459,8 +459,18 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
   // Warn about referenced but undefined vars (potential missing config)
   for (const [varName] of envRefs) {
     if (!definedVars.has(varName)) {
-      // Skip common runtime-injected vars
-      const skipPatterns = ['NODE_ENV', 'PORT', 'VERCEL', 'RAILWAY', 'CI', 'HOME', 'PATH'];
+      // Skip common framework/runtime-injected vars (not actionable warnings)
+      const skipPatterns = [
+        'NODE_ENV', 'NODE_', 'PORT', 'HOST', 'HOSTNAME',
+        'VERCEL', 'RAILWAY', 'HEROKU', 'RENDER_', 'FLY_',
+        'CI', 'HOME', 'PATH', 'PWD', 'SHELL', 'USER', 'LANG',
+        'NEXT_RUNTIME', 'NEXT_PHASE', 'NEXT_DEPLOYMENT_ID',
+        '__NEXT_', 'TURBOPACK',
+        'BASE_URL', 'PUBLIC_URL', 'APP_URL',
+        'TEST_', 'REPL_', 'GITPOD_', 'CODESPACE',
+        'npm_', 'NPM_',
+        'PGPORT', 'PGHOST', 'PGUSER', 'PGDATABASE',
+      ];
       if (skipPatterns.some(p => varName.startsWith(p))) continue;
 
       warnings.push({
