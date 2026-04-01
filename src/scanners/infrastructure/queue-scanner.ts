@@ -77,14 +77,43 @@ async function findQueueDefinitions(
           });
         }
 
-        // BullMQ: new Worker('name', handler, { concurrency, ... })
-        const workerMatch = line.match(/new\s+Worker\s*\(\s*['"`]([^'"`]+)['"`]/);
-        if (workerMatch) {
+        // BullMQ: new Worker('name', handler, ...) or new Worker(variable, handler, ...)
+        // Handle multi-line: new Worker<Type>(\n  queueName,\n  handler)
+        const workerDetect = line.match(/new\s+Worker\s*(?:<[^>]*>)?\s*\(/);
+        let workerName: string | null = null;
+        if (workerDetect) {
+          // Check same line for string literal
+          const sameLine = line.match(/new\s+Worker\s*(?:<[^>]*>)?\s*\(\s*['"`]([^'"`]+)['"`]/);
+          if (sameLine) {
+            workerName = sameLine[1];
+          } else {
+            // Check same line for variable ref
+            const sameLineVar = line.match(/new\s+Worker\s*(?:<[^>]*>)?\s*\(\s*(\S+)/);
+            if (sameLineVar && sameLineVar[1] !== '(' && !sameLineVar[1].startsWith('//')) {
+              workerName = resolveVariableToString(sameLineVar[1], content, path.join(projectRoot, file));
+            }
+            // Check next line if argument isn't on current line (multi-line constructor)
+            if (!workerName && i + 1 < lines.length) {
+              const nextLine = lines[i + 1].trim();
+              const nextLiteral = nextLine.match(/^['"`]([^'"`]+)['"`]/);
+              if (nextLiteral) {
+                workerName = nextLiteral[1];
+              } else {
+                const nextVar = nextLine.match(/^(\S+?)[\s,]/);
+                if (nextVar) {
+                  workerName = resolveVariableToString(nextVar[1], content, path.join(projectRoot, file));
+                }
+              }
+            }
+          }
+        }
+
+        if (workerName) {
           const concurrency = extractConcurrency(content, i, lines);
           const retryAttempts = extractRetryAttempts(content, i, lines);
           const redisInfo = extractRedisConnection(lines, i);
           queues.push({
-            name: workerMatch[1],
+            name: workerName,
             file,
             line: lineNum,
             type: 'consumer',
@@ -185,6 +214,65 @@ function extractRetryAttempts(content: string, lineIndex: number, lines: string[
 /**
  * Extract the variable/const name the queue is assigned to
  */
+/**
+ * Try to resolve a variable reference to its string value.
+ * Handles: queueConfigs.entityExtraction.name, QUEUE_NAME, etc.
+ */
+/**
+ * Try to resolve a variable reference to its string value.
+ * Handles: queueConfigs.entityExtraction.name, QUEUE_NAME, etc.
+ * Also follows imports to resolve cross-file config references.
+ */
+function resolveVariableToString(varRef: string, content: string, filePath?: string): string | null {
+  // Remove trailing comma, paren
+  const cleaned = varRef.replace(/[,)]/g, '').trim();
+
+  // Direct string constant: const QUEUE_NAME = 'my-queue'
+  const constMatch = content.match(
+    new RegExp(`(?:const|let|var)\\s+${cleaned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*['"\`]([^'"\`]+)['"\`]`)
+  );
+  if (constMatch) return constMatch[1];
+
+  // Object property: queueConfigs.entityExtraction.name
+  if (cleaned.includes('.')) {
+    const parts = cleaned.split('.');
+    const lastProp = parts[parts.length - 1]; // 'name'
+    const parentProp = parts[parts.length - 2]; // 'entityExtraction'
+    if (lastProp === 'name' && parentProp) {
+      // Search in current file
+      const configRegex = new RegExp(
+        `${parentProp}[:\\s]+\\{[^}]*name:\\s*['"\`]([^'"\`]+)['"\`]`,
+        's'
+      );
+      const configMatch = content.match(configRegex);
+      if (configMatch) return configMatch[1];
+
+      // Try imported config file: look for import of the root variable
+      const rootVar = parts[0];
+      if (filePath) {
+        const importMatch = content.match(
+          new RegExp(`import\\s+.*${rootVar}.*from\\s+['"\`]([^'"\`]+)['"\`]`)
+        );
+        if (importMatch) {
+          const importPath = importMatch[1];
+          const dir = path.dirname(filePath);
+          // Try resolving the import
+          for (const ext of ['.ts', '.js', '/index.ts', '/index.js', '']) {
+            const resolved = path.resolve(dir, importPath + ext);
+            try {
+              const importContent = fs.readFileSync(resolved, 'utf-8');
+              const importConfigMatch = importContent.match(configRegex);
+              if (importConfigMatch) return importConfigMatch[1];
+            } catch { /* file not found, try next */ }
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function extractSymbol(line: string, lines: string[], lineIndex: number): string {
   // Check current line: const myQueue = new Queue(...)
   const assignMatch = line.match(/(?:const|let|var|export\s+(?:const|let))\s+(\w+)\s*=/);
