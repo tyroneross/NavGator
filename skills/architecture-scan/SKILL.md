@@ -1,7 +1,7 @@
 ---
 name: architecture-scan
 description: This skill activates when the user asks to "scan architecture", "what's my stack", "check dependencies", "outdated packages", "show project structure", "what components do I have", "refresh architecture", "scan project", "health check", "vulnerability scan", "what changed architecturally", "is my architecture data stale", or when starting a session where architecture data may be outdated. Provides architecture scanning, status checking, and health analysis via NavGator MCP tools.
-version: 0.3.0
+version: 0.4.0
 user-invocable: false
 ---
 

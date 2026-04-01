@@ -1,7 +1,7 @@
 ---
 name: gator-setup
 description: Install, update, or launch NavGator tools. Use when the user asks to "install gator", "update navgator", "launch dashboard", "gator ui", "set up navgator", or needs maintenance operations.
-version: 0.3.0
+version: 0.4.0
 user-invocable: true
 argument-hint: [install|update|ui]
 ---

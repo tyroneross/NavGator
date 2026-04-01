@@ -1,7 +1,7 @@
 ---
 name: architecture-export
 description: Generate architecture diagrams or export architecture documentation. Use when the user asks to "show architecture diagram", "generate diagram", "export architecture", "visualize dependencies", "create architecture doc", "mermaid diagram", or wants visual/exportable representations of their project architecture.
-version: 0.3.0
+version: 0.4.0
 user-invocable: true
 argument-hint: [diagram|export] [options]
 ---

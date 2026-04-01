@@ -1,7 +1,7 @@
 ---
 name: impact-analysis
 description: This skill activates when the user asks "what breaks if I change", "show dependencies for", "impact of changing", "what depends on", "trace data flow", "show connections", "what uses this", "what does this connect to", "dependency graph for", "upstream/downstream of", "will this break anything", "safe to modify", or is about to refactor a component. Provides impact analysis and connection mapping via NavGator MCP tools.
-version: 0.3.0
+version: 0.4.0
 user-invocable: false
 ---
 

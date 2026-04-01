@@ -1,7 +1,7 @@
 ---
 name: code-review
 description: This skill activates when the user asks to "review architecture", "check connections", "gator review", "architectural review", "what's the architectural impact", "review changes", "is this safe to merge", "what did I break", "check integrity", "review before push", or when NavGator scan detects architectural drift. Performs 5-phase architectural integrity review focusing on system flow, component communication, and accumulated lessons.
-version: 0.3.0
+version: 0.4.0
 user-invocable: true
 ---
 
