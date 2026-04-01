@@ -95,10 +95,10 @@ describe('classifyConnection', () => {
     const result = classifyConnection(conn, from, to);
 
     expect(result.classification).toBe('production');
-    expect(result.confidence).toBe(0.5);
+    expect(result.confidence).toBe(0.4);
   });
 
-  it('should default to unknown for external/infrastructure layers', () => {
+  it('should default to production for external/infrastructure layers', () => {
     const from = createComponent({ name: 'ExternalService', layer: 'external', file: 'src/external/service.ts' });
     const to = createComponent({ name: 'InfraComponent', layer: 'infra', file: 'src/infra/config.ts' });
     const conn = createConnection(from.component_id, to.component_id, {
@@ -107,8 +107,10 @@ describe('classifyConnection', () => {
 
     const result = classifyConnection(conn, from, to);
 
-    expect(result.classification).toBe('unknown');
-    expect(result.confidence).toBe(0.5);
+    // External/infra connections default to production (not unknown)
+    // because they're still production code unless explicitly test/dev
+    expect(result.classification).toBe('production');
+    expect(result.confidence).toBe(0.4);
   });
 
   it('should use component name heuristic for test', () => {
@@ -159,9 +161,9 @@ describe('classifyConnection', () => {
 
     const result = classifyConnection(conn, from, to);
 
-    // Should be production because both are backend/database layers and no name heuristic matches
+    // Should be production — default for non-test/dev connections
     expect(result.classification).toBe('production');
-    expect(result.confidence).toBe(0.5);
+    expect(result.confidence).toBe(0.4);
   });
 });
 
@@ -185,13 +187,15 @@ describe('classifyAllConnections', () => {
     expect(result.get(conn2.connection_id)?.classification).toBe('admin');
   });
 
-  it('should return unknown for connections with missing components', () => {
+  it('should classify by file path when components are missing', () => {
     const comp1 = createComponent({ name: 'Component1', layer: 'frontend' });
     const conn1 = createConnection('missing-id', comp1.component_id);
 
     const result = classifyAllConnections([conn1], [comp1]);
 
-    expect(result.get(conn1.connection_id)?.classification).toBe('unknown');
-    expect(result.get(conn1.connection_id)?.confidence).toBe(0.3);
+    // When component can't be resolved, classifies by file paths
+    // Default file (src/index.ts) isn't test/dev → production
+    expect(result.get(conn1.connection_id)?.classification).toBe('production');
+    expect(result.get(conn1.connection_id)?.confidence).toBe(0.4);
   });
 });

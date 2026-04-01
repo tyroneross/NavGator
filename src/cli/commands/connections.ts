@@ -112,7 +112,13 @@ export function registerConnectionsCommand(program: Command): void {
           console.log(`\nOUTGOING (${outgoing.length}):`);
           for (const conn of outgoing) {
             const target = components.find((c) => c.component_id === conn.to.component_id);
-            console.log(`├── ${conn.connection_type} → ${target?.name || 'unknown'}`);
+            // Resolve FILE: prefixed IDs to readable file paths
+            let targetName = target?.name || 'unknown';
+            if (targetName === 'unknown' && conn.to.component_id?.startsWith('FILE:')) {
+              targetName = conn.to.component_id.slice(5); // Show file path
+            }
+            const lineInfo = conn.code_reference?.line_start ? `:${conn.code_reference.line_start}` : '';
+            console.log(`├── ${conn.connection_type} → ${targetName}${lineInfo}`);
           }
         }
       } catch (error) {

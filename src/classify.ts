@@ -72,13 +72,9 @@ export function classifyConnection(
     return { classification: 'analytics', confidence: 0.7 };
   }
 
-  // Default: production for frontend/backend/database layers, unknown for others
-  const prodLayers = new Set(['frontend', 'backend', 'database']);
-  if (prodLayers.has(fromComponent.role.layer) || prodLayers.has(toComponent.role.layer)) {
-    return { classification: 'production', confidence: 0.5 };
-  }
-
-  return { classification: 'unknown', confidence: 0.5 };
+  // Default: production for any layer (queue, external, infra are also production
+  // if they're not from test/dev paths — those were already caught above)
+  return { classification: 'production', confidence: 0.4 };
 }
 
 /**
@@ -97,7 +93,35 @@ export function classifyAllConnections(
     if (from && to) {
       result.set(conn.connection_id, classifyConnection(conn, from, to));
     } else {
-      result.set(conn.connection_id, { classification: 'unknown', confidence: 0.3 });
+      // Components not resolved (FILE: prefix IDs) — classify by file paths only
+      const filePaths = [
+        conn.code_reference?.file,
+        conn.from.location?.file,
+        conn.to.location?.file,
+      ].filter(Boolean) as string[];
+
+      let classified = false;
+      for (const p of filePaths) {
+        const lower = p.toLowerCase();
+        if (isTestPath(lower)) {
+          result.set(conn.connection_id, { classification: 'test', confidence: 0.8 });
+          classified = true;
+          break;
+        }
+        if (isDevPath(lower)) {
+          result.set(conn.connection_id, { classification: 'dev-only', confidence: 0.8 });
+          classified = true;
+          break;
+        }
+        if (isMigrationPath(lower)) {
+          result.set(conn.connection_id, { classification: 'migration', confidence: 0.8 });
+          classified = true;
+          break;
+        }
+      }
+      if (!classified) {
+        result.set(conn.connection_id, { classification: 'production', confidence: 0.4 });
+      }
     }
   }
 
@@ -113,7 +137,7 @@ function isMigrationPath(p: string): boolean {
 }
 
 function isDevPath(p: string): boolean {
-  return /(\/scripts\/|\/dev\/|\.dev\.|webpack\.config|vite\.config|rollup\.config|jest\.config|eslint|prettier|\.storybook)/.test(p);
+  return /(^scripts\/|\/scripts\/|\/dev\/|\.dev\.|webpack\.config|vite\.config|rollup\.config|jest\.config|eslint|prettier|\.storybook)/.test(p);
 }
 
 function isAdminPath(p: string): boolean {
