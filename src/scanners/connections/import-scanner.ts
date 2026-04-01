@@ -18,11 +18,18 @@ import {
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
 const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 
-// Regex patterns — only match relative imports (starts with . or /)
-const ES_IMPORT_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"](\.\.?\/[^'"]+)['"])/g;
-const ES_REEXPORT_RE = /export\s+(?:\{[^}]*\}|\*)\s+from\s+['"](\.\.?\/[^'"]+)['"]/g;
-const REQUIRE_RE = /require\s*\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
-const DYNAMIC_IMPORT_RE = /import\s*\(\s*['"](\.\.?\/[^'"]+)['"]\s*\)/g;
+// Regex patterns — match relative imports AND path alias imports
+const IMPORT_PATH = `(?:\\.\\.\\/[^'"]+|@\\/[^'"]+|~\\/[^'"]+)`;
+const ES_IMPORT_RE = new RegExp(`(?:import\\s+(?:[\\s\\S]*?\\s+from\\s+)?['\"](${IMPORT_PATH})['\"])`, 'g');
+const ES_REEXPORT_RE = new RegExp(`export\\s+(?:\\{[^}]*\\}|\\*)\\s+from\\s+['\"](${IMPORT_PATH})['\"]`, 'g');
+const REQUIRE_RE = new RegExp(`require\\s*\\(\\s*['\"](${IMPORT_PATH})['\"]\\s*\\)`, 'g');
+const DYNAMIC_IMPORT_RE = new RegExp(`import\\s*\\(\\s*['\"](${IMPORT_PATH})['\"]\\s*\\)`, 'g');
+
+// Also match ./ imports (the original patterns)
+const ES_IMPORT_REL_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"](\.\/[^'"]+)['"])/g;
+const ES_REEXPORT_REL_RE = /export\s+(?:\{[^}]*\}|\*)\s+from\s+['"](\.\/[^'"]+)['"]/g;
+const REQUIRE_REL_RE = /require\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
+const DYNAMIC_IMPORT_REL_RE = /import\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
 
 // Map .js/.jsx extensions to their TypeScript equivalents
 // (TS convention: `import './foo.js'` resolves to `./foo.ts`)
@@ -41,9 +48,25 @@ function resolveImport(
   specifier: string,
   importerDir: string,
   projectRoot: string,
-  knownFiles: Set<string>
+  knownFiles: Set<string>,
+  pathAliases?: Map<string, string>
 ): string | null {
-  const absTarget = path.resolve(importerDir, specifier);
+  let resolvedSpecifier = specifier;
+
+  // Resolve path aliases (@/, ~/, or tsconfig paths)
+  if (pathAliases) {
+    for (const [alias, target] of pathAliases) {
+      if (specifier.startsWith(alias)) {
+        resolvedSpecifier = specifier.replace(alias, target);
+        break;
+      }
+    }
+  }
+
+  // For alias-resolved paths, resolve from project root
+  const absTarget = resolvedSpecifier.startsWith('.')
+    ? path.resolve(importerDir, resolvedSpecifier)
+    : path.resolve(projectRoot, resolvedSpecifier);
   const relTarget = path.relative(projectRoot, absTarget);
 
   // Don't resolve outside project
@@ -76,12 +99,74 @@ function resolveImport(
 }
 
 /**
- * Extract all relative import specifiers from file content.
- * Only captures ./  and ../  imports — skips node_modules packages.
+ * Load path aliases from tsconfig.json.
+ * Handles: @/* → src/*, @/* → ./* (Next.js convention), ~/* → src/*
+ */
+function loadPathAliases(projectRoot: string): Map<string, string> {
+  const aliases = new Map<string, string>();
+
+  // Try tsconfig.json
+  for (const configFile of ['tsconfig.json', 'jsconfig.json']) {
+    const configPath = path.join(projectRoot, configFile);
+    try {
+      const raw = fs.readFileSync(configPath, 'utf-8');
+      // Parse JSON — try as-is first (handles standard tsconfig),
+      // fall back to stripping full-line comments only (not // inside strings)
+      let config;
+      try {
+        config = JSON.parse(raw);
+      } catch {
+        const stripped = raw
+          .replace(/^\s*\/\/.*$/gm, '')           // full-line comments only
+          .replace(/\/\*[\s\S]*?\*\//g, '')       // block comments
+          .replace(/,\s*([}\]])/g, '$1');          // trailing commas
+        config = JSON.parse(stripped);
+      }
+      const paths = config?.compilerOptions?.paths;
+      const baseUrl = config?.compilerOptions?.baseUrl || '.';
+
+      if (paths) {
+        for (const [alias, targets] of Object.entries(paths)) {
+          if (!Array.isArray(targets) || targets.length === 0) continue;
+          const target = (targets as string[])[0];
+          // Convert: "@/*" → "@/", "./src/*" → "src/"
+          const aliasPrefix = alias.replace(/\*$/, '');
+          const targetPrefix = target.replace(/\*$/, '');
+          // Resolve relative to baseUrl
+          const resolvedTarget = path.join(baseUrl, targetPrefix).replace(/^\.\//, '');
+          aliases.set(aliasPrefix, resolvedTarget);
+        }
+      }
+      break; // Use first config found
+    } catch {
+      // Config doesn't exist or can't be parsed
+    }
+  }
+
+  // Fallback: if no aliases found, add common Next.js convention
+  if (aliases.size === 0) {
+    // Check if this looks like a Next.js project
+    const nextConfigExists = fs.existsSync(path.join(projectRoot, 'next.config.js')) ||
+      fs.existsSync(path.join(projectRoot, 'next.config.mjs')) ||
+      fs.existsSync(path.join(projectRoot, 'next.config.ts'));
+    if (nextConfigExists) {
+      aliases.set('@/', './');
+    }
+  }
+
+  return aliases;
+}
+
+/**
+ * Extract import specifiers from file content.
+ * Captures ./ ../ @/ ~/ imports — skips bare node_modules packages.
  */
 function extractImports(content: string): string[] {
   const specifiers: string[] = [];
-  const patterns = [ES_IMPORT_RE, ES_REEXPORT_RE, REQUIRE_RE, DYNAMIC_IMPORT_RE];
+  const patterns = [
+    ES_IMPORT_RE, ES_REEXPORT_RE, REQUIRE_RE, DYNAMIC_IMPORT_RE,
+    ES_IMPORT_REL_RE, ES_REEXPORT_REL_RE, REQUIRE_REL_RE, DYNAMIC_IMPORT_REL_RE,
+  ];
 
   for (const pattern of patterns) {
     pattern.lastIndex = 0;
@@ -195,6 +280,9 @@ export async function scanImports(
     });
   }
 
+  // Load path aliases from tsconfig.json (Next.js @/ convention, etc.)
+  const pathAliases = loadPathAliases(projectRoot);
+
   // Build a Set of known files for O(1) resolution lookups
   const knownFiles = new Set(files);
   const now = Date.now();
@@ -232,7 +320,7 @@ export async function scanImports(
       const specifiers = extractImports(content);
 
       for (const spec of specifiers) {
-        const resolved = resolveImport(spec, importerDir, projectRoot, knownFiles);
+        const resolved = resolveImport(spec, importerDir, projectRoot, knownFiles, pathAliases);
         if (!resolved) continue;
 
         const line = findImportLine(content, spec);
