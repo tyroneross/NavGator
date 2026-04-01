@@ -23,9 +23,14 @@ import {
   generateSummaryDiagram,
 } from "../diagram.js";
 import { buildExecutiveSummary } from "../agent-output.js";
+import { checkRules } from "../rules.js";
+import { extractSubgraph } from "../subgraph.js";
+import { deduplicateLLMUseCases } from "../llm-dedup.js";
 import { loadConfig } from "../config.js";
 import { getGitInfo } from "../git.js";
 import type { ArchitectureLayer } from "../types.js";
+import * as fs from "fs";
+import * as path from "path";
 
 // --- Response helpers ---
 
@@ -201,6 +206,69 @@ export const TOOLS = [
       openWorldHint: false,
     },
   },
+  {
+    name: "review",
+    description:
+      "Composite architectural review — runs impact analysis, architecture rules, and runtime topology checks in a single call. Returns a compact, severity-scored report. Use before merging or after significant changes.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        component: {
+          type: "string",
+          description: "Optional: focus review on a specific component",
+        },
+      },
+    },
+    annotations: {
+      title: "Architecture Review",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "explore",
+    description:
+      "Deep dive into one component — shows its connections, runtime identity, impact severity, trace paths, and layer position in a single response. Use when you need to understand a component before modifying it.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        component: {
+          type: "string",
+          description: "Component name, file path, or partial match",
+        },
+        depth: {
+          type: "number",
+          description: "How many hops to include (default: 2)",
+        },
+      },
+      required: ["component"],
+    },
+    annotations: {
+      title: "Explore Component",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "rules",
+    description:
+      "Check architecture against built-in rules — detects orphan components, layer violations, circular dependencies, hotspots, high fan-out, and more. Returns violations with severity and suggestions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+    annotations: {
+      title: "Architecture Rules",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -229,6 +297,12 @@ export async function handleToolCall(
         return await handleTrace(args);
       case "summary":
         return await handleSummary();
+      case "review":
+        return await handleReview(args);
+      case "explore":
+        return await handleExplore(args);
+      case "rules":
+        return await handleRules();
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -623,6 +697,204 @@ async function handleSummary(): Promise<{
     for (const a of summary.next_actions) {
       lines.push(`- ${a.action}${a.reason ? ` — ${a.reason}` : ""}`);
     }
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+async function handleReview(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const projectRoot = getProjectRoot();
+  const config = loadConfig();
+
+  const components = await loadAllComponents(config, projectRoot);
+  const connections = await loadAllConnections(config, projectRoot);
+
+  if (components.length === 0) {
+    return errorResponse("No architecture data. Run the scan tool first.");
+  }
+
+  const lines: string[] = ["ARCHITECTURE REVIEW"];
+
+  // 1. Rules check
+  const violations = checkRules(components, connections);
+  if (violations.length > 0) {
+    lines.push(`\nRule violations (${violations.length}):`);
+    for (const v of violations.slice(0, 15)) {
+      lines.push(`- [${v.severity}] ${v.message}${v.suggestion ? ` → ${v.suggestion}` : ""}`);
+    }
+    if (violations.length > 15) {
+      lines.push(`  ... and ${violations.length - 15} more`);
+    }
+  } else {
+    lines.push("\nRules: all passed");
+  }
+
+  // 2. Focused impact (if component specified)
+  const focusQuery = args.component as string | undefined;
+  if (focusQuery) {
+    const component = resolveComponent(focusQuery, components);
+    if (component) {
+      const impact = computeImpact(component, components, connections);
+      lines.push(`\nImpact for ${component.name}: ${impact.severity.toUpperCase()}`);
+      lines.push(impact.summary);
+      if (impact.affected.length > 0) {
+        lines.push(`Affected: ${impact.affected.slice(0, 5).map(a => a.component.name).join(", ")}${impact.affected.length > 5 ? ` +${impact.affected.length - 5} more` : ""}`);
+      }
+    }
+  }
+
+  // 3. Runtime topology summary
+  const withRuntime = components.filter(c => c.runtime?.resource_type);
+  if (withRuntime.length > 0) {
+    const rtGroups: Record<string, number> = {};
+    for (const c of withRuntime) {
+      const rt = c.runtime!.resource_type!;
+      rtGroups[rt] = (rtGroups[rt] || 0) + 1;
+    }
+    const rtSummary = Object.entries(rtGroups).map(([t, n]) => `${t}: ${n}`).join(", ");
+    lines.push(`\nRuntime topology: ${rtSummary}`);
+  }
+
+  // 4. LLM use case summary
+  try {
+    let prompts;
+    try {
+      const promptsPath = path.join(config.storagePath, "prompts.json");
+      const raw = await fs.promises.readFile(promptsPath, "utf-8");
+      prompts = JSON.parse(raw)?.prompts;
+    } catch { /* no prompts */ }
+
+    const dedup = deduplicateLLMUseCases(components, connections, prompts);
+    if (dedup.useCases.length > 0) {
+      lines.push(`\nAI/LLM: ${dedup.useCases.length} use cases across ${dedup.providers.length} providers`);
+    }
+  } catch { /* dedup not available */ }
+
+  return textResponse(lines.join("\n"));
+}
+
+async function handleExplore(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const query = String(args.component);
+  const depth = typeof args.depth === "number" ? args.depth : 2;
+  const projectRoot = getProjectRoot();
+  const config = loadConfig();
+
+  const components = await loadAllComponents(config, projectRoot);
+  const connections = await loadAllConnections(config, projectRoot);
+
+  if (components.length === 0) {
+    return errorResponse("No architecture data. Run the scan tool first.");
+  }
+
+  const component = resolveComponent(query, components);
+  if (!component) {
+    const candidates = findCandidates(query, components, 5);
+    if (candidates.length > 0) {
+      return errorResponse(
+        `Component "${query}" not found. Did you mean:\n${candidates.map(c => `- ${c}`).join("\n")}`
+      );
+    }
+    return errorResponse(`Component "${query}" not found.`);
+  }
+
+  const lines: string[] = [
+    `COMPONENT: ${component.name}`,
+    `Type: ${component.type} | Layer: ${component.role.layer} | Status: ${component.status}`,
+    `Purpose: ${component.role.purpose}`,
+  ];
+
+  // Runtime identity
+  if (component.runtime) {
+    const r = component.runtime;
+    const parts: string[] = [];
+    if (r.engine) parts.push(`engine: ${r.engine}`);
+    if (r.service_name) parts.push(`service: ${r.service_name}`);
+    if (r.platform) parts.push(`platform: ${r.platform}`);
+    if (r.endpoint?.host) parts.push(`host: ${r.endpoint.host}${r.endpoint.port ? `:${r.endpoint.port}` : ""}`);
+    if (r.connection_env_var) parts.push(`env: ${r.connection_env_var}`);
+    if (parts.length > 0) {
+      lines.push(`Runtime: ${parts.join(", ")}`);
+    }
+  }
+
+  // Impact
+  const impact = computeImpact(component, components, connections);
+  lines.push(`\nImpact severity: ${impact.severity.toUpperCase()} (${impact.total_files_affected} files)`);
+
+  // Connections
+  const outgoing = connections.filter(c => c.from.component_id === component.component_id);
+  const incoming = connections.filter(c => c.to.component_id === component.component_id);
+
+  if (outgoing.length > 0) {
+    lines.push(`\nDepends on (${outgoing.length}):`);
+    for (const c of outgoing.slice(0, 10)) {
+      const target = components.find(comp => comp.component_id === c.to.component_id);
+      lines.push(`  → ${target?.name || c.to.component_id} (${c.connection_type})`);
+    }
+    if (outgoing.length > 10) lines.push(`  ... +${outgoing.length - 10} more`);
+  }
+
+  if (incoming.length > 0) {
+    lines.push(`\nDepended on by (${incoming.length}):`);
+    for (const c of incoming.slice(0, 10)) {
+      const source = components.find(comp => comp.component_id === c.from.component_id);
+      lines.push(`  ← ${source?.name || c.from.component_id} (${c.connection_type})`);
+    }
+    if (incoming.length > 10) lines.push(`  ... +${incoming.length - 10} more`);
+  }
+
+  // Trace
+  const trace = traceDataflow(component, components, connections, { direction: "both", maxDepth: depth });
+  if (trace.paths.length > 0) {
+    lines.push(`\nData flow paths (${trace.paths.length}, layers: ${trace.layers_crossed.join(" → ")}):`);
+    for (const p of trace.paths.slice(0, 5)) {
+      const chain = p.steps.map(s => s.component.n).join(" → ");
+      lines.push(`  ${chain}`);
+    }
+    if (trace.paths.length > 5) lines.push(`  ... +${trace.paths.length - 5} more paths`);
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+async function handleRules(): Promise<{
+  content: Array<{ type: string; text: string }>;
+}> {
+  const projectRoot = getProjectRoot();
+  const config = loadConfig();
+
+  const components = await loadAllComponents(config, projectRoot);
+  const connections = await loadAllConnections(config, projectRoot);
+
+  if (components.length === 0) {
+    return textResponse("No architecture data. Run the scan tool first.");
+  }
+
+  const violations = checkRules(components, connections);
+
+  if (violations.length === 0) {
+    return textResponse("All architecture rules passed. No violations detected.");
+  }
+
+  const byLevel: Record<string, typeof violations> = {};
+  for (const v of violations) {
+    if (!byLevel[v.severity]) byLevel[v.severity] = [];
+    byLevel[v.severity].push(v);
+  }
+
+  const lines = [`Architecture rule violations (${violations.length}):`];
+  for (const level of ["error", "warning", "info"]) {
+    const group = byLevel[level];
+    if (!group) continue;
+    lines.push(`\n${level.toUpperCase()} (${group.length}):`);
+    for (const v of group.slice(0, 10)) {
+      lines.push(`- ${v.message}${v.suggestion ? ` → ${v.suggestion}` : ""}`);
+    }
+    if (group.length > 10) lines.push(`  ... +${group.length - 10} more`);
   }
 
   return textResponse(lines.join("\n"));

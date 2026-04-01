@@ -41,7 +41,7 @@ function sendError(id: string | number, code: number, message: string) {
 
 const SERVER_INFO = {
   name: "navgator",
-  version: "0.2.2",
+  version: "0.3.0",
 };
 
 const CAPABILITIES = {

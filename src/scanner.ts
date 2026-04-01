@@ -182,28 +182,35 @@ export async function scan(
     console.log('Phase 1: Scanning packages...');
   }
 
-  // NPM packages
-  if (detectNpm(root)) {
-    if (options.verbose) console.log('  - Detected npm/yarn/pnpm project');
-    const result = await scanNpmPackages(root);
-    allComponents.push(...result.components);
-    allWarnings.push(...result.warnings);
-  }
+  // Package scanners run in parallel (independent of each other)
+  {
+    const packageTasks: Promise<void>[] = [];
 
-  // Python packages
-  if (detectPip(root)) {
-    if (options.verbose) console.log('  - Detected Python project');
-    const result = await scanPipPackages(root);
-    allComponents.push(...result.components);
-    allWarnings.push(...result.warnings);
-  }
+    if (detectNpm(root)) {
+      if (options.verbose) console.log('  - Detected npm/yarn/pnpm project');
+      packageTasks.push(scanNpmPackages(root).then(result => {
+        allComponents.push(...result.components);
+        allWarnings.push(...result.warnings);
+      }));
+    }
 
-  // Swift/iOS/Mac packages (SPM, CocoaPods)
-  if (detectSpm(root)) {
-    if (options.verbose) console.log('  - Detected Swift/Xcode project');
-    const result = await scanSpmPackages(root);
-    allComponents.push(...result.components);
-    allWarnings.push(...result.warnings);
+    if (detectPip(root)) {
+      if (options.verbose) console.log('  - Detected Python project');
+      packageTasks.push(scanPipPackages(root).then(result => {
+        allComponents.push(...result.components);
+        allWarnings.push(...result.warnings);
+      }));
+    }
+
+    if (detectSpm(root)) {
+      if (options.verbose) console.log('  - Detected Swift/Xcode project');
+      packageTasks.push(scanSpmPackages(root).then(result => {
+        allComponents.push(...result.components);
+        allWarnings.push(...result.warnings);
+      }));
+    }
+
+    await Promise.all(packageTasks);
   }
 
   // ==========================================================================
@@ -279,61 +286,62 @@ export async function scan(
     }
   }
 
-  // Environment variables → config components + dependency connections
-  if (detectEnvFiles(root)) {
-    if (options.verbose) console.log('  - Detected environment files');
-    try {
-      const envResult = await scanEnvVars(root);
-      allComponents.push(...envResult.components);
-      allConnections.push(...envResult.connections);
-      allWarnings.push(...envResult.warnings);
-      if (options.verbose) {
-        console.log(`    Env vars: ${envResult.components.length}, References: ${envResult.connections.length}`);
-      }
-    } catch (error) {
-      allWarnings.push({
-        type: 'parse_error',
-        message: `Env scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
-    }
-  }
+  // Env, queues, and crons are independent — run in parallel
+  {
+    const infraTasks: Promise<void>[] = [];
 
-  // BullMQ/Bull queues → producer/consumer topology
-  if (detectQueues(root)) {
-    if (options.verbose) console.log('  - Detected queue system');
-    try {
-      const queueResult = await scanQueues(root);
-      allComponents.push(...queueResult.components);
-      allConnections.push(...queueResult.connections);
-      allWarnings.push(...queueResult.warnings);
-      if (options.verbose) {
-        console.log(`    Queues: ${queueResult.components.length}, Connections: ${queueResult.connections.length}`);
-      }
-    } catch (error) {
-      allWarnings.push({
-        type: 'parse_error',
-        message: `Queue scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
+    if (detectEnvFiles(root)) {
+      if (options.verbose) console.log('  - Detected environment files');
+      infraTasks.push(scanEnvVars(root).then(envResult => {
+        allComponents.push(...envResult.components);
+        allConnections.push(...envResult.connections);
+        allWarnings.push(...envResult.warnings);
+        if (options.verbose) {
+          console.log(`    Env vars: ${envResult.components.length}, References: ${envResult.connections.length}`);
+        }
+      }).catch(error => {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Env scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }));
     }
-  }
 
-  // Cron jobs → scheduled task components
-  if (detectCrons(root)) {
-    if (options.verbose) console.log('  - Detected cron jobs');
-    try {
-      const cronResult = await scanCronJobs(root);
-      allComponents.push(...cronResult.components);
-      allConnections.push(...cronResult.connections);
-      allWarnings.push(...cronResult.warnings);
-      if (options.verbose) {
-        console.log(`    Cron jobs: ${cronResult.components.length}, Route connections: ${cronResult.connections.length}`);
-      }
-    } catch (error) {
-      allWarnings.push({
-        type: 'parse_error',
-        message: `Cron scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      });
+    if (detectQueues(root)) {
+      if (options.verbose) console.log('  - Detected queue system');
+      infraTasks.push(scanQueues(root).then(queueResult => {
+        allComponents.push(...queueResult.components);
+        allConnections.push(...queueResult.connections);
+        allWarnings.push(...queueResult.warnings);
+        if (options.verbose) {
+          console.log(`    Queues: ${queueResult.components.length}, Connections: ${queueResult.connections.length}`);
+        }
+      }).catch(error => {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Queue scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }));
     }
+
+    if (detectCrons(root)) {
+      if (options.verbose) console.log('  - Detected cron jobs');
+      infraTasks.push(scanCronJobs(root).then(cronResult => {
+        allComponents.push(...cronResult.components);
+        allConnections.push(...cronResult.connections);
+        allWarnings.push(...cronResult.warnings);
+        if (options.verbose) {
+          console.log(`    Cron jobs: ${cronResult.components.length}, Route connections: ${cronResult.connections.length}`);
+        }
+      }).catch(error => {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Cron scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }));
+    }
+
+    await Promise.all(infraTasks);
   }
 
   // Deployment config → detailed infra metadata
