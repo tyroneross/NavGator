@@ -45,6 +45,19 @@ function isMeaningfulSymbol(symbol: string): boolean {
   if (symbol.startsWith('./') || symbol.startsWith('/') || symbol.startsWith('..')) return false;
   // Generic symbols that don't indicate purpose
   if (['module', 'exports', 'require', 'import'].includes(symbol)) return false;
+  // Generic method names — too common to indicate a distinct use case
+  if (['create', 'call', 'invoke', 'run', 'execute', 'send', 'post', 'get', 'fetch'].includes(symbol)) return false;
+  // Provider/class names — these indicate WHO is called, not WHY
+  const providerNames = [
+    'openai', 'anthropic', 'groq', 'cohere', 'mistral', 'replicate',
+    'chatopenai', 'chatgroq', 'chatanthropic', 'chatmistral',
+    'langsmith', 'langchain',
+  ];
+  if (providerNames.includes(symbol.toLowerCase())) return false;
+  // Anonymous/auto-generated function names
+  if (/^anonymous_\d+$/.test(symbol)) return false;
+  // Common wrapper names that don't indicate purpose
+  if (['traceable', 'fromZodSchema', 'withRetry'].includes(symbol)) return false;
   return true;
 }
 
@@ -219,12 +232,13 @@ export function deduplicateLLMUseCases(
       }
     }
 
-    // Priority 4: File fallback
+    // Priority 4: Provider fallback (group all unclassified calls to same provider)
     if (!assigned) {
-      const key = `file:${conn.code_reference.file}|${conn.to.component_id}`;
+      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
+      const key = `provider:${conn.to.component_id}`;
       const group = getOrCreateGroup(key, {
-        name: fileBasename(conn.code_reference.file),
-        groupedBy: 'file',
+        name: `${providerName} (uncategorized)`,
+        groupedBy: 'file', // still 'file' for backward compat in type
       });
       group.providerIds.add(conn.to.component_id);
       group.connections.push(conn);

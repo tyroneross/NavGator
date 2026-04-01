@@ -137,14 +137,16 @@ describe('deduplicateLLMUseCases', () => {
     expect(result.useCases[0].productionCallSites).toBe(3);
   });
 
-  it('uses file+provider as fallback for generic symbols', () => {
+  it('uses provider as fallback for generic symbols', () => {
     const conns = [
       llmConn('src/lib/ai.ts', 'x', openai.component_id), // symbol too short
+      llmConn('src/lib/other.ts', 'y', openai.component_id), // also too short
     ];
     const result = deduplicateLLMUseCases([openai], conns);
+    // Both should merge into one provider-level group
     expect(result.useCases).toHaveLength(1);
     expect(result.useCases[0].groupedBy).toBe('file');
-    expect(result.useCases[0].name).toBe('ai'); // basename of file
+    expect(result.useCases[0].name).toContain('OpenAI');
   });
 
   // Edge cases

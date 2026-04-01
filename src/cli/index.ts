@@ -675,7 +675,10 @@ program
             const label = resourceTypeLabels[rt] ?? rt;
             const comps = grouped[rt];
 
-            if (rt === 'queue' || rt === 'worker' || rt === 'cron' || rt === 'api' || rt === 'storage') {
+            if (rt === 'api') {
+              // Skip noisy API entries — env vars with URLs are better shown as env vars
+              continue;
+            } else if (rt === 'queue' || rt === 'worker' || rt === 'cron' || rt === 'storage') {
               // Multi-item types: list names with extra context
               const names = comps.map(c => {
                 const name = c.runtime?.service_name ?? c.name;
@@ -700,7 +703,8 @@ program
                 console.log(`  ${label}: ${names.join(', ')}`);
               }
             } else {
-              // Single-detail types: database, cache
+              // Single-detail types: database, cache — dedup by unique (engine, host, port, env_var)
+              const seen = new Set<string>();
               for (const comp of comps) {
                 const r = comp.runtime!;
                 const enginePart = r.engine ?? comp.name;
@@ -708,7 +712,10 @@ program
                   ? ` @ ${r.endpoint.host}${r.endpoint.port ? `:${r.endpoint.port}` : ''}`
                   : '';
                 const envPart = r.connection_env_var ? ` (via ${r.connection_env_var})` : '';
-                console.log(`  ${label}: ${enginePart}${hostPart}${envPart}`);
+                const line = `${enginePart}${hostPart}${envPart}`;
+                if (seen.has(line)) continue;
+                seen.add(line);
+                console.log(`  ${label}: ${line}`);
               }
             }
           }
