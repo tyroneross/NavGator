@@ -93,6 +93,15 @@ export function traceDataflow(
     }
 
     // Get connections to follow
+    // (B) Exclude env-dependency from trace — they're config references, not data flow
+    // (A) Prioritize code flow connections over structural ones
+    const EXCLUDED_FROM_TRACE = new Set(['env-dependency']);
+    const CODE_FLOW_TYPES = new Set([
+      'imports', 'api-calls-db', 'queue-produces', 'queue-consumes',
+      'cron-triggers', 'service-call', 'deploys-to', 'queue-uses-cache',
+      'runtime-binding', 'field-reference',
+    ]);
+
     const connections: Array<{ conn: ArchitectureConnection; nextId: string }> = [];
 
     // Check if current node is a queue (bridge node)
@@ -101,7 +110,7 @@ export function traceDataflow(
 
     if (direction === 'forward' || direction === 'both') {
       for (const conn of (outgoing.get(current.componentId) || [])) {
-        if (!current.visited.has(conn.to.component_id)) {
+        if (!current.visited.has(conn.to.component_id) && !EXCLUDED_FROM_TRACE.has(conn.connection_type)) {
           connections.push({ conn, nextId: conn.to.component_id });
         }
       }
@@ -109,11 +118,18 @@ export function traceDataflow(
 
     if (direction === 'backward' || direction === 'both') {
       for (const conn of (incoming.get(current.componentId) || [])) {
-        if (!current.visited.has(conn.from.component_id)) {
+        if (!current.visited.has(conn.from.component_id) && !EXCLUDED_FROM_TRACE.has(conn.connection_type)) {
           connections.push({ conn, nextId: conn.from.component_id });
         }
       }
     }
+
+    // (A) Sort connections: code flow first, structural second
+    connections.sort((a, b) => {
+      const aIsCodeFlow = CODE_FLOW_TYPES.has(a.conn.connection_type) ? 0 : 1;
+      const bIsCodeFlow = CODE_FLOW_TYPES.has(b.conn.connection_type) ? 0 : 1;
+      return aIsCodeFlow - bIsCodeFlow;
+    });
 
     // Queue bridge semantics: if we're on a queue node, also follow the
     // opposite direction through queue-specific connections.

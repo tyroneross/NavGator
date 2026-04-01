@@ -642,6 +642,31 @@ export async function scan(
   }
   const uniqueConnections = Array.from(connectionMap.values());
 
+  // (C) Resolve FILE: prefixed connection targets to real component IDs
+  // This enables trace to follow imports from route files instead of dead-ending
+  const compByFile = new Map<string, string>(); // file path → component_id
+  for (const comp of uniqueComponents) {
+    for (const f of comp.source.config_files || []) {
+      compByFile.set(f, comp.component_id);
+    }
+  }
+  for (const conn of uniqueConnections) {
+    if (conn.to.component_id?.startsWith('FILE:')) {
+      const filePath = conn.to.component_id.slice(5);
+      const realId = compByFile.get(filePath);
+      if (realId) {
+        conn.to.component_id = realId;
+      }
+    }
+    if (conn.from.component_id?.startsWith('FILE:')) {
+      const filePath = conn.from.component_id.slice(5);
+      const realId = compByFile.get(filePath);
+      if (realId) {
+        conn.from.component_id = realId;
+      }
+    }
+  }
+
   // Snapshot previous state before overwriting (for change tracking)
   // Also load the pre-scan snapshot for diff computation
   let preScanSnapshot = null;
