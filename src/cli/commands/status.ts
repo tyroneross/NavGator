@@ -4,6 +4,7 @@ import * as path from 'path';
 import { loadIndex, loadAllComponents, loadAllConnections } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerStatusCommand(program: Command): void {
   program
@@ -13,6 +14,11 @@ export function registerStatusCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const index = await loadIndex(config);
 

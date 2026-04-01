@@ -3,6 +3,7 @@ import { loadAllComponents, loadAllConnections, loadFileMap } from '../../storag
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { computeCoverage, formatCoverageOutput } from '../../coverage.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerCoverageCommand(program: Command): void {
   program
@@ -15,6 +16,11 @@ export function registerCoverageCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const components = await loadAllComponents(config);
         const connections = await loadAllConnections(config);

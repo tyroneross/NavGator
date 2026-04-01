@@ -4,6 +4,7 @@ import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
 import { resolveFileConnections, formatFileConnections } from '../../file-resolve.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerConnectionsCommand(program: Command): void {
   program
@@ -17,6 +18,11 @@ export function registerConnectionsCommand(program: Command): void {
     .option('--test', 'Show only test connections')
     .action(async (componentName, options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const components = await loadAllComponents(config);
         const connections = await loadAllConnections(config);

@@ -12,6 +12,7 @@ import {
 } from '../../diagram.js';
 import { ArchitectureLayer } from '../../types.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerDiagramCommand(program: Command): void {
   program
@@ -28,6 +29,11 @@ export function registerDiagramCommand(program: Command): void {
     .option('--markdown', 'Wrap diagram in markdown code block')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const graph = await loadGraph(config);
 

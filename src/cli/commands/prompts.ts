@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { scanPromptsOnly, formatPromptsOutput, formatPromptDetail } from '../../scanner.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerPromptsCommand(program: Command): void {
   program
@@ -12,6 +13,11 @@ export function registerPromptsCommand(program: Command): void {
     .option('--detail <name>', 'Show detailed view of a specific prompt')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const result = await scanPromptsOnly(process.cwd());
 
         if (options.agent) {

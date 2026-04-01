@@ -4,6 +4,7 @@ import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { ArchitectureLayer } from '../../types.js';
 import { extractSubgraph, subgraphToMermaid } from '../../subgraph.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerSubgraphCommand(program: Command): void {
   program
@@ -19,6 +20,11 @@ export function registerSubgraphCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const components = await loadAllComponents(config);
         const connections = await loadAllConnections(config);

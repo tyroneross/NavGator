@@ -3,6 +3,7 @@ import { loadAllComponents, loadAllConnections } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { checkRules, getBuiltinRules, loadCustomRules, formatRulesOutput } from '../../rules.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerRulesCommand(program: Command): void {
   program
@@ -13,6 +14,11 @@ export function registerRulesCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const components = await loadAllComponents(config);
         const connections = await loadAllConnections(config);

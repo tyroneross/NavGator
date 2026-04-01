@@ -5,6 +5,7 @@ import { computeImpact } from '../../impact.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
 import { resolveFileConnections, formatFileImpact, formatFileConnections } from '../../file-resolve.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerImpactCommand(program: Command): void {
   program
@@ -14,6 +15,11 @@ export function registerImpactCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (componentName, options) => {
       try {
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          return;
+        }
         const config = getConfig();
         const components = await loadAllComponents(config);
         const connections = await loadAllConnections(config);
