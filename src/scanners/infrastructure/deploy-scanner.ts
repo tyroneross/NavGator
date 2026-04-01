@@ -425,6 +425,37 @@ export async function scanDeployConfig(projectRoot: string): Promise<ScanResult>
 
   // Create deploys-to connections from entry points to deploy components
   const connections: ArchitectureConnection[] = [];
+
+  // Also try Dockerfile CMD if no services had start commands
+  const dockerEntry = parseDockerfileCMD(projectRoot);
+  if (dockerEntry) {
+    // Find the Railway/Docker component to link to
+    const dockerComp = components.find(c =>
+      c.name.toLowerCase().includes('railway') || c.name.toLowerCase().includes('docker')
+    ) || components[0]; // fallback to first deploy component
+    if (dockerComp) {
+      connections.push({
+        connection_id: generateConnectionId('deploys-to'),
+        from: {
+          component_id: `FILE:${dockerEntry}`,
+          location: { file: dockerEntry, line: 0 },
+        },
+        to: { component_id: dockerComp.component_id },
+        connection_type: 'deploys-to',
+        code_reference: {
+          file: dockerEntry,
+          symbol: 'Dockerfile CMD',
+          symbol_type: 'variable',
+        },
+        description: `${dockerEntry} is the entry point for ${dockerComp.name}`,
+        detected_from: 'deploy-scanner (Dockerfile)',
+        confidence: 0.9,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
+  }
+
   for (const comp of components) {
     const services = (comp.metadata?.services as DeployService[]) || [];
     for (const svc of services) {
@@ -460,27 +491,95 @@ export async function scanDeployConfig(projectRoot: string): Promise<ScanResult>
 }
 
 /**
- * Resolve a start command to its entry point file
+ * Resolve a start command to its entry point file.
+ * Handles: node file.js, node --import tsx file.ts, ts-node file.ts,
+ * npx tsx file.ts, and Dockerfile CMD arrays.
  */
 function resolveEntryPoint(command: string, projectRoot: string): string | null {
-  // Extract file path from common command patterns
-  // e.g., "node dist/worker.js", "ts-node src/server.ts", "npx tsx src/index.ts"
-  const match = command.match(/(?:node|ts-node|tsx|npx\s+tsx)\s+(.+?)(?:\s|$)/);
-  if (!match) return null;
+  // Strategy: find the last argument that looks like a file path
+  // This handles flags like --import, --experimental-specifier-resolution, etc.
+  const parts = command.split(/\s+/).filter(Boolean);
 
-  const filePath = match[1].trim();
+  // Skip the runner (node, ts-node, npx, tsx, etc.)
+  let fileCandidate: string | null = null;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i];
+    // Skip flags and their values
+    if (part.startsWith('-')) continue;
+    // Skip runner names
+    if (['node', 'ts-node', 'tsx', 'npx', 'bun'].includes(part)) continue;
+    // This looks like a file path
+    if (part.includes('/') || part.includes('.')) {
+      fileCandidate = part;
+      break;
+    }
+  }
+
+  if (!fileCandidate) return null;
+
+  return resolveFilePath(fileCandidate, projectRoot);
+}
+
+/**
+ * Parse Dockerfile for CMD/ENTRYPOINT to find entry point files
+ */
+function parseDockerfileCMD(projectRoot: string): string | null {
+  const dockerfilePath = path.join(projectRoot, 'Dockerfile');
+  if (!fs.existsSync(dockerfilePath)) return null;
+
+  try {
+    const content = fs.readFileSync(dockerfilePath, 'utf-8');
+
+    // Match CMD ["node", "--import", "tsx", "scripts/start.ts"]
+    const cmdArrayMatch = content.match(/CMD\s+\[([^\]]+)\]/);
+    if (cmdArrayMatch) {
+      const args = cmdArrayMatch[1]
+        .split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, ''));
+      // Find the last arg that looks like a file
+      for (let i = args.length - 1; i >= 0; i--) {
+        if (args[i].includes('/') || args[i].endsWith('.ts') || args[i].endsWith('.js')) {
+          return resolveFilePath(args[i], projectRoot);
+        }
+      }
+    }
+
+    // Match CMD node scripts/start.ts (shell form)
+    const cmdShellMatch = content.match(/CMD\s+(.+)/);
+    if (cmdShellMatch) {
+      return resolveEntryPoint(cmdShellMatch[1].trim(), projectRoot);
+    }
+
+    // Match ENTRYPOINT
+    const entrypointMatch = content.match(/ENTRYPOINT\s+\[([^\]]+)\]/);
+    if (entrypointMatch) {
+      const args = entrypointMatch[1]
+        .split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, ''));
+      for (let i = args.length - 1; i >= 0; i--) {
+        if (args[i].includes('/') || args[i].endsWith('.ts') || args[i].endsWith('.js')) {
+          return resolveFilePath(args[i], projectRoot);
+        }
+      }
+    }
+  } catch { /* ignore read errors */ }
+
+  return null;
+}
+
+/**
+ * Resolve a file path candidate to a real file, trying dist→src mapping
+ */
+function resolveFilePath(filePath: string, projectRoot: string): string | null {
   const absPath = path.resolve(projectRoot, filePath);
 
-  // Check if file exists directly
   if (fs.existsSync(absPath)) {
     return path.relative(projectRoot, absPath);
   }
 
-  // Try resolving dist/ → src/ equivalent
+  // Try dist/ → src/ mapping
   if (filePath.startsWith('dist/')) {
-    const srcEquiv = filePath
-      .replace(/^dist\//, 'src/')
-      .replace(/\.js$/, '.ts');
+    const srcEquiv = filePath.replace(/^dist\//, 'src/').replace(/\.js$/, '.ts');
     const srcPath = path.resolve(projectRoot, srcEquiv);
     if (fs.existsSync(srcPath)) {
       return path.relative(projectRoot, srcPath);

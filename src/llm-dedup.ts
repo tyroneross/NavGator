@@ -46,7 +46,13 @@ function isMeaningfulSymbol(symbol: string): boolean {
   // Generic symbols that don't indicate purpose
   if (['module', 'exports', 'require', 'import'].includes(symbol)) return false;
   // Generic method names — too common to indicate a distinct use case
-  if (['create', 'call', 'invoke', 'run', 'execute', 'send', 'post', 'get', 'fetch'].includes(symbol)) return false;
+  if (['create', 'call', 'invoke', 'run', 'execute', 'send', 'post', 'get', 'fetch',
+       'from', 'init', 'setup', 'config', 'use', 'with', 'wrap', 'log', 'emit',
+       'on', 'off', 'set', 'add', 'remove', 'update', 'delete', 'load', 'save',
+       'start', 'stop', 'open', 'close', 'connect', 'disconnect',
+       'enabled', 'disabled', 'model', 'capture', 'samplingRate',
+       'tracing_enabled', 'langsmith_enabled',
+      ].includes(symbol)) return false;
   // Provider/class names — these indicate WHO is called, not WHY
   const providerNames = [
     'openai', 'anthropic', 'groq', 'cohere', 'mistral', 'replicate',
@@ -73,7 +79,7 @@ const PURPOSE_PATTERNS: [RegExp, string][] = [
   [/chat|convers|dialog/i, 'chat'],
   [/agent|tool|function.?call/i, 'agent'],
   [/fallback|retry|backup/i, 'fallback'],
-  [/valid|check|verify/i, 'validation'],
+  [/validat|verif/i, 'validation'],
   [/analyz|analys/i, 'analysis'],
   [/theme|topic|cluster/i, 'theme-extraction'],
   [/entity|ner|relation/i, 'entity-extraction'],
@@ -83,9 +89,14 @@ const PURPOSE_PATTERNS: [RegExp, string][] = [
 ];
 
 function inferPurpose(functionName: string, fileName: string): string | undefined {
-  const combined = `${functionName} ${fileName}`;
+  // Check function name first (strongest signal)
   for (const [pattern, purpose] of PURPOSE_PATTERNS) {
-    if (pattern.test(combined)) return purpose;
+    if (pattern.test(functionName)) return purpose;
+  }
+  // Check file basename only (not full path — paths contain misleading substrings)
+  const basename = fileName.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
+  for (const [pattern, purpose] of PURPOSE_PATTERNS) {
+    if (pattern.test(basename)) return purpose;
   }
   return undefined;
 }
