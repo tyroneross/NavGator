@@ -7,10 +7,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   ArchitectureComponent,
+  ArchitectureConnection,
   RuntimeIdentity,
   ScanResult,
   ScanWarning,
   generateComponentId,
+  generateConnectionId,
 } from '../../types.js';
 
 // =============================================================================
@@ -421,5 +423,69 @@ export async function scanDeployConfig(projectRoot: string): Promise<ScanResult>
     });
   }
 
-  return { components, connections: [], warnings };
+  // Create deploys-to connections from entry points to deploy components
+  const connections: ArchitectureConnection[] = [];
+  for (const comp of components) {
+    const services = (comp.metadata?.services as DeployService[]) || [];
+    for (const svc of services) {
+      if (!svc.startCommand) continue;
+      const entryFile = resolveEntryPoint(svc.startCommand, projectRoot);
+      if (entryFile) {
+        connections.push({
+          connection_id: generateConnectionId('deploys-to'),
+          from: {
+            component_id: `FILE:${entryFile}`,
+            location: { file: entryFile, line: 0 },
+          },
+          to: {
+            component_id: comp.component_id,
+          },
+          connection_type: 'deploys-to',
+          code_reference: {
+            file: entryFile,
+            symbol: svc.name || 'main',
+            symbol_type: 'variable',
+          },
+          description: `${entryFile} runs as ${svc.name || 'service'} on ${comp.runtime?.platform || 'unknown'}`,
+          detected_from: 'deploy-scanner',
+          confidence: 0.7,
+          timestamp,
+          last_verified: timestamp,
+        });
+      }
+    }
+  }
+
+  return { components, connections, warnings };
+}
+
+/**
+ * Resolve a start command to its entry point file
+ */
+function resolveEntryPoint(command: string, projectRoot: string): string | null {
+  // Extract file path from common command patterns
+  // e.g., "node dist/worker.js", "ts-node src/server.ts", "npx tsx src/index.ts"
+  const match = command.match(/(?:node|ts-node|tsx|npx\s+tsx)\s+(.+?)(?:\s|$)/);
+  if (!match) return null;
+
+  const filePath = match[1].trim();
+  const absPath = path.resolve(projectRoot, filePath);
+
+  // Check if file exists directly
+  if (fs.existsSync(absPath)) {
+    return path.relative(projectRoot, absPath);
+  }
+
+  // Try resolving dist/ → src/ equivalent
+  if (filePath.startsWith('dist/')) {
+    const srcEquiv = filePath
+      .replace(/^dist\//, 'src/')
+      .replace(/\.js$/, '.ts');
+    const srcPath = path.resolve(projectRoot, srcEquiv);
+    if (fs.existsSync(srcPath)) {
+      return path.relative(projectRoot, srcPath);
+    }
+  }
+
+  return null;
 }

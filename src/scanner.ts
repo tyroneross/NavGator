@@ -349,9 +349,10 @@ export async function scan(
   try {
     const deployResult = await scanDeployConfig(root);
     allComponents.push(...deployResult.components);
+    allConnections.push(...deployResult.connections);
     allWarnings.push(...deployResult.warnings);
     if (options.verbose && deployResult.components.length > 0) {
-      console.log(`    Deploy configs: ${deployResult.components.length}`);
+      console.log(`    Deploy configs: ${deployResult.components.length}, Entry points: ${deployResult.connections.length}`);
     }
   } catch (error) {
     allWarnings.push({

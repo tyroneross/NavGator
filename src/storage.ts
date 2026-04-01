@@ -595,6 +595,28 @@ export async function buildSummary(
     byLayer.get(layer)!.push(c);
   }
 
+  // Sort each layer by architectural importance (production-critical first, noise last)
+  const criticalTypes = new Set(['database', 'queue', 'llm', 'framework', 'infra', 'service', 'cron']);
+  const isNoiseComponent = (c: ArchitectureComponent): boolean => {
+    const file = c.source.config_files[0]?.toLowerCase() || c.name.toLowerCase();
+    return /(_archive|__tests__|\.test\.|\.spec\.|\/tests\/|\/scripts\/|\/examples?\/|\/dist\/|\/mock|\.example\.)/.test(file) ||
+           c.name.startsWith('_archive') || c.name.endsWith('.test') || c.name.endsWith('.spec');
+  };
+  for (const [, group] of byLayer) {
+    group.sort((a, b) => {
+      const aIsCritical = criticalTypes.has(a.type) ? 0 : 1;
+      const bIsCritical = criticalTypes.has(b.type) ? 0 : 1;
+      if (aIsCritical !== bIsCritical) return aIsCritical - bIsCritical;
+      const aIsNoise = isNoiseComponent(a) ? 1 : 0;
+      const bIsNoise = isNoiseComponent(b) ? 1 : 0;
+      if (aIsNoise !== bIsNoise) return aIsNoise - bIsNoise;
+      const aConns = a.connects_to.length + a.connected_from.length;
+      const bConns = b.connects_to.length + b.connected_from.length;
+      if (bConns !== aConns) return bConns - aConns;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
   // Build markdown
   const lines: string[] = [];
   lines.push('# Architecture Summary');
@@ -885,6 +907,30 @@ export async function buildSummary(
           const configFile = c.source.config_files?.[0] || '—';
           compressed.push(`| ${c.name} | ${configFile} | — | ${c.role.purpose} | \`components/${c.component_id}.json\` |`);
         }
+      }
+      compressed.push('');
+    }
+
+    // Runtime Topology section
+    const withRuntime = components.filter(c => c.runtime?.resource_type);
+    if (withRuntime.length > 0) {
+      compressed.push('## Runtime Topology');
+      const rtSeen = new Set<string>();
+      for (const c of withRuntime) {
+        const r = c.runtime!;
+        if (r.resource_type === 'api') continue; // skip noisy env var URLs
+        const engine = r.engine || c.name;
+        const host = r.endpoint?.host ? ` @ ${r.endpoint.host}${r.endpoint.port ? ':' + r.endpoint.port : ''}` : '';
+        const env = r.connection_env_var ? ` (via ${r.connection_env_var})` : '';
+        const rtLine = `- **${r.resource_type}**: ${engine}${host}${env}`;
+        if (!rtSeen.has(rtLine)) { rtSeen.add(rtLine); compressed.push(rtLine); }
+      }
+      // Queue names as a group
+      const queueComps = withRuntime.filter(c => c.runtime?.resource_type === 'queue');
+      if (queueComps.length > 0) {
+        const queueNames = queueComps.map(c => c.runtime?.service_name || c.name).join(', ');
+        const engine = queueComps[0].runtime?.engine || 'queue';
+        compressed.push(`- **queues**: ${queueNames} (${engine})`);
       }
       compressed.push('');
     }

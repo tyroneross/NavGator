@@ -61,6 +61,35 @@ function isMeaningfulSymbol(symbol: string): boolean {
   return true;
 }
 
+const PURPOSE_PATTERNS: [RegExp, string][] = [
+  [/summar/i, 'summarization'],
+  [/embed/i, 'embedding'],
+  [/extract/i, 'extraction'],
+  [/classif|categor|label/i, 'classification'],
+  [/rerank|rank/i, 'reranking'],
+  [/search|query|retriev/i, 'search'],
+  [/generat|creat|produc/i, 'generation'],
+  [/translat/i, 'translation'],
+  [/chat|convers|dialog/i, 'chat'],
+  [/agent|tool|function.?call/i, 'agent'],
+  [/fallback|retry|backup/i, 'fallback'],
+  [/valid|check|verify/i, 'validation'],
+  [/analyz|analys/i, 'analysis'],
+  [/theme|topic|cluster/i, 'theme-extraction'],
+  [/entity|ner|relation/i, 'entity-extraction'],
+  [/trend|forecast/i, 'trend-analysis'],
+  [/synthe[sz]/i, 'synthesis'],
+  [/chunk/i, 'chunking'],
+];
+
+function inferPurpose(functionName: string, fileName: string): string | undefined {
+  const combined = `${functionName} ${fileName}`;
+  for (const [pattern, purpose] of PURPOSE_PATTERNS) {
+    if (pattern.test(combined)) return purpose;
+  }
+  return undefined;
+}
+
 function parseDescriptionForCallType(description?: string): { method?: string; model?: string } | null {
   if (!description) return null;
   // Common formats: "OpenAI.chat.completions.create (gpt-4)", "Groq.chat (llama-3.1-70b)"
@@ -203,11 +232,13 @@ export function deduplicateLLMUseCases(
       }
     }
 
-    // Priority 2: Function name
+    // Priority 2: Function name (with purpose inference from name + file)
     if (!assigned && isMeaningfulSymbol(conn.code_reference.symbol)) {
+      const purpose = inferPurpose(conn.code_reference.symbol, conn.code_reference.file);
       const key = `fn:${conn.code_reference.symbol}|${conn.to.component_id}`;
       const group = getOrCreateGroup(key, {
         name: conn.code_reference.symbol,
+        category: purpose,
         groupedBy: 'function',
       });
       group.providerIds.add(conn.to.component_id);

@@ -387,6 +387,35 @@ export async function scanQueues(projectRoot: string): Promise<ScanResult> {
     }
   }
 
+  // Create queue -> Redis/cache connections when connection env var is known
+  for (const comp of components) {
+    const envVar = comp.runtime?.connection_env_var;
+    if (envVar) {
+      connections.push({
+        connection_id: generateConnectionId('queue-uses-cache'),
+        from: {
+          component_id: comp.component_id,
+          location: { file: comp.source.config_files[0] || '', line: 0 },
+        },
+        to: {
+          component_id: `ENV:${envVar}`,
+          location: { file: '.env', line: 0 },
+        },
+        connection_type: 'queue-uses-cache',
+        code_reference: {
+          file: comp.source.config_files[0] || '',
+          symbol: envVar,
+          symbol_type: 'variable',
+        },
+        description: `${comp.name} connects to Redis via ${envVar}`,
+        detected_from: 'queue-scanner',
+        confidence: 0.85,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
+  }
+
   return { components, connections, warnings };
 }
 

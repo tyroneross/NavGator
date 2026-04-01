@@ -1,4 +1,6 @@
 import { Command } from 'commander';
+import * as fs from 'fs';
+import * as path from 'path';
 import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
@@ -30,6 +32,18 @@ export function registerListCommand(program: Command): void {
 
         if (options.json) {
           console.log(JSON.stringify(components, null, 2));
+          return;
+        }
+
+        if (components.length === 0) {
+          const cwd = process.cwd();
+          const navDir = path.join(cwd, '.navgator', 'architecture');
+          if (!fs.existsSync(navDir)) {
+            console.log(`No NavGator data in ${cwd}`);
+            console.log('Run `navgator scan` first, or `navgator projects` to find scanned projects.');
+          } else {
+            console.log('No components found. Try running `navgator scan` to refresh.');
+          }
           return;
         }
 
