@@ -391,8 +391,8 @@ Data is stored in `.navgator/architecture/` within your project:
 
 ```
 .navgator/architecture/
-├── SUMMARY.md           ← Hot context (read first)
-├── SUMMARY_FULL.md      ← Full version if compressed
+├── NAVSUMMARY.md           ← Hot context (read first)
+├── NAVSUMMARY_FULL.md      ← Full version if compressed
 ├── components/           # Individual component JSON files
 │   ├── COMP_npm_react_a1b2.json
 │   └── COMP_service_stripe_c3d4.json

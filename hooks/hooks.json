@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Check if NavGator architecture data exists and is fresh:\n1. Look for .navgator/architecture/index.json\n2. If missing: 'This project hasn't been scanned. Run the navgator `scan` MCP tool to map the architecture.'\n3. If >24h old: 'Architecture data is stale. Consider running the navgator `scan` MCP tool to refresh.'\n4. If fresh: Note the component and connection counts for context.\n\nWhen architecture data exists, you should consult it BEFORE making changes to:\n- Database schemas or queries\n- API endpoints\n- External service integrations (Stripe, OpenAI, etc.)\n- Queue workers or job handlers\n- Shared utilities used across the codebase"
+            "prompt": "Check if NavGator architecture data exists and is fresh:\n1. Look for .navgator/architecture/index.json\n2. If missing: suggest running the navgator `scan` MCP tool\n3. If >24h old: suggest refreshing with the navgator `scan` MCP tool\n4. If fresh: run the navgator `status` MCP tool to load architecture context\n\nIMPORTANT — Investigation before fixing:\nWhen debugging or fixing issues, ALWAYS use NavGator to understand the architecture first:\n- Run `explore` on the affected component to see connections, runtime identity, and impact\n- Run `trace` to follow data flow through the system\n- Run `impact` before changing any component to check blast radius\n- Run `review` for a comprehensive architecture health check\n\nDo NOT fix code without understanding what it connects to. A change to one component can cascade through queues, APIs, crons, and database relations that aren't visible in the file you're editing."
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "You're about to edit a file. If it involves architecture-critical code (database/ORM files, API routes, external service integrations, queue/worker files, shared utilities, Package.swift, .pbxproj, Podfile, .entitlements, or Info.plist), consider running the navgator `impact` MCP tool first to understand downstream effects before making changes."
+            "prompt": "You're about to edit a file. If it involves architecture-critical code (database/ORM files, API routes, external service integrations, queue/worker files, shared utilities, Package.swift, .pbxproj, Podfile, .entitlements, or Info.plist), run the navgator `explore` MCP tool on the component first to understand its connections, runtime identity, and downstream impact before making changes."
           }
         ]
       }

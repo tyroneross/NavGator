@@ -822,7 +822,7 @@ export async function buildSummary(
   const COMPRESSION_THRESHOLD = 150;
 
   if (lineCount > COMPRESSION_THRESHOLD) {
-    // Write full version to SUMMARY_FULL.md
+    // Write full version to NAVSUMMARY_FULL.md
     const fullPath = getSummaryFullPath(cfg, root);
     await fs.promises.writeFile(fullPath, fullContent, 'utf-8');
 
@@ -830,7 +830,7 @@ export async function buildSummary(
     const compressed: string[] = [];
     compressed.push('# Architecture Summary (Compressed)');
     compressed.push('');
-    compressed.push('> **This is a compressed summary.** Full version: `SUMMARY_FULL.md`');
+    compressed.push('> **This is a compressed summary.** Full version: `NAVSUMMARY_FULL.md`');
     compressed.push('');
     compressed.push(`> NavGator auto-generated | Scanned: ${now}`);
     compressed.push(`> ${components.length} components | ${connections.length} connections | ${aiComponents.length} AI providers`);
@@ -851,7 +851,7 @@ export async function buildSummary(
           compressed.push(`- **${c.name}**${ver} — ${c.role.purpose} \`components/${c.component_id}.json\``);
         }
         if (group.length > 10) {
-          compressed.push(`- ... and ${group.length - 10} more (see SUMMARY_FULL.md)`);
+          compressed.push(`- ... and ${group.length - 10} more (see NAVSUMMARY_FULL.md)`);
         }
         compressed.push('');
       }
@@ -876,7 +876,7 @@ export async function buildSummary(
         compressed.push(`| ${target?.name || '?'} | ${file} | ${line} | ${purpose} | \`connections/${conn.connection_id}.json\` |`);
       }
       if (aiConnections.length > 10) {
-        compressed.push(`| ... | | | ${aiConnections.length - 10} more (see SUMMARY_FULL.md) | |`);
+        compressed.push(`| ... | | | ${aiConnections.length - 10} more (see NAVSUMMARY_FULL.md) | |`);
       }
       // AI components with no connections
       for (const c of aiComponents) {
@@ -960,7 +960,7 @@ export async function buildSummary(
     }
 
     compressed.push('## Detail Pointers');
-    compressed.push('- **Full summary**: `SUMMARY_FULL.md`');
+    compressed.push('- **Full summary**: `NAVSUMMARY_FULL.md`');
     compressed.push(`- Full index: \`index.json\``);
     compressed.push(`- Connection graph: \`graph.json\``);
     compressed.push(`- File map: \`file_map.json\``);

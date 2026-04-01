@@ -164,14 +164,14 @@ export function getHashesPath(config: NavGatorConfig, projectRoot?: string): str
  * Get path to summary file
  */
 export function getSummaryPath(config: NavGatorConfig, projectRoot?: string): string {
-  return path.join(getStoragePath(config, projectRoot), 'SUMMARY.md');
+  return path.join(getStoragePath(config, projectRoot), 'NAVSUMMARY.md');
 }
 
 /**
  * Get path to full (uncompressed) summary file
  */
 export function getSummaryFullPath(config: NavGatorConfig, projectRoot?: string): string {
-  return path.join(getStoragePath(config, projectRoot), 'SUMMARY_FULL.md');
+  return path.join(getStoragePath(config, projectRoot), 'NAVSUMMARY_FULL.md');
 }
 
 /**

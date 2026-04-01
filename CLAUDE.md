@@ -6,7 +6,7 @@ NavGator externalizes architecture knowledge so you never lose track of file pat
 
 ## Context Model (Three Tiers)
 
-**Tier 1 — Hot Context** (`SUMMARY.md`)
+**Tier 1 — Hot Context** (`NAVSUMMARY.md`)
 Read this first. It's a concise overview (~40-150 lines) with:
 - Components by layer (frontend, backend, database, queue, infra, external)
 - AI/LLM routing table (provider, file, line, purpose)
@@ -14,7 +14,7 @@ Read this first. It's a concise overview (~40-150 lines) with:
 - Delta from last scan (what changed)
 - Pointers to detail files for drill-down
 
-If `SUMMARY.md` was compressed (large projects), the full version is at `SUMMARY_FULL.md`.
+If `NAVSUMMARY.md` was compressed (large projects), the full version is at `NAVSUMMARY_FULL.md`.
 
 **Tier 2 — Structured Index** (`index.json`, `graph.json`, `file_map.json`, `prompts.json`)
 Use for programmatic lookups:
@@ -24,18 +24,59 @@ Use for programmatic lookups:
 - `prompts.json` — full prompt content with LLM provider associations (scan with `--prompts`)
 
 **Tier 3 — Detail Files** (`components/COMP_*.json`, `connections/CONN_*.json`)
-Load on demand when you need full detail about a specific component or connection. Each entry in SUMMARY.md points to its detail file.
+Load on demand when you need full detail about a specific component or connection. Each entry in NAVSUMMARY.md points to its detail file.
 
 ## When to Read Architecture Context
 
-**Always read `SUMMARY.md` at the start of a session.** It's located at:
+**Always read `NAVSUMMARY.md` at the start of a session.** It's located at:
 ```
-<project-root>/.navgator/architecture/SUMMARY.md
+<project-root>/.navgator/architecture/NAVSUMMARY.md
 ```
 
 **Before editing tracked files:** If you're about to edit a file that belongs to a tracked component, read the component's detail file first. The architecture-check hook will remind you.
 
 **After dependency changes:** If you ran `npm install`, `pip install`, etc., architecture data may be stale. Run `/gator:scan` to update.
+
+## Investigation Protocol — Consult Before Fixing
+
+**Before fixing a bug, debugging an issue, or making any change that touches multiple files:**
+
+1. **Understand the component:** Run `navgator explore <component>` or the `explore` MCP tool to see what the component connects to, its runtime identity, impact severity, and data flow paths.
+
+2. **Check blast radius:** Run `navgator impact <component>` to see what breaks downstream. A "simple fix" in a high-fan-out component can cascade.
+
+3. **Trace the data flow:** Run `navgator trace <component>` to follow how data moves through the system. This reveals the full chain: User → Frontend → API → Service → Database → Response.
+
+4. **Check for patterns:** Run `navgator rules` to identify any existing architectural violations that might be related to the issue.
+
+**Why this matters:** Code fixes that don't consider architecture cause cascading failures. NavGator's graph shows connections that aren't obvious from reading a single file. A queue worker change might affect 5 API routes and 3 cron jobs — NavGator tells you which ones.
+
+**Quick reference for common investigation tasks:**
+
+| I need to... | Use |
+|-------------|-----|
+| Understand a component before changing it | `explore <component>` |
+| Know what breaks if I change X | `impact <component>` |
+| Follow data through the system | `trace <component>` |
+| Check architecture health | `rules` or `/gator:review` |
+| Find where a function/file is used | `connections <component>` |
+| See the full architecture overview | `status` |
+
+## Retrieving Stored Context
+
+NavGator stores architecture data in `.navgator/architecture/`. Key files for retrieval:
+
+| File | What it contains | When to read |
+|------|-----------------|-------------|
+| `NAVSUMMARY.md` | Hot context — component overview, AI routing, top connections | Session start, quick orientation |
+| `index.json` | Stats, component/connection counts by type | Programmatic lookups |
+| `file_map.json` | File path → component ID mapping | "What component owns this file?" |
+| `graph.json` | Full connection graph | Impact analysis, traversal |
+| `prompts.json` | AI prompt content + provider associations | LLM debugging, prompt review |
+| `components/COMP_*.json` | Full detail for one component | Deep dive on specific component |
+| `connections/CONN_*.json` | Full detail for one connection | Understanding a specific relationship |
+
+**For agents building on NavGator:** Use the MCP tools (`scan`, `status`, `explore`, `review`, `trace`, `rules`) rather than reading JSON files directly. The tools return pre-analyzed, compact text output optimized for LLM consumption.
 
 ## Available Commands
 
@@ -123,7 +164,7 @@ All JSON files (`index.json`, `graph.json`, `file_map.json`, `prompts.json`) inc
 
 When `--track-branch` is used during scan:
 - `timeline.json` entries include a `git` field with `{ branch, commit }`
-- `SUMMARY.md` header shows `> Branch: **main** @ \`abc1234\``
+- `NAVSUMMARY.md` header shows `> Branch: **main** @ \`abc1234\``
 - `navgator history` shows `[branch@commit]` tags on entries
 - `navgator projects` shows the last tracked branch
 
@@ -132,8 +173,8 @@ When `--track-branch` is used during scan:
 All data lives in `<project-root>/.navgator/architecture/`:
 ```
 .navgator/architecture/
-├── SUMMARY.md          ← Read this first (hot context)
-├── SUMMARY_FULL.md     ← Full version if compressed
+├── NAVSUMMARY.md          ← Read this first (hot context)
+├── NAVSUMMARY_FULL.md     ← Full version if compressed
 ├── index.json          ← Master index
 ├── graph.json          ← Connection graph
 ├── file_map.json       ← File path → component ID lookup
@@ -146,4 +187,4 @@ All data lives in `<project-root>/.navgator/architecture/`:
 
 ## Key Principle
 
-Instead of trying to "remember" architecture details, reload the externalized source of truth. SUMMARY.md is cheap to read and gives you the full picture. Drill into detail files only when needed.
+Instead of trying to "remember" architecture details, reload the externalized source of truth. NAVSUMMARY.md is cheap to read and gives you the full picture. Drill into detail files only when needed.

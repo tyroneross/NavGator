@@ -588,7 +588,7 @@ export function formatDiffSummary(entry: TimelineEntry, json?: boolean): string 
 }
 
 /**
- * Format a diff result as markdown for SUMMARY.md
+ * Format a diff result as markdown for NAVSUMMARY.md
  */
 export function formatDiffForSummary(entry: TimelineEntry): string[] {
   const lines: string[] = [];
