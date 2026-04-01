@@ -10,6 +10,8 @@
  *   Layer 3 — Merge: combine groups connected via import graph
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { ArchitectureComponent, ArchitectureConnection } from './types.js';
 import type { DetectedPrompt } from './scanners/prompts/types.js';
 
@@ -88,17 +90,87 @@ const PURPOSE_PATTERNS: [RegExp, string][] = [
   [/chunk/i, 'chunking'],
 ];
 
+// Directory-to-domain mapping for purpose inference
+const DIRECTORY_DOMAINS: [RegExp, string][] = [
+  [/\/search\//i, 'search'],
+  [/\/synthesis\//i, 'synthesis'],
+  [/\/knowledge-graph\//i, 'knowledge-graph'],
+  [/\/kg\//i, 'knowledge-graph'],
+  [/\/queue\//i, 'queue-processing'],
+  [/\/queues\//i, 'queue-processing'],
+  [/\/workers?\//i, 'worker'],
+  [/\/ai\//i, 'ai-core'],
+  [/\/llm\//i, 'ai-core'],
+  [/\/services\//i, 'service'],
+  [/\/adapters?\//i, 'adapter'],
+  [/\/ingestion\//i, 'ingestion'],
+  [/\/aggregation\//i, 'aggregation'],
+  [/\/analytics?\//i, 'analytics'],
+];
+
 function inferPurpose(functionName: string, fileName: string): string | undefined {
-  // Check function name first (strongest signal)
+  // Layer 1: Check function name (strongest signal)
   for (const [pattern, purpose] of PURPOSE_PATTERNS) {
     if (pattern.test(functionName)) return purpose;
   }
-  // Check file basename only (not full path — paths contain misleading substrings)
+  // Layer 2: Check file basename
   const basename = fileName.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
   for (const [pattern, purpose] of PURPOSE_PATTERNS) {
     if (pattern.test(basename)) return purpose;
   }
+  // Layer 3: Directory inference (domain-level grouping)
+  for (const [pattern, domain] of DIRECTORY_DOMAINS) {
+    if (pattern.test(fileName)) return domain;
+  }
   return undefined;
+}
+
+/**
+ * Load feature annotations from .navgator/features.yaml if present.
+ * Returns a map of file glob → feature name.
+ */
+export function loadFeatureAnnotations(projectRoot: string): Map<string, string> | null {
+  const featuresPath = path.join(projectRoot, '.navgator', 'features.yaml');
+  try {
+    const content = fs.readFileSync(featuresPath, 'utf-8');
+    const features = new Map<string, string>();
+    // Simple YAML parser for our format:
+    // feature-name:
+    //   files: [glob1, glob2]
+    let currentFeature = '';
+    let inFiles = false;
+    for (const line of content.split('\n')) {
+      const featureMatch = line.match(/^(\S+):\s*$/);
+      if (featureMatch) {
+        currentFeature = featureMatch[1];
+        inFiles = false;
+        continue;
+      }
+      if (line.trim() === 'files:' || line.trim().startsWith('files:')) {
+        inFiles = true;
+        // Check inline: files: [glob1, glob2]
+        const inlineMatch = line.match(/files:\s*\[([^\]]+)\]/);
+        if (inlineMatch) {
+          for (const glob of inlineMatch[1].split(',')) {
+            features.set(glob.trim().replace(/['"]/g, ''), currentFeature);
+          }
+          inFiles = false;
+        }
+        continue;
+      }
+      if (inFiles && line.trim().startsWith('- ')) {
+        const glob = line.trim().slice(2).replace(/['"]/g, '').trim();
+        if (glob && currentFeature) {
+          features.set(glob, currentFeature);
+        }
+      } else if (inFiles && !line.trim().startsWith('-') && line.trim().length > 0) {
+        inFiles = false;
+      }
+    }
+    return features.size > 0 ? features : null;
+  } catch {
+    return null; // No features.yaml
+  }
 }
 
 function parseDescriptionForCallType(description?: string): { method?: string; model?: string } | null {
@@ -274,13 +346,32 @@ export function deduplicateLLMUseCases(
       }
     }
 
-    // Priority 4: Provider fallback (group all unclassified calls to same provider)
+    // Priority 4: Provider fallback — try directory inference before giving up
+    if (!assigned) {
+      const dirPurpose = inferPurpose('', conn.code_reference.file);
+      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
+
+      if (dirPurpose) {
+        // Directory inference succeeded — group by purpose + provider
+        const key = `dir:${dirPurpose}|${conn.to.component_id}`;
+        const group = getOrCreateGroup(key, {
+          name: `${providerName} ${dirPurpose}`,
+          category: dirPurpose,
+          groupedBy: 'file',
+        });
+        group.providerIds.add(conn.to.component_id);
+        group.connections.push(conn);
+        assigned = true;
+      }
+    }
+
+    // Priority 5: Pure provider fallback
     if (!assigned) {
       const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
       const key = `provider:${conn.to.component_id}`;
       const group = getOrCreateGroup(key, {
         name: `${providerName} (uncategorized)`,
-        groupedBy: 'file', // still 'file' for backward compat in type
+        groupedBy: 'file',
       });
       group.providerIds.add(conn.to.component_id);
       group.connections.push(conn);

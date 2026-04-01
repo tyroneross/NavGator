@@ -13,6 +13,8 @@ export function registerConnectionsCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .option('--incoming', 'Show only incoming connections')
     .option('--outgoing', 'Show only outgoing connections')
+    .option('--production', 'Show only production connections')
+    .option('--test', 'Show only test connections')
     .action(async (componentName, options) => {
       try {
         const config = getConfig();
@@ -52,13 +54,28 @@ export function registerConnectionsCommand(program: Command): void {
           return;
         }
 
+        // Apply classification filter
+        let filteredConns = connections;
+        if (options.production) {
+          // Production = explicitly production + unknown/unclassified (not test/dev/migration)
+          filteredConns = connections.filter(c => {
+            const cls = (c as any).semantic?.classification;
+            return !cls || cls === 'production' || cls === 'unknown' || cls === 'admin' || cls === 'analytics';
+          });
+        } else if (options.test) {
+          filteredConns = connections.filter(c => {
+            const cls = (c as any).semantic?.classification;
+            return cls === 'test' || cls === 'dev-only';
+          });
+        }
+
         const incoming = options.outgoing
           ? []
-          : connections.filter((c) => c.to.component_id === component.component_id);
+          : filteredConns.filter((c) => c.to.component_id === component.component_id);
 
         const outgoing = options.incoming
           ? []
-          : connections.filter((c) => c.from.component_id === component.component_id);
+          : filteredConns.filter((c) => c.from.component_id === component.component_id);
 
         if (options.agent) {
           console.log(wrapInEnvelope('connections', { component, incoming, outgoing }));

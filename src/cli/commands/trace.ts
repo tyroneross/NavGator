@@ -11,6 +11,9 @@ export function registerTraceCommand(program: Command): void {
     .description('Trace dataflow paths from a component through the architecture')
     .option('--direction <dir>', 'Trace direction: forward, backward, both', 'both')
     .option('--depth <n>', 'Maximum trace depth', '5')
+    .option('--max-paths <n>', 'Maximum paths to show (default: 10)')
+    .option('--all', 'Show all paths (overrides --max-paths)')
+    .option('--production', 'Show only production paths')
     .option('--classification <class>', 'Filter by semantic classification')
     .option('--json', 'Output as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
@@ -38,7 +41,9 @@ export function registerTraceCommand(program: Command): void {
         const result = traceDataflow(component, components, connections, {
           direction: options.direction as 'forward' | 'backward' | 'both',
           maxDepth: parseInt(options.depth, 10),
-          filterClassification: options.classification,
+          filterClassification: options.production ? 'production' : options.classification,
+          maxPaths: options.maxPaths ? parseInt(options.maxPaths, 10) : undefined,
+          showAll: options.all,
         });
 
         if (options.agent) {

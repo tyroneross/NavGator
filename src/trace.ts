@@ -36,6 +36,8 @@ export interface TraceOptions {
   maxDepth?: number;
   direction?: 'forward' | 'backward' | 'both';
   filterClassification?: string;
+  maxPaths?: number;           // Limit output to top N paths (default: 10)
+  showAll?: boolean;           // Override maxPaths, show everything
 }
 
 /**
@@ -93,6 +95,10 @@ export function traceDataflow(
     // Get connections to follow
     const connections: Array<{ conn: ArchitectureConnection; nextId: string }> = [];
 
+    // Check if current node is a queue (bridge node)
+    const currentComp = componentMap.get(current.componentId);
+    const isQueueBridge = currentComp?.type === 'queue';
+
     if (direction === 'forward' || direction === 'both') {
       for (const conn of (outgoing.get(current.componentId) || [])) {
         if (!current.visited.has(conn.to.component_id)) {
@@ -109,11 +115,44 @@ export function traceDataflow(
       }
     }
 
+    // Queue bridge semantics: if we're on a queue node, also follow the
+    // opposite direction through queue-specific connections.
+    // Entered via queue-produces → exit via queue-consumes (forward data flow)
+    // Entered via queue-consumes → exit via queue-produces (backward trace)
+    if (isQueueBridge && current.path.length > 1) {
+      const lastConn = current.path[current.path.length - 1].connection;
+      const enteredVia = lastConn?.ct;
+
+      if (enteredVia === 'queue-produces') {
+        // Data entered queue — follow consumers (outgoing queue-consumes connections)
+        for (const conn of (outgoing.get(current.componentId) || [])) {
+          if (conn.connection_type === 'queue-consumes' && !current.visited.has(conn.to.component_id)) {
+            if (!connections.find(c => c.nextId === conn.to.component_id)) {
+              connections.push({ conn, nextId: conn.to.component_id });
+            }
+          }
+        }
+      } else if (enteredVia === 'queue-consumes') {
+        // Tracing backward through consumer — follow producers
+        for (const conn of (incoming.get(current.componentId) || [])) {
+          if (conn.connection_type === 'queue-produces' && !current.visited.has(conn.from.component_id)) {
+            if (!connections.find(c => c.nextId === conn.from.component_id)) {
+              connections.push({ conn, nextId: conn.from.component_id });
+            }
+          }
+        }
+      }
+    }
+
     // Apply classification filter
     const filteredConnections = options.filterClassification
       ? connections.filter(({ conn }) => {
-          const semantic = (conn as any).semantic;
-          return semantic?.classification === options.filterClassification;
+          const cls = (conn as any).semantic?.classification;
+          if (options.filterClassification === 'production') {
+            // Production = not explicitly test/dev/migration
+            return !cls || cls === 'production' || cls === 'unknown' || cls === 'admin' || cls === 'analytics';
+          }
+          return cls === options.filterClassification;
         })
       : connections;
 
@@ -194,12 +233,61 @@ export function traceDataflow(
     }
   }
 
+  // Score and sort paths by relevance
+  const scoredPaths = uniquePaths.map(p => ({
+    path: p,
+    score: scorePath(p),
+  }));
+  scoredPaths.sort((a, b) => b.score - a.score);
+
+  // Apply maxPaths limit (default 10)
+  const maxPaths = options.showAll ? Infinity : (options.maxPaths ?? 10);
+  const limitedPaths = scoredPaths.slice(0, maxPaths).map(s => s.path);
+
   return {
     query: startComponent.name,
-    paths: uniquePaths,
+    paths: limitedPaths,
     components_touched: [...touchedIds],
     layers_crossed: [...layerSet],
   };
+}
+
+/**
+ * Score a trace path by architectural relevance.
+ * Higher scores = more interesting paths (cross-layer, use queue/deploy connections).
+ */
+function scorePath(path: TracePath): number {
+  let score = 0;
+  const layers = new Set<string>();
+
+  // Connection type weights
+  const typeWeights: Record<string, number> = {
+    'queue-produces': 3, 'queue-consumes': 3, 'queue-uses-cache': 3,
+    'deploys-to': 3, 'runtime-binding': 3,
+    'cron-triggers': 2, 'api-calls-db': 2, 'schema-relation': 2,
+    'service-call': 1, 'field-reference': 1,
+    'imports': 0, 'env-dependency': 0,
+  };
+
+  for (const step of path.steps) {
+    // Layer crossing bonus
+    if (step.component.l) {
+      if (layers.size > 0 && !layers.has(step.component.l)) {
+        score += 2; // Each new layer crossed adds 2
+      }
+      layers.add(step.component.l);
+    }
+
+    // Connection type weight
+    if (step.connection?.ct) {
+      score += typeWeights[step.connection.ct] ?? 0;
+    }
+  }
+
+  // Path length bonus — longer meaningful paths are more interesting (up to a point)
+  score += Math.min(path.steps.length, 6);
+
+  return score;
 }
 
 /**
