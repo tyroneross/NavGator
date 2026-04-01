@@ -226,6 +226,37 @@ export function registerStatusCommand(program: Command): void {
           }
         } catch { /* non-critical */ }
 
+        // Recent changes (temporal awareness)
+        try {
+          const { loadTimeline } = await import('../../diff.js');
+          const timeline = await loadTimeline(config);
+          if (timeline && timeline.entries.length > 0) {
+            const latest = timeline.entries[timeline.entries.length - 1];
+            const diff = latest.diff;
+            const age = Math.round((Date.now() - latest.timestamp) / 3600000);
+            const ageStr = age < 1 ? 'just now' : age < 24 ? `${age}h ago` : `${Math.round(age / 24)}d ago`;
+
+            const parts: string[] = [];
+            if (diff.components.added.length > 0) parts.push(`+${diff.components.added.length} components`);
+            if (diff.components.removed.length > 0) parts.push(`-${diff.components.removed.length} components`);
+            if (diff.connections.added.length > 0) parts.push(`+${diff.connections.added.length} connections`);
+            if (diff.connections.removed.length > 0) parts.push(`-${diff.connections.removed.length} connections`);
+
+            if (parts.length > 0) {
+              console.log(`\nRECENT CHANGES (${ageStr}, ${latest.significance.toUpperCase()}):`);
+              console.log(`  ${parts.join(', ')}`);
+              if (diff.components.added.length > 0) {
+                const names = diff.components.added.slice(0, 5).map(c => c.name);
+                console.log(`  Added: ${names.join(', ')}${diff.components.added.length > 5 ? ` +${diff.components.added.length - 5} more` : ''}`);
+              }
+              if (diff.components.removed.length > 0) {
+                const names = diff.components.removed.slice(0, 5).map(c => c.name);
+                console.log(`  Removed: ${names.join(', ')}${diff.components.removed.length > 5 ? ` +${diff.components.removed.length - 5} more` : ''}`);
+              }
+            }
+          }
+        } catch { /* timeline not available */ }
+
         // AI/LLM use case summary (3-layer dedup: filter → group by purpose → display)
         try {
           const { deduplicateLLMUseCases } = await import('../../llm-dedup.js');

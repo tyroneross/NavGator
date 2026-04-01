@@ -24,6 +24,7 @@ import { scanEnvVars, detectEnvFiles } from './scanners/infrastructure/env-scann
 import { scanQueues, detectQueues } from './scanners/infrastructure/queue-scanner.js';
 import { scanCronJobs, detectCrons } from './scanners/infrastructure/cron-scanner.js';
 import { scanDeployConfig } from './scanners/infrastructure/deploy-scanner.js';
+import { scanPrismaCalls } from './scanners/connections/prisma-calls.js';
 import { scanFieldUsage, canAnalyzeFieldUsage, FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer.js';
 import { scanTypeSpecValidation, canValidateTypeSpec, TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
 import { scanServiceCalls } from './scanners/connections/service-calls.js';
@@ -359,6 +360,25 @@ export async function scan(
       type: 'parse_error',
       message: `Deploy config scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
     });
+  }
+
+  // Prisma call detection: map source files to database models they query
+  const prismaModelComps = allComponents.filter(c => c.type === 'database' && c.tags?.includes('prisma'));
+  if (prismaModelComps.length > 0) {
+    if (options.verbose) console.log('  - Scanning Prisma client calls...');
+    try {
+      const prismaCallResult = await scanPrismaCalls(root, prismaModelComps);
+      allConnections.push(...prismaCallResult.connections);
+      if (options.verbose && prismaCallResult.connections.length > 0) {
+        const uniqueModels = new Set(prismaCallResult.connections.map(c => c.description?.split(' queries ')[1]?.split(' ')[0]));
+        console.log(`    DB queries: ${prismaCallResult.connections.length} file→model connections across ${uniqueModels.size} models`);
+      }
+    } catch (error) {
+      allWarnings.push({
+        type: 'parse_error',
+        message: `Prisma call scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
   }
 
   // ==========================================================================
