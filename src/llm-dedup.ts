@@ -28,6 +28,10 @@ export interface LLMUseCase {
   callSites: number;
   productionCallSites: number;
   groupedBy: 'prompt' | 'function' | 'calltype' | 'file';
+  /** Feature domain from features.yaml or directory inference */
+  feature?: string;
+  /** Downstream connections — what this LLM call feeds into (for agent classification) */
+  feedsInto?: string[];
 }
 
 export interface LLMDedupResult {
@@ -397,15 +401,27 @@ export function deduplicateLLMUseCases(
     }
     const providerName = llmNameById.get(mainProviderId) || 'unknown';
 
+    // Find what the LLM call's file connects to downstream (for agent classification)
+    const primaryFileId = `FILE:${mostCommonFile(group.connections)}`;
+    const downstream = connections
+      .filter(c => c.from.component_id === primaryFileId && !llmIds.has(c.to.component_id))
+      .map(c => {
+        const target = components.find(comp => comp.component_id === c.to.component_id);
+        return target ? `${target.name} (${target.type})` : c.to.component_id;
+      })
+      .filter((v, i, a) => a.indexOf(v) === i) // deduplicate
+      .slice(0, 5); // limit to 5
+
     useCases.push({
       name: group.name,
       category: group.category,
       provider: providerName,
       model: group.model,
       primaryFile: mostCommonFile(group.connections),
-      callSites: group.connections.length, // within this group's filtered connections
+      callSites: group.connections.length,
       productionCallSites: group.connections.length,
       groupedBy: group.groupedBy,
+      feedsInto: downstream.length > 0 ? downstream : undefined,
     });
   }
 

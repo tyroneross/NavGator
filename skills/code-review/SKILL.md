@@ -137,6 +137,34 @@ If no violations: report "No connection integrity issues found" — do not omit 
 
 ---
 
+## Phase 2.5 — LLM Purpose Classification
+
+**Goal:** Classify what each LLM call does in the architecture — not just which provider is called, but WHY.
+
+1. Run `navgator llm-map --classify` to get uncategorized LLM use cases with their file paths and downstream connections.
+2. For each uncategorized use case:
+   - Read the primary file listed
+   - Look at: the function name, what the LLM response is used for, what services/databases/queues it feeds into
+   - Classify the purpose: summarization, extraction, search/ranking, generation, embedding, classification, translation, agent/tool-use, validation, analysis, synthesis, etc.
+   - Note what part of the system it affects: search results, UI charts, database writes, queue processing, API responses
+3. Record classifications as lessons in `.navgator/lessons/lessons.json` with category `'llm-architecture'`
+4. If patterns repeat (e.g., all files in `lib/search/` use LLMs for search ranking), create a `.navgator/features.yaml` entry
+
+This classification enables answering: "which LLM call affects my search ranking?" and "if Groq goes down, what breaks?"
+
+Output:
+```
+═══ PHASE 2.5: LLM PURPOSE MAP ═══
+  35 use cases, 25 categorized, 10 need classification
+  
+  SEARCH (3): groq-reranker.ts, intelligent-query-engine.ts, search-enhancement-queue.ts
+  SYNTHESIS (4): pyramid-llm-synthesizer.ts, chart-spec-generator.ts, ...
+  EXTRACTION (2): entity-extraction-service.ts, relationship-extraction-service.ts
+  UNCATEGORIZED (10): [read these files to classify]
+```
+
+---
+
 ## Phase 3 — Documentation Drift
 
 **Goal:** Verify that docs reflect what the code actually does.

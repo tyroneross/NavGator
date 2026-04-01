@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/navgator",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Architecture connection tracker for Claude Code - know your stack before you change it",
   "type": "module",
   "main": "dist/index.js",
