@@ -80,28 +80,38 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 
 ## Available Commands
 
+### Slash Commands
+
 | Command | Purpose |
 |---------|---------|
-| `/gator:scan` | Scan project architecture |
-| `/gator:status` | Show architecture summary |
-| `/gator:impact` | Analyze what's affected by a change |
-| `/gator:connections` | Show all connections for a component |
-| `/gator:diagram` | Generate visual architecture diagram |
-| `/gator:export` | Export architecture to markdown or JSON |
-| `/gator:check` | Run health checks (outdated packages, vulnerabilities) |
-| `/gator:ui` | Launch the web dashboard |
-| `/gator:update` | Update NavGator to the latest version |
-| `/gator:review` | Architectural integrity review (connections, flow, drift, lessons) |
-| `/gator:review --all` | Review entire architecture, not just changes |
-| `/gator:review --validate` | Trigger freshness validation (internet research) for lessons |
+| `/gator:map` | Map full architecture — components, connections, topology, LLM use cases |
+| `/gator:scan` | Quick scan — refresh tracking data |
+| `/gator:trace <component>` | Trace data flow through the system (cron → route → service → DB → queue → LLM) |
+| `/gator:impact <component>` | What breaks if you change this? Blast radius analysis |
+| `/gator:test [instructions]` | End-to-end architecture test with optional custom focus |
+| `/gator:review` | Architectural integrity review (connections, drift, lessons) |
 | `/gator:review learn "..."` | Record a manual architectural lesson |
-| `navgator trace <component>` | Trace dataflow paths forward and backward through system |
+| `/gator:llm-map` | Map all LLM use cases by purpose (search, summarization, extraction, etc.) |
+| `/gator:schema [model]` | Show readers vs writers per database model |
+| `/gator:dead` | Find orphaned components — unused packages, models, queues, infra |
+
+### CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `navgator status` | Architecture summary with runtime topology and anomaly warnings |
+| `navgator connections <component>` | Show all connections with `[test]`/`[dev-only]` badges |
+| `navgator diagram` | Generate visual architecture diagram |
+| `navgator trace <component>` | Trace with `--production`, `--max-paths N`, `--direction` |
 | `navgator rules` | Check architecture rules (orphans, layer violations, cycles, hotspots) |
-| `navgator subgraph <component>` | Extract focused subgraph around a component |
-| `navgator history` | Show architecture change timeline |
-| `navgator diff [id]` | Show detailed diff (most recent if no ID) |
-| `navgator projects` | List all registered NavGator projects |
-| `navgator summary` | Executive summary with risks, blockers, next actions (JSON) |
+| `navgator llm-map` | LLM use case map with `--provider`, `--category`, `--classify` |
+| `navgator schema [model]` | Database model read/write analysis |
+| `navgator dead` | List orphaned components by type |
+| `navgator history` | Architecture change timeline |
+| `navgator diff [id]` | Detailed architecture diff |
+| `navgator subgraph <component>` | Extract focused subgraph |
+| `navgator coverage --fields` | Prisma field usage analysis |
+| `navgator coverage --typespec` | Prisma vs TypeScript type validation |
 | `navgator coverage --fields` | Analyze DB field usage (unused, read-only, write-only) |
 | `navgator coverage --typespec` | Validate Prisma types against TypeScript interfaces |
 
