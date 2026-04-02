@@ -232,6 +232,26 @@ export function registerStatusCommand(program: Command): void {
           }
         } catch { /* non-critical */ }
 
+        // Anomaly detection: queues with multiple consumers
+        try {
+          const qComps = (await loadAllComponents(config)).filter(c => c.type === 'queue');
+          const qConns = await loadAllConnections(config);
+          const anomalies: string[] = [];
+          for (const q of qComps) {
+            const consumers = qConns.filter(c =>
+              c.from.component_id === q.component_id && c.connection_type === 'queue-consumes'
+            );
+            if (consumers.length > 1) {
+              const files = consumers.map(c => c.to.component_id?.startsWith('FILE:') ? c.to.component_id.slice(5) : c.code_reference?.file || 'unknown').join(', ');
+              anomalies.push(`${q.name}: ${consumers.length} consumers (${files}) — verify this is intentional`);
+            }
+          }
+          if (anomalies.length > 0) {
+            console.log(`\nANOMALIES (${anomalies.length}):`);
+            for (const a of anomalies) console.log(`  ⚠️  ${a}`);
+          }
+        } catch { /* non-critical */ }
+
         // Recent changes (temporal awareness)
         try {
           const { loadTimeline } = await import('../../diff.js');

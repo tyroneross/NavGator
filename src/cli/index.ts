@@ -44,7 +44,7 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.5.5')
+  .version('0.6.0')
   .option('--sandbox', 'Run in sandbox mode (restricts network, interactive, child processes)')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 

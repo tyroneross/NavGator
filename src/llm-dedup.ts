@@ -92,6 +92,9 @@ const PURPOSE_PATTERNS: [RegExp, string][] = [
   [/trend|forecast/i, 'trend-analysis'],
   [/synthe[sz]/i, 'synthesis'],
   [/chunk/i, 'chunking'],
+  [/chart|visual|plot|diagram/i, 'chart-generation'],
+  [/ingest|scrape|crawl|fetch.*rss/i, 'ingestion'],
+  [/aggregat/i, 'aggregation'],
 ];
 
 // Directory-to-domain mapping for purpose inference

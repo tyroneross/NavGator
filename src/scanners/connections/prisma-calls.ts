@@ -15,13 +15,18 @@ import {
   generateConnectionId,
 } from '../../types.js';
 
-// Prisma client operations to detect
-const PRISMA_OPS = '(?:find(?:Many|Unique|First|UniqueOrThrow|FirstOrThrow)?|count|aggregate|groupBy|create(?:Many|ManyAndReturn)?|update(?:Many)?|delete(?:Many)?|upsert)';
+// Prisma client operations — split into reads and writes
+const READ_OPS = 'find(?:Many|Unique|First|UniqueOrThrow|FirstOrThrow)?|count|aggregate|groupBy';
+const WRITE_OPS = 'create(?:Many|ManyAndReturn)?|update(?:Many)?|delete(?:Many)?|upsert';
+const PRISMA_OPS = `(?:${READ_OPS}|${WRITE_OPS})`;
 
 const PRISMA_CALL_REGEX = new RegExp(
-  `prisma\\.([a-zA-Z_]\\w*)\\.${PRISMA_OPS}`,
+  `prisma\\.([a-zA-Z_]\\w*)\\.(${PRISMA_OPS})`,
   'g'
 );
+
+const READ_OP_SET = new Set(['findMany', 'findUnique', 'findFirst', 'findUniqueOrThrow', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy']);
+const WRITE_OP_SET = new Set(['create', 'createMany', 'createManyAndReturn', 'update', 'updateMany', 'delete', 'deleteMany', 'upsert']);
 
 // Also detect raw SQL queries
 const PRISMA_RAW_REGEX = /prisma\.\$(?:queryRaw|executeRaw)/g;
@@ -92,7 +97,7 @@ export async function scanPrismaCalls(
         while ((match = PRISMA_CALL_REGEX.exec(line)) !== null) {
           calls.push({
             modelName: match[1],
-            operation: match[0].split('.').pop() || 'unknown',
+            operation: match[2] || 'unknown',
             line: i + 1,
           });
         }
@@ -121,6 +126,17 @@ export async function scanPrismaCalls(
         }
 
         const ops = [...info.operations].join(', ');
+        // Determine read vs write based on operations
+        const hasReads = [...info.operations].some(op => READ_OP_SET.has(op));
+        const hasWrites = [...info.operations].some(op => WRITE_OP_SET.has(op));
+        // Use the most specific type: if both read+write, use api-calls-db
+        const connType = (hasReads && hasWrites) ? 'api-calls-db'
+          : hasWrites ? 'api-calls-db' // writes are more significant — keep as api-calls-db for backward compat
+          : 'api-calls-db';
+        const opsLabel = hasWrites && !hasReads ? ' [writes]'
+          : !hasWrites && hasReads ? ' [reads]'
+          : hasWrites && hasReads ? ' [reads+writes]'
+          : '';
         connections.push({
           connection_id: generateConnectionId('api-calls-db'),
           from: {
@@ -137,7 +153,7 @@ export async function scanPrismaCalls(
             symbol_type: 'variable',
             line_start: info.firstLine,
           },
-          description: `${file} queries ${pascalName} (${ops})`,
+          description: `${file} queries ${pascalName}${opsLabel} (${ops})`,
           detected_from: 'prisma-calls',
           confidence: 0.95,
           timestamp,

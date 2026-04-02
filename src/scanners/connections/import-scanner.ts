@@ -350,9 +350,102 @@ export async function scanImports(
     }
   }
 
+  // Second pass: detect fetch('/api/...') patterns — Next.js runtime data flow
+  const FETCH_API_RE = /fetch\s*\(\s*['"`](\/api\/[^'"`\s?]+)/g;
+
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (file) => {
+        try {
+          const content = await fs.promises.readFile(
+            path.join(projectRoot, file), 'utf-8'
+          );
+          return { file, content };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const result of results) {
+      if (!result) continue;
+      const { file, content } = result;
+
+      // Only scan frontend files (pages, components, app/ routes)
+      if (!file.includes('/app/') && !file.includes('/pages/') && !file.includes('/components/') && !file.includes('hooks/')) continue;
+
+      FETCH_API_RE.lastIndex = 0;
+      let fetchMatch;
+      while ((fetchMatch = FETCH_API_RE.exec(content)) !== null) {
+        const apiPath = fetchMatch[1]; // e.g., '/api/graph'
+
+        // Resolve to Next.js route file
+        const routeFile = resolveApiRoute(apiPath, knownFiles);
+        if (!routeFile) continue;
+
+        const line = findImportLine(content, fetchMatch[0]);
+        connections.push({
+          connection_id: generateConnectionId('frontend-calls-api'),
+          from: {
+            component_id: componentIdByFile.get(file) || `FILE:${file}`,
+            location: { file, line },
+          },
+          to: {
+            component_id: componentIdByFile.get(routeFile) || `FILE:${routeFile}`,
+            location: { file: routeFile, line: 1 },
+          },
+          connection_type: 'frontend-calls-api',
+          code_reference: {
+            file,
+            symbol: `fetch('${apiPath}')`,
+            symbol_type: 'function',
+            line_start: line,
+          },
+          description: `${file} fetches ${apiPath}`,
+          detected_from: 'import-scanner (fetch)',
+          confidence: 0.9,
+          timestamp: now,
+          last_verified: now,
+        });
+      }
+    }
+  }
+
   return {
     components,
     connections,
     warnings: [],
   };
+}
+
+/**
+ * Resolve a Next.js API path to its route file.
+ * /api/graph → app/api/graph/route.ts or pages/api/graph.ts
+ */
+function resolveApiRoute(apiPath: string, knownFiles: Set<string>): string | null {
+  // App Router: /api/graph → app/api/graph/route.ts
+  const appRouterCandidates = [
+    `app${apiPath}/route.ts`,
+    `app${apiPath}/route.tsx`,
+    `app${apiPath}/route.js`,
+    `src/app${apiPath}/route.ts`,
+    `src/app${apiPath}/route.tsx`,
+  ];
+  for (const candidate of appRouterCandidates) {
+    if (knownFiles.has(candidate)) return candidate;
+  }
+
+  // Pages Router: /api/graph → pages/api/graph.ts
+  const pagesRouterCandidates = [
+    `pages${apiPath}.ts`,
+    `pages${apiPath}.tsx`,
+    `pages${apiPath}.js`,
+    `src/pages${apiPath}.ts`,
+  ];
+  for (const candidate of pagesRouterCandidates) {
+    if (knownFiles.has(candidate)) return candidate;
+  }
+
+  return null;
 }
