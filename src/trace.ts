@@ -72,6 +72,27 @@ export function traceDataflow(
     incoming.get(conn.to.component_id)!.push(conn);
   }
 
+  // Merge FILE: aliases into real component adjacency for backward trace
+  // Without this, backward trace can't find connections that target FILE: IDs
+  for (const comp of allComponents) {
+    for (const f of comp.source.config_files || []) {
+      const fileId = `FILE:${f}`;
+      if (fileId === comp.component_id) continue;
+      // Merge incoming: connections targeting FILE:path also target the real component
+      const fileIn = incoming.get(fileId);
+      if (fileIn) {
+        if (!incoming.has(comp.component_id)) incoming.set(comp.component_id, []);
+        incoming.get(comp.component_id)!.push(...fileIn);
+      }
+      // Merge outgoing: connections from FILE:path also originate from the real component
+      const fileOut = outgoing.get(fileId);
+      if (fileOut) {
+        if (!outgoing.has(comp.component_id)) outgoing.set(comp.component_id, []);
+        outgoing.get(comp.component_id)!.push(...fileOut);
+      }
+    }
+  }
+
   // BFS structure: queue of [componentId, path-so-far, depth]
   type QueueItem = { componentId: string; path: TraceStep[]; depth: number; visited: Set<string> };
 

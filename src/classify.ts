@@ -72,8 +72,17 @@ export function classifyConnection(
     return { classification: 'analytics', confidence: 0.7 };
   }
 
-  // Default: production for any layer (queue, external, infra are also production
-  // if they're not from test/dev paths — those were already caught above)
+  // Final file path check — catches scripts/ when component names didn't trigger above
+  const connFile = conn.code_reference?.file?.toLowerCase() || '';
+  const fromFile = conn.from.location?.file?.toLowerCase() || '';
+  if (/(^scripts\/|\/scripts\/)/.test(connFile) || /(^scripts\/|\/scripts\/)/.test(fromFile)) {
+    return { classification: 'dev-only', confidence: 0.9 };
+  }
+  if (isTestPath(connFile) || isTestPath(fromFile)) {
+    return { classification: 'test', confidence: 0.8 };
+  }
+
+  // Default: production
   return { classification: 'production', confidence: 0.4 };
 }
 

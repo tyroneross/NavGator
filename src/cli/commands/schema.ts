@@ -43,9 +43,18 @@ export function registerSchemaCommand(program: Command): void {
             return bConns - aConns;
           }).slice(0, 20)) {
             const modelConns = dbConns.filter(c => c.to.component_id === model.component_id);
-            const readers = modelConns.filter(c => c.description?.includes('[reads]'));
-            const writers = modelConns.filter(c => c.description?.includes('[writes]'));
-            const both = modelConns.filter(c => c.description?.includes('[reads+writes]'));
+            const readers = modelConns.filter(c => {
+              const d = c.description || '';
+              return (d.includes('[reads') || d.includes('reads]')) && !d.includes('writes');
+            });
+            const writers = modelConns.filter(c => {
+              const d = c.description || '';
+              return (d.includes('[writes') || d.includes('writes,')) && !d.includes('reads');
+            });
+            const both = modelConns.filter(c => {
+              const d = c.description || '';
+              return d.includes('reads') && d.includes('writes');
+            });
             console.log(`  ${model.name}: ${modelConns.length} connections (${readers.length} read, ${writers.length} write, ${both.length} read+write)`);
           }
           return;
@@ -79,9 +88,11 @@ export function registerSchemaCommand(program: Command): void {
 
         for (const conn of modelConns) {
           const desc = conn.description || '';
-          if (desc.includes('[reads+writes]')) readWriters.push(conn);
-          else if (desc.includes('[writes]')) writers.push(conn);
-          else if (desc.includes('[reads]')) readers.push(conn);
+          const hasReads = desc.includes('[reads') || desc.includes('reads]');
+          const hasWrites = desc.includes('[writes') || desc.includes('writes]') || desc.includes('writes,');
+          if (hasReads && hasWrites) readWriters.push(conn);
+          else if (hasWrites) writers.push(conn);
+          else if (hasReads) readers.push(conn);
           else readers.push(conn); // default to read
         }
 

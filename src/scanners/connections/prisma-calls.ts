@@ -58,10 +58,22 @@ export async function scanPrismaCalls(
   const timestamp = Date.now();
 
   // Build model name → component map (case-insensitive)
+  // Also build table name → component map for raw SQL detection
   const modelMap = new Map<string, ArchitectureComponent>();
+  const tableMap = new Map<string, ArchitectureComponent>(); // SQL table name → component
   for (const comp of modelComponents) {
     if (comp.type === 'database') {
       modelMap.set(comp.name.toLowerCase(), comp);
+      // Map the @@map table name if present
+      const tableName = (comp.metadata as any)?.tableName;
+      if (tableName) {
+        tableMap.set(tableName.toLowerCase(), comp);
+      }
+      // Also map the model name as snake_case (Prisma convention)
+      const snakeName = comp.name.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+      if (snakeName !== comp.name.toLowerCase()) {
+        tableMap.set(snakeName, comp);
+      }
     }
   }
 
@@ -162,6 +174,88 @@ export async function scanPrismaCalls(
       }
     } catch {
       // Skip unreadable files
+    }
+  }
+
+  // Second pass: detect raw SQL table references ($queryRaw, $executeRaw)
+  if (tableMap.size > 0 || modelMap.size > 0) {
+    const RAW_SQL_RE = /prisma\.\$(?:queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)/;
+    const SQL_TABLE_RE = /(?:FROM|INTO|UPDATE|JOIN|DELETE\s+FROM)\s+(?:public\.)?["'`]?(\w+)["'`]?/gi;
+
+    for (const file of sourceFiles) {
+      try {
+        const content = await fs.promises.readFile(
+          path.join(projectRoot, file),
+          'utf-8'
+        );
+
+        if (!RAW_SQL_RE.test(content)) continue;
+
+        // Extract table names from SQL strings in this file
+        const tablesFound = new Map<string, { firstLine: number; isWrite: boolean }>();
+        const lines = content.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (!RAW_SQL_RE.test(line) && !SQL_TABLE_RE.test(line)) continue;
+
+          SQL_TABLE_RE.lastIndex = 0;
+          let sqlMatch;
+          while ((sqlMatch = SQL_TABLE_RE.exec(line)) !== null) {
+            const tableName = sqlMatch[1].toLowerCase();
+            // Skip SQL keywords that look like table names
+            if (['select', 'where', 'and', 'or', 'set', 'values', 'as', 'on', 'using', 'index', 'table', 'column', 'view'].includes(tableName)) continue;
+
+            const keyword = sqlMatch[0].trim().split(/\s+/)[0].toUpperCase();
+            const isWrite = ['INTO', 'UPDATE', 'DELETE'].includes(keyword);
+
+            if (!tablesFound.has(tableName)) {
+              tablesFound.set(tableName, { firstLine: i + 1, isWrite });
+            } else if (isWrite) {
+              tablesFound.get(tableName)!.isWrite = true;
+            }
+          }
+        }
+
+        // Create connections for found tables
+        for (const [tableName, info] of tablesFound) {
+          const modelComp = tableMap.get(tableName) || modelMap.get(tableName);
+          if (!modelComp) continue;
+
+          // Check if we already have a connection from this file to this model
+          const existingKey = `${file}|${modelComp.component_id}`;
+          const alreadyConnected = connections.some(c =>
+            c.code_reference.file === file && c.to.component_id === modelComp.component_id
+          );
+          if (alreadyConnected) continue;
+
+          const label = info.isWrite ? ' [writes, raw-sql]' : ' [reads, raw-sql]';
+          connections.push({
+            connection_id: generateConnectionId('api-calls-db'),
+            from: {
+              component_id: `FILE:${file}`,
+              location: { file, line: info.firstLine },
+            },
+            to: {
+              component_id: modelComp.component_id,
+            },
+            connection_type: 'api-calls-db',
+            code_reference: {
+              file,
+              symbol: `$queryRaw(${tableName})`,
+              symbol_type: 'variable',
+              line_start: info.firstLine,
+            },
+            description: `${file} queries ${modelComp.name}${label}`,
+            detected_from: 'prisma-calls (raw-sql)',
+            confidence: 0.8,
+            timestamp,
+            last_verified: timestamp,
+          });
+        }
+      } catch {
+        // Skip unreadable files
+      }
     }
   }
 
