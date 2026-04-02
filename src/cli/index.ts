@@ -18,6 +18,8 @@ import { registerRulesCommand } from './commands/rules.js';
 import { registerCoverageCommand } from './commands/coverage.js';
 import { registerSubgraphCommand } from './commands/subgraph.js';
 import { registerLLMMapCommand } from './commands/llm-map.js';
+import { registerSchemaCommand } from './commands/schema.js';
+import { registerDeadCommand } from './commands/dead.js';
 import {
   registerSetupCommand,
   registerUICommand,
@@ -44,7 +46,7 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.6.0')
+  .version('0.6.1')
   .option('--sandbox', 'Run in sandbox mode (restricts network, interactive, child processes)')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 
@@ -74,6 +76,8 @@ registerRulesCommand(program);
 registerCoverageCommand(program);
 registerSubgraphCommand(program);
 registerLLMMapCommand(program);
+registerSchemaCommand(program);
+registerDeadCommand(program);
 
 // =============================================================================
 // PARSE AND RUN

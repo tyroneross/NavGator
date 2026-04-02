@@ -98,12 +98,19 @@ export function registerConnectionsCommand(program: Command): void {
         console.log(`Component: ${component.name} (${component.type})`);
         console.log(`Layer: ${component.role.layer}`);
 
+        // Classification badge helper
+        const badge = (conn: typeof incoming[0]) => {
+          const cls = (conn as any).semantic?.classification;
+          if (!cls || cls === 'production') return '';
+          return ` [${cls}]`;
+        };
+
         if (!options.outgoing && incoming.length > 0) {
           console.log(`\nINCOMING (${incoming.length}):`);
           for (const conn of incoming) {
             const lineInfo = conn.code_reference.line_start ? `:${conn.code_reference.line_start}` : '';
             const symbolInfo = conn.code_reference.symbol ? ` (${conn.code_reference.symbol})` : '';
-            console.log(`├── ${conn.connection_type}`);
+            console.log(`├── ${conn.connection_type}${badge(conn)}`);
             console.log(`│   └── ${conn.code_reference.file}${lineInfo}${symbolInfo}`);
           }
         }
@@ -112,13 +119,12 @@ export function registerConnectionsCommand(program: Command): void {
           console.log(`\nOUTGOING (${outgoing.length}):`);
           for (const conn of outgoing) {
             const target = components.find((c) => c.component_id === conn.to.component_id);
-            // Resolve FILE: prefixed IDs to readable file paths
             let targetName = target?.name || 'unknown';
             if (targetName === 'unknown' && conn.to.component_id?.startsWith('FILE:')) {
-              targetName = conn.to.component_id.slice(5); // Show file path
+              targetName = conn.to.component_id.slice(5);
             }
             const lineInfo = conn.code_reference?.line_start ? `:${conn.code_reference.line_start}` : '';
-            console.log(`├── ${conn.connection_type} → ${targetName}${lineInfo}`);
+            console.log(`├── ${conn.connection_type}${badge(conn)} → ${targetName}${lineInfo}`);
           }
         }
       } catch (error) {
