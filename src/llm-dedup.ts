@@ -74,27 +74,29 @@ function isMeaningfulSymbol(symbol: string): boolean {
 }
 
 const PURPOSE_PATTERNS: [RegExp, string][] = [
+  // Specific patterns first (before generic ones like /generat/ that match too broadly)
+  [/chart|visual|plot|diagram/i, 'chart-generation'],
+  [/rerank|rank/i, 'reranking'],
   [/summar/i, 'summarization'],
   [/embed/i, 'embedding'],
   [/extract/i, 'extraction'],
+  [/entity|ner|relation/i, 'entity-extraction'],
+  [/theme|topic|cluster/i, 'theme-extraction'],
+  [/trend|forecast/i, 'trend-analysis'],
   [/classif|categor|label/i, 'classification'],
-  [/rerank|rank/i, 'reranking'],
   [/search|query|retriev/i, 'search'],
-  [/generat|creat|produc/i, 'generation'],
   [/translat/i, 'translation'],
   [/chat|convers|dialog/i, 'chat'],
   [/agent|tool|function.?call/i, 'agent'],
+  [/synthe[sz]/i, 'synthesis'],
+  [/chunk/i, 'chunking'],
+  [/ingest|scrape|crawl|fetch.*rss/i, 'ingestion'],
+  [/aggregat/i, 'aggregation'],
+  // Generic patterns last (these match many file names)
+  [/generat|produc/i, 'generation'],
   [/fallback|retry|backup/i, 'fallback'],
   [/validat|verif/i, 'validation'],
   [/analyz|analys/i, 'analysis'],
-  [/theme|topic|cluster/i, 'theme-extraction'],
-  [/entity|ner|relation/i, 'entity-extraction'],
-  [/trend|forecast/i, 'trend-analysis'],
-  [/synthe[sz]/i, 'synthesis'],
-  [/chunk/i, 'chunking'],
-  [/chart|visual|plot|diagram/i, 'chart-generation'],
-  [/ingest|scrape|crawl|fetch.*rss/i, 'ingestion'],
-  [/aggregat/i, 'aggregation'],
 ];
 
 // Directory-to-domain mapping for purpose inference
@@ -272,7 +274,7 @@ export function deduplicateLLMUseCases(
   const productionCallSites = filtered.length;
 
   // =========================================================================
-  // LAYER 2: Group by purpose
+  // GROUP BY FILE — one use case per unique source file
   // =========================================================================
 
   interface Group {
@@ -286,145 +288,65 @@ export function deduplicateLLMUseCases(
 
   const groups = new Map<string, Group>();
 
-  function getOrCreateGroup(key: string, defaults: Omit<Group, 'providerIds' | 'connections'>): Group {
-    if (!groups.has(key)) {
-      groups.set(key, { ...defaults, providerIds: new Set(), connections: [] });
-    }
-    return groups.get(key)!;
-  }
-
+  // Step 1: Group all connections by their source file
   for (const conn of filtered) {
-    let assigned = false;
-
-    // Priority 1: Prompt match
-    if (prompts && prompts.length > 0) {
-      const matchedPrompt = prompts.find(p => {
-        // Match by file + line proximity
-        if (p.location.file === conn.code_reference.file) {
-          const connLine = conn.code_reference.line_start || 0;
-          if (Math.abs(p.location.lineStart - connLine) < 30) return true;
-        }
-        // Match by usedBy
-        if (p.usedBy.some(u => u.file === conn.code_reference.file)) return true;
-        return false;
-      });
-
-      if (matchedPrompt) {
-        const key = `prompt:${matchedPrompt.name}`;
-        const group = getOrCreateGroup(key, {
-          name: matchedPrompt.name,
-          category: matchedPrompt.category,
-          groupedBy: 'prompt',
-        });
-        group.providerIds.add(conn.to.component_id);
-        group.connections.push(conn);
-        assigned = true;
-      }
-    }
-
-    // Priority 2: Function name (with purpose inference from name + file)
-    if (!assigned && isMeaningfulSymbol(conn.code_reference.symbol)) {
-      const purpose = inferPurpose(conn.code_reference.symbol, conn.code_reference.file);
-      const key = `fn:${conn.code_reference.symbol}|${conn.to.component_id}`;
-      const group = getOrCreateGroup(key, {
-        name: conn.code_reference.symbol,
-        category: purpose,
-        groupedBy: 'function',
-      });
-      group.providerIds.add(conn.to.component_id);
-      group.connections.push(conn);
-      assigned = true;
-    }
-
-    // Priority 3: CallType + Model from description
-    if (!assigned) {
-      const parsed = parseDescriptionForCallType(conn.description);
-      if (parsed?.method) {
-        const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
-        const key = `ct:${parsed.method}|${parsed.model || ''}|${conn.to.component_id}`;
-        const group = getOrCreateGroup(key, {
-          name: `${parsed.method} via ${providerName}`,
-          model: parsed.model,
-          groupedBy: 'calltype',
-        });
-        group.providerIds.add(conn.to.component_id);
-        group.connections.push(conn);
-        assigned = true;
-      }
-    }
-
-    // Priority 4: Provider fallback — try directory inference before giving up
-    if (!assigned) {
-      const dirPurpose = inferPurpose('', conn.code_reference.file);
-      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
-
-      if (dirPurpose) {
-        // Directory inference succeeded — group by purpose + provider
-        const key = `dir:${dirPurpose}|${conn.to.component_id}`;
-        const group = getOrCreateGroup(key, {
-          name: `${providerName} ${dirPurpose}`,
-          category: dirPurpose,
-          groupedBy: 'file',
-        });
-        group.providerIds.add(conn.to.component_id);
-        group.connections.push(conn);
-        assigned = true;
-      }
-    }
-
-    // Priority 5: Pure provider fallback — still try basename inference
-    if (!assigned) {
-      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
-      const basenamePurpose = inferPurpose('', conn.code_reference.file);
-      if (basenamePurpose) {
-        const key = `basename:${basenamePurpose}|${conn.to.component_id}`;
-        const group = getOrCreateGroup(key, {
-          name: `${providerName} ${basenamePurpose}`,
-          category: basenamePurpose,
-          groupedBy: 'file',
-        });
-        group.providerIds.add(conn.to.component_id);
-        group.connections.push(conn);
-        assigned = true;
-      }
-    }
-
-    // Priority 6: Truly uncategorized
-    if (!assigned) {
-      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
-      const key = `provider:${conn.to.component_id}`;
-      const group = getOrCreateGroup(key, {
-        name: `${providerName} (uncategorized)`,
+    const file = conn.code_reference.file;
+    if (!groups.has(file)) {
+      groups.set(file, {
+        name: '',
         groupedBy: 'file',
+        providerIds: new Set(),
+        connections: [],
       });
-      group.providerIds.add(conn.to.component_id);
-      group.connections.push(conn);
     }
+    const group = groups.get(file)!;
+    group.providerIds.add(conn.to.component_id);
+    group.connections.push(conn);
   }
 
-  // =========================================================================
-  // MERGE GROUPS WITH SAME PRIMARY FILE
-  // =========================================================================
-  // Two connections from groq-reranker.ts (one to LangSmith, one to Groq) should be ONE use case
-  const fileToGroupKey = new Map<string, string>();
-  const mergedKeys = new Set<string>();
-  for (const [key, group] of groups) {
-    const pf = mostCommonFile(group.connections);
-    const existingKey = fileToGroupKey.get(pf);
-    if (existingKey && existingKey !== key) {
-      // Merge this group into the existing one
-      const existingGroup = groups.get(existingKey)!;
-      existingGroup.connections.push(...group.connections);
-      for (const pid of group.providerIds) existingGroup.providerIds.add(pid);
-      // Keep the more specific category
-      if (group.category && !existingGroup.category) existingGroup.category = group.category;
-      if (group.category && existingGroup.category && group.groupedBy !== 'file') existingGroup.category = group.category;
-      mergedKeys.add(key);
-    } else {
-      fileToGroupKey.set(pf, key);
+  // Step 2: Classify each file group — purpose + name
+  for (const [file, group] of groups) {
+    let purpose: string | undefined;
+
+    // Check prompt match
+    if (prompts && prompts.length > 0) {
+      const matchedPrompt = prompts.find(p =>
+        p.location.file === file || p.usedBy.some(u => u.file === file)
+      );
+      if (matchedPrompt) {
+        purpose = matchedPrompt.category && matchedPrompt.category !== 'unknown' ? matchedPrompt.category : undefined;
+        group.name = matchedPrompt.name;
+        if (purpose) group.groupedBy = 'prompt';
+      }
     }
+
+    // Check meaningful function names in this group
+    if (!purpose) {
+      for (const conn of group.connections) {
+        if (isMeaningfulSymbol(conn.code_reference.symbol)) {
+          const fnPurpose = inferPurpose(conn.code_reference.symbol, file);
+          if (fnPurpose) {
+            purpose = fnPurpose;
+            group.name = conn.code_reference.symbol;
+            group.groupedBy = 'function';
+            break;
+          }
+        }
+      }
+    }
+
+    // Basename + directory inference
+    if (!purpose) {
+      purpose = inferPurpose('', file);
+    }
+
+    // Set name from basename if still unnamed
+    if (!group.name) {
+      group.name = fileBasename(file);
+    }
+
+    group.category = purpose;
   }
-  for (const key of mergedKeys) groups.delete(key);
 
   // =========================================================================
   // BUILD RESULT

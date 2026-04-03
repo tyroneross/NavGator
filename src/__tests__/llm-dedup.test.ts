@@ -108,14 +108,11 @@ describe('deduplicateLLMUseCases', () => {
 
   // Layer 2: Grouping
 
-  it('groups by prompt name when prompt matches by file proximity', () => {
+  it('classifies by prompt when prompt matches file', () => {
     const conns = [
       llmConn('src/services/summarize.ts', 'x', openai.component_id, { lineStart: 50 }),
-      llmConn('src/workers/batch.ts', 'y', openai.component_id, { lineStart: 20 }),
     ];
     const prompt1 = minimalPrompt('summarize_article', 'src/services/summarize.ts', 45, { category: 'summarization' });
-    // batch.ts is in prompt's usedBy
-    prompt1.usedBy = [{ file: 'src/workers/batch.ts', line: 20, callPattern: 'openai.chat', isAsync: true, hasStreaming: false }];
 
     const result = deduplicateLLMUseCases([openai], conns, [prompt1]);
     expect(result.useCases).toHaveLength(1);
@@ -124,29 +121,24 @@ describe('deduplicateLLMUseCases', () => {
     expect(result.useCases[0].category).toBe('summarization');
   });
 
-  it('groups by function name when no prompt linked', () => {
+  it('classifies by function name when meaningful symbol found', () => {
     const conns = [
       llmConn('src/api/route1.ts', 'extractEntities', openai.component_id),
-      llmConn('src/api/route2.ts', 'extractEntities', openai.component_id),
-      llmConn('src/workers/batch.ts', 'extractEntities', openai.component_id),
     ];
     const result = deduplicateLLMUseCases([openai], conns);
     expect(result.useCases).toHaveLength(1);
     expect(result.useCases[0].name).toBe('extractEntities');
     expect(result.useCases[0].groupedBy).toBe('function');
-    expect(result.useCases[0].productionCallSites).toBe(3);
   });
 
-  it('uses provider as fallback for generic symbols', () => {
+  it('creates one use case per file (file-first grouping)', () => {
     const conns = [
-      llmConn('src/lib/ai.ts', 'x', openai.component_id), // symbol too short
-      llmConn('src/lib/other.ts', 'y', openai.component_id), // also too short
+      llmConn('src/lib/ai.ts', 'x', openai.component_id),
+      llmConn('src/lib/other.ts', 'y', openai.component_id),
     ];
     const result = deduplicateLLMUseCases([openai], conns);
-    // Both should merge into one provider-level group
-    expect(result.useCases).toHaveLength(1);
-    expect(result.useCases[0].groupedBy).toBe('file');
-    expect(result.useCases[0].name).toContain('OpenAI');
+    // File-first: each file = one use case
+    expect(result.useCases).toHaveLength(2);
   });
 
   // Edge cases
@@ -178,16 +170,16 @@ describe('deduplicateLLMUseCases', () => {
   });
 
   it('sorts use cases by productionCallSites descending', () => {
+    // File with 3 connections should rank higher than file with 1
     const conns = [
       llmConn('src/a.ts', 'smallUseCase', openai.component_id),
-      llmConn('src/b.ts', 'bigUseCase', groq.component_id),
-      llmConn('src/c.ts', 'bigUseCase', groq.component_id),
-      llmConn('src/d.ts', 'bigUseCase', groq.component_id),
+      llmConn('src/b.ts', 'bigUseCase1', groq.component_id),
+      llmConn('src/b.ts', 'bigUseCase2', groq.component_id),
+      llmConn('src/b.ts', 'bigUseCase3', groq.component_id),
     ];
     const result = deduplicateLLMUseCases([openai, groq], conns);
-    expect(result.useCases.length).toBe(2);
-    expect(result.useCases[0].name).toBe('bigUseCase');
-    expect(result.useCases[0].productionCallSites).toBe(3);
-    expect(result.useCases[1].name).toBe('smallUseCase');
+    expect(result.useCases.length).toBe(2); // 2 files = 2 use cases
+    expect(result.useCases[0].productionCallSites).toBe(3); // b.ts has 3
+    expect(result.useCases[1].productionCallSites).toBe(1); // a.ts has 1
   });
 });
