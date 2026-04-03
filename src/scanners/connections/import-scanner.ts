@@ -351,7 +351,10 @@ export async function scanImports(
   }
 
   // Second pass: detect fetch('/api/...') patterns — Next.js runtime data flow
+  // Matches: fetch('/api/graph'), fetch(`/api/${path}`), fetchWithTimeout('/api/...')
   const FETCH_API_RE = /fetch\s*\(\s*['"`](\/api\/[^'"`\s?]+)/g;
+  const FETCH_TEMPLATE_RE = /fetch\s*\(\s*`(\/api\/[^`]*)`/g;
+  const FETCH_WRAPPER_RE = /(?:fetchWith\w+|apiFetch|fetchJSON|fetcher)\s*\(\s*['"`](\/api\/[^'"`\s?]+)/g;
 
   for (let i = 0; i < files.length; i += batchSize) {
     const batch = files.slice(i, i + batchSize);
@@ -375,16 +378,31 @@ export async function scanImports(
       // Only scan frontend files (pages, components, app/ routes)
       if (!file.includes('/app/') && !file.includes('/pages/') && !file.includes('/components/') && !file.includes('hooks/')) continue;
 
-      FETCH_API_RE.lastIndex = 0;
-      let fetchMatch;
-      while ((fetchMatch = FETCH_API_RE.exec(content)) !== null) {
-        const apiPath = fetchMatch[1]; // e.g., '/api/graph'
+      // Run all fetch patterns
+      const fetchPatterns = [FETCH_API_RE, FETCH_TEMPLATE_RE, FETCH_WRAPPER_RE];
+      const foundApiPaths = new Set<string>();
+      for (const pattern of fetchPatterns) {
+        pattern.lastIndex = 0;
+        let fetchMatch;
+        while ((fetchMatch = pattern.exec(content)) !== null) {
+          let apiPath = fetchMatch[1];
+          // For template literals, extract the static prefix: /api/graph/${id} → /api/graph
+          if (apiPath.includes('$')) {
+            apiPath = apiPath.split('$')[0].replace(/\/+$/, '');
+          }
+          if (apiPath.startsWith('/api/') && apiPath.length > 5) {
+            foundApiPaths.add(apiPath);
+          }
+        }
+      }
+
+      for (const apiPath of foundApiPaths) {
 
         // Resolve to Next.js route file
         const routeFile = resolveApiRoute(apiPath, knownFiles);
         if (!routeFile) continue;
 
-        const line = findImportLine(content, fetchMatch[0]);
+        const line = findImportLine(content, `'${apiPath}'`) || findImportLine(content, `"${apiPath}"`) || findImportLine(content, apiPath);
         connections.push({
           connection_id: generateConnectionId('frontend-calls-api'),
           from: {

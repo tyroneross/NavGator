@@ -372,7 +372,24 @@ export function deduplicateLLMUseCases(
       }
     }
 
-    // Priority 5: Pure provider fallback
+    // Priority 5: Pure provider fallback — still try basename inference
+    if (!assigned) {
+      const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
+      const basenamePurpose = inferPurpose('', conn.code_reference.file);
+      if (basenamePurpose) {
+        const key = `basename:${basenamePurpose}|${conn.to.component_id}`;
+        const group = getOrCreateGroup(key, {
+          name: `${providerName} ${basenamePurpose}`,
+          category: basenamePurpose,
+          groupedBy: 'file',
+        });
+        group.providerIds.add(conn.to.component_id);
+        group.connections.push(conn);
+        assigned = true;
+      }
+    }
+
+    // Priority 6: Truly uncategorized
     if (!assigned) {
       const providerName = llmNameById.get(conn.to.component_id) || 'unknown';
       const key = `provider:${conn.to.component_id}`;
@@ -386,21 +403,61 @@ export function deduplicateLLMUseCases(
   }
 
   // =========================================================================
+  // MERGE GROUPS WITH SAME PRIMARY FILE
+  // =========================================================================
+  // Two connections from groq-reranker.ts (one to LangSmith, one to Groq) should be ONE use case
+  const fileToGroupKey = new Map<string, string>();
+  const mergedKeys = new Set<string>();
+  for (const [key, group] of groups) {
+    const pf = mostCommonFile(group.connections);
+    const existingKey = fileToGroupKey.get(pf);
+    if (existingKey && existingKey !== key) {
+      // Merge this group into the existing one
+      const existingGroup = groups.get(existingKey)!;
+      existingGroup.connections.push(...group.connections);
+      for (const pid of group.providerIds) existingGroup.providerIds.add(pid);
+      // Keep the more specific category
+      if (group.category && !existingGroup.category) existingGroup.category = group.category;
+      if (group.category && existingGroup.category && group.groupedBy !== 'file') existingGroup.category = group.category;
+      mergedKeys.add(key);
+    } else {
+      fileToGroupKey.set(pf, key);
+    }
+  }
+  for (const key of mergedKeys) groups.delete(key);
+
+  // =========================================================================
   // BUILD RESULT
   // =========================================================================
 
   const useCases: LLMUseCase[] = [];
 
   for (const group of groups.values()) {
-    // Resolve provider name from the most common provider in group
+    // Resolve provider name — prefer actual LLM SDKs over observability wrappers
+    const OBSERVABILITY_PROVIDERS = new Set(['langsmith', 'datadog', 'opentelemetry', 'sentry']);
     const providerCounts = new Map<string, number>();
     for (const pid of group.providerIds) {
       providerCounts.set(pid, (providerCounts.get(pid) || 0) + 1);
     }
     let mainProviderId = '';
     let maxCount = 0;
+    // First pass: find the best non-observability provider
+    let bestNonObsId = '';
+    let bestNonObsCount = 0;
     for (const [pid, count] of providerCounts) {
-      if (count > maxCount) { mainProviderId = pid; maxCount = count; }
+      const name = llmNameById.get(pid)?.toLowerCase() || '';
+      if (!OBSERVABILITY_PROVIDERS.has(name) && count > bestNonObsCount) {
+        bestNonObsId = pid;
+        bestNonObsCount = count;
+      }
+    }
+    // Fall back to any provider if all are observability
+    if (!bestNonObsId) {
+      for (const [pid, count] of providerCounts) {
+        if (count > maxCount) { mainProviderId = pid; maxCount = count; }
+      }
+    } else {
+      mainProviderId = bestNonObsId;
     }
     const providerName = llmNameById.get(mainProviderId) || 'unknown';
 
@@ -426,6 +483,19 @@ export function deduplicateLLMUseCases(
       groupedBy: group.groupedBy,
       feedsInto: downstream.length > 0 ? downstream : undefined,
     });
+  }
+
+  // Final pass: re-classify any use case without a category by checking its primary file
+  for (const uc of useCases) {
+    if (!uc.category) {
+      const purpose = inferPurpose('', uc.primaryFile);
+      if (purpose) {
+        uc.category = purpose;
+        if (uc.name.includes('(uncategorized)')) {
+          uc.name = `${uc.provider} ${purpose}`;
+        }
+      }
+    }
   }
 
   // Sort by productionCallSites descending
