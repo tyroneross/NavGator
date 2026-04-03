@@ -52,6 +52,7 @@ const SERVICE_PATTERNS: ServicePattern[] = [
       /openai\.audio\.transcriptions/,
       /new OpenAI\(/,
       /OpenAIApi\(/,
+      /from\s+['"]openai['"]/,
     ],
     componentType: 'llm',
     layer: 'external',
@@ -62,6 +63,9 @@ const SERVICE_PATTERNS: ServicePattern[] = [
     patterns: [
       /new Groq\(/,
       /groq\.chat\.completions\.create/,
+      /groqClient\.chat\.completions\.create/,
+      /from\s+['"]groq-sdk['"]/,
+      /import\s+Groq\s+from\s+['"]groq-sdk['"]/,
     ],
     componentType: 'llm',
     layer: 'external',
