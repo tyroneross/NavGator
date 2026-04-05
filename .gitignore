@@ -31,5 +31,6 @@ coverage/
 web/node_modules/
 web/.next/
 
-# Bookmark snapshot data
-.claude/bookmarks/
+# Bookmark snapshot data (.bookmark/ is where the plugin actually writes;
+# the earlier .claude/bookmarks/ pattern was a typo that never matched)
+.bookmark/
