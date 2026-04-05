@@ -1,3 +1,6 @@
+<!-- Plugin: navgator · Version: 0.6.1 · Source of truth: local (~/Desktop/git-folder/NavGator) -->
+<!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
+
 # NavGator — Architecture Context for Claude
 
 ## What NavGator Does
