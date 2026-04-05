@@ -7,9 +7,9 @@
   "repository": "https://github.com/tyroneross/navgator",
   "license": "MIT",
   "keywords": ["architecture", "connections", "context", "dependencies", "impact-analysis"],
-  "hooks": "../hooks/hooks.json",
-  "skills": "../skills/",
-  "agents": "../agents/",
-  "commands": "../commands/",
-  "mcpServers": "../.mcp.json"
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills",
+  "agents": "./agents",
+  "commands": "./commands",
+  "mcpServers": "./.mcp.json"
 }
