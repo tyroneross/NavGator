@@ -7,7 +7,7 @@
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/NavGator
   - npm: `@tyroneross/navgator`
-  - Marketplace: `navgator` in `RossLabs-claude-plugins` (via npm source)
+  - Marketplace: `navgator` in `RossLabs-AI-Toolkit` (via GitHub source)
 - **Claude Code registry entry:** `gator@local` (loaded directly from source path; no cache dir)
 
 ## Key changes in 0.6.1
@@ -25,7 +25,7 @@
 | **Authoritative** | `~/Desktop/git-folder/NavGator/.claude-plugin/plugin.json` | Local dev — canonical |
 | GitHub | github.com/tyroneross/NavGator | Public mirror |
 | npm | `@tyroneross/navgator` | Published releases (marketplace installs pull from here) |
-| Marketplace manifest | `~/Desktop/git-folder/RossLabs-claude-plugins/.claude-plugin/marketplace.json` | Must be kept in sync with plugin.json version |
+| Marketplace manifest | `~/Desktop/git-folder/RossLabs-AI-Toolkit/.claude-plugin/marketplace.json` | Must be kept in sync with plugin.json version |
 
 **Known past drift:** On 2026-04-04, `marketplace.json` recorded `0.2.2` while source was at `0.6.1` — four patch releases out of sync. Fixed in same commit that introduced this file.
 
@@ -36,7 +36,7 @@ When "latest" is ambiguous, trust **local dev** first, then npm, then marketplac
 1. Bump `version` in `.claude-plugin/plugin.json`
 2. Update the version stamp in `CLAUDE.md` (line 1 HTML comment)
 3. Update this file's `Current` section + add an entry to `Version history` below
-4. **Update `~/Desktop/git-folder/RossLabs-claude-plugins/.claude-plugin/marketplace.json`** — bump the version string for the `navgator` entry
+4. **Update `~/Desktop/git-folder/RossLabs-AI-Toolkit/.claude-plugin/marketplace.json`** — bump the version string for the `navgator` entry
 5. Back up, then update `~/.claude/plugins/installed_plugins.json` → `installPath` + `version` for every entry of this plugin
 6. Run `/reload-plugins` in Claude Code
 7. Commit `plugin.json`, `CLAUDE.md`, `VERSIONING.md` together in one commit; update the marketplace repo separately
