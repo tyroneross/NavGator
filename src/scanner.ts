@@ -61,6 +61,7 @@ import { registerProject } from './projects.js';
 import { TimelineEntry } from './types.js';
 import { classifyAllConnections } from './classify.js';
 import { isSandboxMode } from './sandbox.js';
+import { ensureSafeGitignore } from './gitignore-safety.js';
 
 // =============================================================================
 // SCAN OPTIONS
@@ -782,6 +783,22 @@ export async function scan(
     console.log(`  Files scanned: ${sourceFiles.length}`);
     console.log(`  Files changed: ${filesChanged}`);
     console.log(`  Warnings: ${allWarnings.length}`);
+  }
+
+  // Gitignore safety guard: NavGator's per-config-var component files and
+  // NAVSUMMARY docs include parsed hostnames from .env files. They're
+  // regenerated on every scan, so there's no loss from keeping them local.
+  // Auto-add gitignore entries on first scan so hostnames don't drift into
+  // git history. Silent unless it makes a change.
+  try {
+    const guardResult = await ensureSafeGitignore(root);
+    if (guardResult.action === 'added' && options.verbose) {
+      console.log(
+        `  NavGator safety guard: added gitignore block for architecture/components/COMP_config_*.json + NAVSUMMARY*.md`
+      );
+    }
+  } catch {
+    // Non-fatal: scan already completed, gitignore guard is best-effort
   }
 
   return {
