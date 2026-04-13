@@ -23,7 +23,45 @@ import {
   FileChangeResult,
   TimelineEntry,
   GitInfo,
+  generateStableId,
 } from './types.js';
+
+/**
+ * Pick the most stable path-like identifier from a component.
+ * Prefer the first config_file (e.g. "prisma/schema.prisma" for Prisma models),
+ * else fall back to a documentation/repository URL component.
+ * Returns undefined if nothing path-like is available.
+ */
+function pickCanonicalPath(c: ArchitectureComponent): string | undefined {
+  if (c.source?.config_files?.length) {
+    return c.source.config_files[0];
+  }
+  return undefined;
+}
+
+/**
+ * Backfill stable_id on a component if missing.
+ * Idempotent — returns the same component reference (mutated in place).
+ * Path-disambiguation is opt-in per-type: types where (type,name) is
+ * naturally unique (npm/pip packages, frameworks, services, llm providers,
+ * databases, infra, queues, configs) use name-only. Types that can repeat
+ * the same name across different files (api-endpoint, db-table, prompt,
+ * worker, component, cron) include canonical_path.
+ */
+function ensureStableId(c: ArchitectureComponent): ArchitectureComponent {
+  if (c.stable_id) return c;
+  const PATH_DISAMBIGUATED: ReadonlySet<ComponentType> = new Set<ComponentType>([
+    'api-endpoint',
+    'db-table',
+    'prompt',
+    'worker',
+    'component',
+    'cron',
+  ]);
+  const canonical = PATH_DISAMBIGUATED.has(c.type) ? pickCanonicalPath(c) : undefined;
+  c.stable_id = generateStableId(c.type, c.name, canonical);
+  return c;
+}
 import {
   getConfig,
   getComponentsPath,
@@ -64,6 +102,7 @@ export async function storeComponent(
   ensureStorageDirectories(cfg, projectRoot);
 
   const componentsPath = getComponentsPath(cfg, projectRoot);
+  ensureStableId(component);
   const filePath = path.join(componentsPath, `${component.component_id}.json`);
 
   await fs.promises.writeFile(filePath, JSON.stringify(component, null, 2), 'utf-8');
@@ -96,7 +135,7 @@ export async function loadComponent(
 
   try {
     const content = await fs.promises.readFile(filePath, 'utf-8');
-    return JSON.parse(content) as ArchitectureComponent;
+    return ensureStableId(JSON.parse(content) as ArchitectureComponent);
   } catch {
     return null;
   }
@@ -125,7 +164,7 @@ export async function loadAllComponents(
       try {
         const filePath = path.join(componentsPath, file);
         const content = await fs.promises.readFile(filePath, 'utf-8');
-        return JSON.parse(content) as ArchitectureComponent;
+        return ensureStableId(JSON.parse(content) as ArchitectureComponent);
       } catch {
         return null;
       }
@@ -422,6 +461,7 @@ export async function buildGraph(
 
   const nodes: GraphNode[] = components.map((c) => ({
     id: c.component_id,
+    stable_id: c.stable_id ?? ensureStableId(c).stable_id,
     name: c.name,
     type: c.type,
     layer: c.role.layer,
@@ -1135,6 +1175,7 @@ export async function storeComponents(
     const batch = components.slice(i, i + batchSize);
     await Promise.all(
       batch.map(async (component) => {
+        ensureStableId(component);
         const filePath = path.join(componentsPath, `${component.component_id}.json`);
         await fs.promises.writeFile(filePath, JSON.stringify(component, null, 2), 'utf-8');
       })

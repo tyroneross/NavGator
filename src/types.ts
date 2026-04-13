@@ -74,7 +74,13 @@ export interface ConnectionRef {
  */
 export interface ArchitectureComponent {
   // Identification
-  component_id: string;         // COMP_type_name_hash (e.g., COMP_npm_react_a1b2)
+  component_id: string;         // COMP_type_name_hash (e.g., COMP_npm_react_a1b2) — random suffix, NOT stable across scans
+  /**
+   * Stable, deterministic identifier derived from type + canonical name.
+   * Format: STABLE_<type>_<slug>. Same component across scans → same stable_id.
+   * Used as the cross-scan join key for PageRank persistence, git diffs, timeline tracking.
+   */
+  stable_id?: string;
   name: string;                 // "react", "BullMQ", "Railway"
   version?: string;             // "18.2.0" (if applicable)
 
@@ -373,6 +379,7 @@ export interface ConnectionGraph {
 
 export interface GraphNode {
   id: string;                   // component_id
+  stable_id?: string;           // derived; stable across scans
   name: string;
   type: ComponentType;
   layer: ArchitectureLayer;
@@ -487,6 +494,40 @@ export function generateComponentId(type: ComponentType, name: string): string {
   const sanitizedName = name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 20);
   const random = Math.random().toString(36).slice(2, 6);
   return `COMP_${type}_${sanitizedName}_${random}`;
+}
+
+/**
+ * Slugify a name for use in a stable_id.
+ * Lowercase; keep [a-z0-9._-]; collapse runs of other chars to '-'; trim '-'.
+ * Length-cap at 64 chars to keep filenames sane.
+ */
+function slugifyForStableId(name: string): string {
+  const s = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+  return s || 'unnamed';
+}
+
+/**
+ * Generate a stable, deterministic component identifier.
+ * Format: STABLE_<type>_<slug>
+ *
+ * Same (type, name) → same stable_id across scans. This is the cross-scan
+ * join key — distinct from `component_id` which carries a random suffix
+ * for legacy backward compatibility.
+ *
+ * NOTE: collisions on (type, name) are intentional — they represent the
+ * same logical component re-detected. Callers needing path-uniqueness
+ * (e.g., two `prompt`-type components in different files) should pass a
+ * canonical_path as the second argument when available.
+ */
+export function generateStableId(type: ComponentType, name: string, canonicalPath?: string): string {
+  const slug = canonicalPath
+    ? `${slugifyForStableId(canonicalPath)}__${slugifyForStableId(name)}`
+    : slugifyForStableId(name);
+  return `STABLE_${type}_${slug}`;
 }
 
 /**
