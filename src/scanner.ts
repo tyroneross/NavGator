@@ -757,6 +757,25 @@ export async function scan(
 
   await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo);
 
+  // Markdown views + connections.jsonl (T3, trimmed scope).
+  // Derived from in-memory components/connections — JSON remains canonical.
+  // Emits .navgator/architecture/components-md/<type>/<slug>.md (Obsidian-readable,
+  // git-diff-friendly, ripgrep-targetable) and connections.jsonl.
+  // Disable via NAVGATOR_NO_MARKDOWN=1 if downstream tooling chokes.
+  if (process.env['NAVGATOR_NO_MARKDOWN'] !== '1') {
+    try {
+      const { writeComponentMarkdownViews, writeConnectionsJsonl } = await import('./storage/markdown-view.js');
+      const { getStoragePath: getStoragePathFn } = await import('./config.js');
+      const storeDir = getStoragePathFn(config, root);
+      await writeComponentMarkdownViews(storeDir, uniqueComponents, uniqueConnections);
+      await writeConnectionsJsonl(storeDir, uniqueComponents, uniqueConnections);
+    } catch (err) {
+      if (process.env['NAVGATOR_DEBUG']) {
+        console.error('[markdown-view] skipped:', (err as Error).message);
+      }
+    }
+  }
+
   // Git-backed temporal snapshot (T5). Commits the .navgator/ directory to a
   // NESTED git store at .navgator/.git — invisible to the parent repo
   // (gitignored). OPT-IN: enable via NAVGATOR_COMMIT=1 or `--commit` scan
