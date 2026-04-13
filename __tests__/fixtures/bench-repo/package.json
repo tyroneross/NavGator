@@ -1,0 +1,13 @@
+{
+  "name": "bench-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Synthetic fixture for NavGator scan benchmarks. Not a real project.",
+  "dependencies": {
+    "@prisma/client": "^5.0.0",
+    "bullmq": "^5.0.0",
+    "next": "^16.0.0",
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.30.0"
+  }
+}
