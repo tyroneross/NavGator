@@ -20,6 +20,7 @@ import { registerSubgraphCommand } from './commands/subgraph.js';
 import { registerLLMMapCommand } from './commands/llm-map.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerDeadCommand } from './commands/dead.js';
+import { registerLessonsCommand } from './commands/lessons.js';
 import {
   registerSetupCommand,
   registerUICommand,
@@ -78,6 +79,7 @@ registerSubgraphCommand(program);
 registerLLMMapCommand(program);
 registerSchemaCommand(program);
 registerDeadCommand(program);
+registerLessonsCommand(program);
 
 // =============================================================================
 // PARSE AND RUN

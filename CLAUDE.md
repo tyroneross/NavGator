@@ -161,6 +161,45 @@ NavGator accumulates architectural lessons in `.navgator/lessons/lessons.json`. 
 
 Record lessons manually with `/gator:review learn "description"`. Lessons are validated periodically against current documentation via `/gator:review --validate`.
 
+### Lessons: Per-Project vs Global (Three-Tier Data Model)
+
+NavGator uses a three-tier data model so architecture details stay local to each
+repo while transferable patterns become shareable across projects.
+
+**Tier 1 — Per-project architecture** (`<project>/.navgator/architecture/`)
+Full scan output: `index.json`, `graph.json`, `file_map.json`, `prompts.json`,
+`components/`, `connections/`, `NAVSUMMARY.md`. Project-specific. Never shared.
+
+**Tier 2 — Per-project lessons** (`<project>/.navgator/lessons/lessons.json`)
+Patterns discovered in *this* project. Recorded via `/gator:review learn` or
+surfaced by `/gator:review`. Scoped to this repo by default.
+
+**Tier 3 — Global lessons** (`~/.navgator/lessons/global-lessons.json`)
+Cross-project patterns — approaches, architectural connections, config insights
+that apply across your work. Each entry includes `source_project`, `applies_to`
+tags, and `promoted_at` so you can trace provenance.
+
+**Promotion is opt-in and non-destructive.** When you promote a local lesson to
+global, the local lesson stays in place but gets marked `promoted: true`. The
+global lesson gets a full copy plus traceability fields. There is no automatic
+cross-project application — global lessons are for recall and reference.
+
+**CLI**:
+
+| Command | Purpose |
+|---------|---------|
+| `navgator lessons list` | List lessons in current project |
+| `navgator lessons list --global` | List global lessons across all projects |
+| `navgator lessons list --all` | Combined view |
+| `navgator lessons show <id>` | Show full detail for one lesson |
+| `navgator lessons search <query>` | Regex-search across lessons |
+| `navgator lessons search <q> --tag <t>` | Filter by applies_to tag (global only) |
+| `navgator lessons search <q> --category <c>` | Filter by lesson category |
+| `navgator lessons promote <id> --tag <t>` | Promote local → global with tags |
+| `navgator lessons demote <id>` | Remove from global (local untouched) |
+
+All `lessons` subcommands support `--json` and the `--agent` envelope.
+
 ### Scan Flags
 
 | Flag | Purpose |

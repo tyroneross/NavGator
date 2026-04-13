@@ -3,14 +3,14 @@
   "owner": { "name": "Tyrone Ross", "url": "https://github.com/tyroneross" },
   "metadata": {
     "description": "Architecture connection tracker — know your stack before you change it",
-    "version": "1.0.0"
+    "version": "0.6.1"
   },
   "plugins": [
     {
       "name": "gator",
       "source": "./",
       "description": "Architecture connection tracker for Claude Code — know your stack before you change it",
-      "version": "0.2.2",
+      "version": "0.6.1",
       "author": { "name": "Tyrone Ross" },
       "homepage": "https://github.com/tyroneross/navgator#readme",
       "repository": "https://github.com/tyroneross/navgator",
