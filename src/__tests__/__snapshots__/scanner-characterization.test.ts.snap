@@ -1,0 +1,294 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`scanner characterization (Wave 2 T9) > import-scanner: stable on bench-repo fixture 1`] = `
+{
+  "component_count": 7,
+  "components_by_type": {
+    "component": 7,
+  },
+  "connection_count": 9,
+  "connections_by_type": {
+    "imports": 9,
+  },
+  "label": "import-scanner",
+  "sample_components": [
+    {
+      "connected_from": [],
+      "connects_to": [],
+      "metadata": {
+        "file": "app/api/cron/daily-digest/route.ts",
+        "kind": "source-file",
+      },
+      "name": "api/cron/daily-digest/route",
+      "role": {
+        "critical": false,
+        "layer": "backend",
+        "purpose": "Internal module at app/api/cron/daily-digest/route.ts",
+      },
+      "source": {
+        "confidence": 0.95,
+        "config_files": [
+          "app/api/cron/daily-digest/route.ts",
+        ],
+        "detection_method": "auto",
+      },
+      "status": "active",
+      "tags": [
+        "internal",
+        "module",
+      ],
+      "type": "component",
+    },
+    {
+      "connected_from": [],
+      "connects_to": [],
+      "metadata": {
+        "file": "app/api/cron/session-sweep/route.ts",
+        "kind": "source-file",
+      },
+      "name": "api/cron/session-sweep/route",
+      "role": {
+        "critical": false,
+        "layer": "backend",
+        "purpose": "Internal module at app/api/cron/session-sweep/route.ts",
+      },
+      "source": {
+        "confidence": 0.95,
+        "config_files": [
+          "app/api/cron/session-sweep/route.ts",
+        ],
+        "detection_method": "auto",
+      },
+      "status": "active",
+      "tags": [
+        "internal",
+        "module",
+      ],
+      "type": "component",
+    },
+    {
+      "connected_from": [],
+      "connects_to": [],
+      "metadata": {
+        "file": "app/api/posts/route.ts",
+        "kind": "source-file",
+      },
+      "name": "api/posts/route",
+      "role": {
+        "critical": false,
+        "layer": "backend",
+        "purpose": "Internal module at app/api/posts/route.ts",
+      },
+      "source": {
+        "confidence": 0.95,
+        "config_files": [
+          "app/api/posts/route.ts",
+        ],
+        "detection_method": "auto",
+      },
+      "status": "active",
+      "tags": [
+        "internal",
+        "module",
+      ],
+      "type": "component",
+    },
+    {
+      "connected_from": [],
+      "connects_to": [],
+      "metadata": {
+        "file": "app/api/summarize/route.ts",
+        "kind": "source-file",
+      },
+      "name": "api/summarize/route",
+      "role": {
+        "critical": false,
+        "layer": "backend",
+        "purpose": "Internal module at app/api/summarize/route.ts",
+      },
+      "source": {
+        "confidence": 0.95,
+        "config_files": [
+          "app/api/summarize/route.ts",
+        ],
+        "detection_method": "auto",
+      },
+      "status": "active",
+      "tags": [
+        "internal",
+        "module",
+      ],
+      "type": "component",
+    },
+    {
+      "connected_from": [],
+      "connects_to": [],
+      "metadata": {
+        "file": "src/db.ts",
+        "kind": "source-file",
+      },
+      "name": "db",
+      "role": {
+        "critical": false,
+        "layer": "backend",
+        "purpose": "Internal module at src/db.ts",
+      },
+      "source": {
+        "confidence": 0.95,
+        "config_files": [
+          "src/db.ts",
+        ],
+        "detection_method": "auto",
+      },
+      "status": "active",
+      "tags": [
+        "internal",
+        "module",
+      ],
+      "type": "component",
+    },
+  ],
+  "sample_connections": [
+    {
+      "code_reference": {
+        "file": "app/api/cron/daily-digest/route.ts",
+        "symbol": "../../../../src/db.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/cron/daily-digest/route.ts:2",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/cron/daily-digest/route.ts",
+        "symbol": "../../../../src/llm.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/cron/daily-digest/route.ts:3",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/cron/session-sweep/route.ts",
+        "symbol": "../../../../src/db.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/cron/session-sweep/route.ts:2",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/posts/route.ts",
+        "symbol": "../../../src/db.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/posts/route.ts:2",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/posts/route.ts",
+        "symbol": "../../../src/queue.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/posts/route.ts:3",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/posts/route.ts",
+        "symbol": "../../../src/llm.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/posts/route.ts:4",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "app/api/summarize/route.ts",
+        "symbol": "../../../src/llm.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "app/api/summarize/route.ts:2",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "src/queue.ts",
+        "symbol": "./llm.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "src/queue.ts:2",
+      "to": {},
+    },
+    {
+      "code_reference": {
+        "file": "src/queue.ts",
+        "symbol": "./db.js",
+        "symbol_type": "import",
+      },
+      "confidence": 1,
+      "connection_type": "imports",
+      "detected_from": "import-scanner",
+      "from_file": "src/queue.ts:3",
+      "to": {},
+    },
+  ],
+}
+`;
+
+exports[`scanner characterization (Wave 2 T9) > llm-call-tracer: stable on bench-repo fixture 1`] = `
+{
+  "methods": {
+    "unknown": 1,
+  },
+  "providers": {
+    "anthropic": 1,
+  },
+  "sample_calls": [
+    {
+      "file": "src/llm.ts",
+      "method": undefined,
+      "name": "create",
+      "provider_name": "anthropic",
+    },
+  ],
+  "total_calls": 1,
+}
+`;
+
+exports[`scanner characterization (Wave 2 T9) > service-calls: stable on bench-repo fixture 1`] = `
+{
+  "component_count": 0,
+  "components_by_type": {},
+  "connection_count": 0,
+  "connections_by_type": {},
+  "label": "service-calls",
+  "sample_components": [],
+  "sample_connections": [],
+}
+`;
