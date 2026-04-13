@@ -78,6 +78,7 @@ export interface ScanOptions {
   trackBranch?: boolean;     // Opt-in: capture git branch/commit in scan output
   fieldUsage?: boolean;      // Analyze DB field usage across codebase (FEATURE FLAG)
   typeSpec?: boolean;        // Validate Prisma types against TS interfaces (FEATURE FLAG)
+  commit?: boolean;          // Opt-in: auto-commit scan output to nested .navgator/.git for temporal queries
 }
 
 // =============================================================================
@@ -755,6 +756,29 @@ export async function scan(
   }
 
   await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo);
+
+  // Git-backed temporal snapshot (T5). Commits the .navgator/ directory to a
+  // NESTED git store at .navgator/.git — invisible to the parent repo
+  // (gitignored). OPT-IN: enable via NAVGATOR_COMMIT=1 or `--commit` scan
+  // flag. Per-scan git subprocess overhead is ~180ms; default is OFF to
+  // preserve the speed criterion.
+  if (process.env['NAVGATOR_COMMIT'] === '1' || options.commit === true) {
+    try {
+      const { commitScan } = await import('./temporal/git-store.js');
+      const { getStoragePath } = await import('./config.js');
+      const storeDir = getStoragePath(config, root);
+      const sha7 = (gitInfo?.commit ?? '').slice(0, 7);
+      const msg = `scan ${new Date().toISOString()}${sha7 ? ` @ ${sha7}` : ''}`;
+      const result = commitScan(storeDir, msg);
+      if (!result.ok && process.env['NAVGATOR_DEBUG']) {
+        console.error('[temporal] commit failed:', result.error);
+      }
+    } catch (err) {
+      if (process.env['NAVGATOR_DEBUG']) {
+        console.error('[temporal] skipped:', (err as Error).message);
+      }
+    }
+  }
 
   // Persist prompt scan results if available
   if (promptScanResultHolder) {
