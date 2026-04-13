@@ -88,7 +88,7 @@ export function registerTemporalCommands(program: Command): void {
   // navgator snapshots — list temporal snapshots (newest first)
   program
     .command('snapshots')
-    .description('List temporal snapshots (auto-committed by each scan)')
+    .description('List temporal snapshots (committed by `navgator scan --commit`)')
     .option('-l, --limit <n>', 'Max snapshots to list', '20')
     .option('--json', 'Output as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
