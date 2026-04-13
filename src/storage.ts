@@ -70,6 +70,7 @@ import {
   getGraphPath,
   getSnapshotsPath,
   getHashesPath,
+  getStoragePath,
   getSummaryPath,
   getSummaryFullPath,
   getFileMapPath,
@@ -719,6 +720,70 @@ export async function buildSummary(
     lines.push('');
   }
 
+  // Top by PageRank + Mermaid cluster diagram (T6)
+  // Reads metrics.json produced by computeAndStoreMetrics during scan.
+  try {
+    const metricsPath = path.join(getStoragePath(cfg, root), 'metrics.json');
+    if (fs.existsSync(metricsPath)) {
+      const raw = await fs.promises.readFile(metricsPath, 'utf-8');
+      const report = JSON.parse(raw) as {
+        node_count: number;
+        community_count: number;
+        modularity: number | null;
+        suppressed: boolean;
+        reason?: string;
+        metrics: Array<{ stable_id: string; component_id: string; name: string; pagerank_score: number; community_id: number }>;
+      };
+      if (!report.suppressed && report.metrics.length > 0) {
+        lines.push('## Top by PageRank');
+        lines.push(`> ${report.community_count} communities · modularity ${report.modularity?.toFixed(3) ?? 'n/a'}`);
+        lines.push('');
+        lines.push('| # | Component | PageRank | Community |');
+        lines.push('|---|-----------|---------:|----------:|');
+        const top = report.metrics.slice(0, 10);
+        top.forEach((m, i) => {
+          lines.push(`| ${i + 1} | \`${m.name}\` | ${m.pagerank_score.toFixed(4)} | ${m.community_id} |`);
+        });
+        lines.push('');
+
+        // Inline Mermaid cluster diagram — top 5 communities by PageRank-weighted size.
+        const byCommunity = new Map<number, typeof top>();
+        for (const m of report.metrics) {
+          if (!byCommunity.has(m.community_id)) byCommunity.set(m.community_id, []);
+          byCommunity.get(m.community_id)!.push(m);
+        }
+        const ranked = [...byCommunity.entries()]
+          .map(([id, members]) => ({
+            id,
+            members,
+            score: members.reduce((sum, x) => sum + x.pagerank_score, 0),
+          }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+        if (ranked.length > 0) {
+          const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+          lines.push('## Cluster Diagram');
+          lines.push('```mermaid');
+          lines.push('flowchart LR');
+          for (const cluster of ranked) {
+            const top3 = cluster.members
+              .sort((a, b) => b.pagerank_score - a.pagerank_score)
+              .slice(0, 3);
+            lines.push(`  subgraph C${cluster.id}["Community ${cluster.id} (${cluster.members.length} nodes)"]`);
+            for (const m of top3) {
+              lines.push(`    ${sanitize(m.component_id)}["${m.name}"]`);
+            }
+            lines.push('  end');
+          }
+          lines.push('```');
+          lines.push('');
+        }
+      }
+    }
+  } catch {
+    // metrics.json missing or malformed — silent skip; legacy scans may not have it.
+  }
+
   // AI/LLM routing table
   if (aiComponents.length > 0 || connections.some((c) => c.connection_type === 'service-call')) {
     lines.push('## AI/LLM Routing');
@@ -917,6 +982,33 @@ export async function buildSummary(
         }
         compressed.push('');
       }
+    }
+
+    // Top by PageRank (compressed: top 5 + 1 Mermaid block)
+    try {
+      const metricsPath = path.join(getStoragePath(cfg, root), 'metrics.json');
+      if (fs.existsSync(metricsPath)) {
+        const raw = await fs.promises.readFile(metricsPath, 'utf-8');
+        const report = JSON.parse(raw) as {
+          community_count: number;
+          modularity: number | null;
+          suppressed: boolean;
+          metrics: Array<{ name: string; pagerank_score: number; community_id: number; component_id: string }>;
+        };
+        if (!report.suppressed && report.metrics.length > 0) {
+          compressed.push('## Top by PageRank');
+          compressed.push(`> ${report.community_count} communities · modularity ${report.modularity?.toFixed(3) ?? 'n/a'}`);
+          compressed.push('');
+          compressed.push('| # | Component | PageRank | Community |');
+          compressed.push('|---|-----------|---------:|----------:|');
+          report.metrics.slice(0, 5).forEach((m, i) => {
+            compressed.push(`| ${i + 1} | \`${m.name}\` | ${m.pagerank_score.toFixed(4)} | ${m.community_id} |`);
+          });
+          compressed.push('');
+        }
+      }
+    } catch {
+      // metrics.json missing or malformed — silent skip.
     }
 
     // AI/LLM routing table (preserved in compressed version)
