@@ -737,6 +737,23 @@ export async function scan(
   await buildIndex(config, root, projectMetadata);
   await buildGraph(config, root);
   await buildFileMap(config, root);
+
+  // Compute graph-wide metrics (PageRank + Louvain communities) → metrics.json,
+  // and back-write per-component scores into component metadata so any consumer
+  // that loads a component sees them. Suppressed for graphs <20 nodes.
+  try {
+    const { computeAndStoreMetrics } = await import('./metrics/pagerank-louvain.js');
+    await computeAndStoreMetrics(config, root, {
+      components: uniqueComponents,
+      connections: uniqueConnections,
+    });
+  } catch (err) {
+    // Non-fatal — scan still produces all other artifacts.
+    if (process.env['NAVGATOR_DEBUG']) {
+      console.error('[metrics] PageRank/Louvain skipped:', (err as Error).message);
+    }
+  }
+
   await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo);
 
   // Persist prompt scan results if available
