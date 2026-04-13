@@ -14,6 +14,7 @@ export function registerScanCommand(program: Command): void {
     .option('--ast', 'Use AST-based scanning (more accurate, slightly slower)')
     .option('--track-branch', 'Capture git branch/commit in scan output')
     .option('--commit', 'Auto-commit scan output to nested .navgator/.git for temporal queries (~180ms overhead)')
+    .option('--scip', 'Run SCIP indexer for compiler-accurate cross-file edges (requires tsconfig; ~500ms cold)')
     .option('--field-usage', 'Analyze DB field usage across codebase (requires Prisma schema)')
     .option('--typespec', 'Validate Prisma types against TypeScript interfaces')
     .option('--json', 'Output scan results as JSON')
@@ -40,6 +41,7 @@ export function registerScanCommand(program: Command): void {
           fieldUsage: options.fieldUsage,
           typeSpec: options.typespec,
           commit: options.commit,
+          scip: options.scip,
         });
 
         // Restore console for output

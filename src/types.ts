@@ -502,12 +502,33 @@ export function generateComponentId(type: ComponentType, name: string): string {
  * Length-cap at 64 chars to keep filenames sane.
  */
 function slugifyForStableId(name: string): string {
-  const s = name
+  const raw = (name ?? '').toString();
+  const MAX = 48;
+  const filtered = raw
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
-  return s || 'unnamed';
+    .replace(/^-+|-+$/g, '');
+  // Hash-suffix triggers — narrow to cases where input identity could
+  // genuinely be lost. Routine punctuation folding (spaces, slashes, @scopes)
+  // does NOT trigger; that would make most names noisy.
+  const hasNonAscii = /[^\u0000-\u007f]/.test(raw);
+  const wasEmpty = filtered === '';
+  const trimmed = filtered.slice(0, MAX);
+  const wasTruncated = filtered.length > MAX;
+  if (!hasNonAscii && !wasEmpty && !wasTruncated) {
+    return trimmed;
+  }
+  // FNV-1a 32-bit over original raw bytes — deterministic, dependency-free.
+  // Disambiguates non-ASCII names, empty inputs, and >48-char names that
+  // would otherwise collide after slugification (Codex audit fix).
+  let h = 0x811c9dc5;
+  for (let i = 0; i < raw.length; i++) {
+    h = (h ^ raw.charCodeAt(i)) >>> 0;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const suffix = h.toString(36).padStart(7, '0').slice(0, 7);
+  const base = trimmed || 'h';
+  return `${base}-${suffix}`;
 }
 
 /**

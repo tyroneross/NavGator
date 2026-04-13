@@ -13,7 +13,7 @@ function getStoreDir(): string {
 }
 
 function notInitMsg(): string {
-  return 'No NavGator git history yet. Run `navgator scan` first — each scan auto-commits to .navgator/.git.';
+  return 'No NavGator git history yet. Temporal tracking is opt-in — run `navgator scan --commit` (or set NAVGATOR_COMMIT=1) to start capturing snapshots.';
 }
 
 export function registerTemporalCommands(program: Command): void {

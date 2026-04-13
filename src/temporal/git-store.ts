@@ -31,18 +31,25 @@ export interface SnapshotEntry {
 const COMMIT_AUTHOR = 'navgator-bot <noreply@navgator.local>';
 
 function runGit(cwd: string, args: string[]): { ok: boolean; stdout: string; stderr: string; code: number } {
+  // Strip every GIT_* env var the user may have set (GIT_DIR, GIT_WORK_TREE,
+  // GIT_CONFIG_GLOBAL, GIT_INDEX_FILE, etc.) so the nested store really is
+  // isolated from the user's git environment (Codex audit fix).
+  const cleanEnv: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!k.startsWith('GIT_')) cleanEnv[k] = v;
+  }
+  // Then set only what we want:
+  cleanEnv.GIT_CONFIG_NOSYSTEM = '1';      // ignore /etc/gitconfig
+  cleanEnv.GIT_CONFIG_GLOBAL = '/dev/null'; // ignore ~/.gitconfig (point to empty)
+  cleanEnv.GIT_AUTHOR_NAME = 'navgator-bot';
+  cleanEnv.GIT_AUTHOR_EMAIL = 'noreply@navgator.local';
+  cleanEnv.GIT_COMMITTER_NAME = 'navgator-bot';
+  cleanEnv.GIT_COMMITTER_EMAIL = 'noreply@navgator.local';
+
   const r = spawnSync('git', args, {
     cwd,
     stdio: 'pipe',
-    env: {
-      ...process.env,
-      // Prevent git from picking up user's global config or env-injected identity.
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 'navgator-bot',
-      GIT_AUTHOR_EMAIL: 'noreply@navgator.local',
-      GIT_COMMITTER_NAME: 'navgator-bot',
-      GIT_COMMITTER_EMAIL: 'noreply@navgator.local',
-    },
+    env: cleanEnv,
   });
   return {
     ok: (r.status ?? -1) === 0,

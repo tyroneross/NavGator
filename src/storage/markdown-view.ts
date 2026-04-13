@@ -27,10 +27,6 @@ import { generateStableId } from '../types.js';
 const MD_DIR = 'components-md';
 const CONNECTIONS_JSONL = 'connections.jsonl';
 
-function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'unnamed';
-}
-
 function escapeYaml(value: string): string {
   // Quote any value that could be misparsed; keep simple inline strings unquoted only when safe.
   if (/^[\w./:_-]+$/.test(value) && value.length < 80) return value;
@@ -166,18 +162,15 @@ export async function writeComponentMarkdownViews(
   }
 
   const written: string[] = [];
-  // Per-type subdir to keep listings sensible.
-  const seenSlugs = new Map<string, number>(); // disambiguate slug collisions within a type
+  // File names = stable_id so [[STABLE_*]] wikilinks in body resolve in
+  // Obsidian / Foam without an alias rewrite (Codex audit fix). stable_id
+  // is already collision-safe (FNV suffix on lossy input) so no extra
+  // disambiguation is needed.
   for (const c of components) {
     const typeDir = path.join(mdRoot, c.type);
     await fs.promises.mkdir(typeDir, { recursive: true });
-    let slug = slugify(c.name);
-    const key = `${c.type}/${slug}`;
-    const seen = seenSlugs.get(key) ?? 0;
-    if (seen > 0) slug = `${slug}-${seen}`;
-    seenSlugs.set(key, seen + 1);
-
-    const filePath = path.join(typeDir, `${slug}.md`);
+    const stableId = c.stable_id ?? generateStableId(c.type, c.name);
+    const filePath = path.join(typeDir, `${stableId}.md`);
     const content =
       buildFrontmatter(c, metricLookup) +
       '\n\n' +

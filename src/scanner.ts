@@ -79,6 +79,7 @@ export interface ScanOptions {
   fieldUsage?: boolean;      // Analyze DB field usage across codebase (FEATURE FLAG)
   typeSpec?: boolean;        // Validate Prisma types against TS interfaces (FEATURE FLAG)
   commit?: boolean;          // Opt-in: auto-commit scan output to nested .navgator/.git for temporal queries
+  scip?: boolean;            // Opt-in: run SCIP indexer for resolved cross-file edges (~500ms cold)
 }
 
 // =============================================================================
@@ -438,6 +439,81 @@ export async function scan(
       allConnections.push(...importResult.connections);
       if (options.verbose) {
         console.log(`    Found ${importResult.components.length} internal modules, ${importResult.connections.length} file-level imports`);
+      }
+
+      // SCIP overlay (T11): when --scip / NAVGATOR_SCIP=1, run the
+      // compiler-accurate indexer and ADD any cross-file edges the regex
+      // import-scanner missed (re-exports, dynamic imports, type-only refs,
+      // etc.). Existing edges from the regex pass are preserved as-is so
+      // the characterization snapshots stay stable for non-SCIP runs.
+      const scipEnabled = process.env['NAVGATOR_SCIP'] === '1' || options.scip === true;
+      if (scipEnabled) {
+        try {
+          const { runScip, crossFileEdges, hasTsConfig } = await import('./parsers/scip-runner.js');
+          if (!hasTsConfig(root)) {
+            if (options.verbose) console.log('    SCIP requested but no tsconfig.json — skipping');
+          } else {
+            if (options.verbose) console.log('  - Running SCIP indexer (compiler-accurate)...');
+            const scipResult = await runScip(root, { timeoutMs: 60_000 });
+            if (!scipResult.ok) {
+              allWarnings.push({
+                type: 'parse_error',
+                message: `SCIP indexer failed: ${scipResult.error}`,
+              });
+            } else {
+              const cross = crossFileEdges(scipResult.edges);
+              const fileToComponentId = new Map<string, string>();
+              for (const c of importResult.components) {
+                const f = c.source?.config_files?.[0];
+                if (f) fileToComponentId.set(f, c.component_id);
+              }
+              const existing = new Set(
+                importResult.connections
+                  .filter((c) => c.connection_type === 'imports')
+                  .map((c) => `${c.from?.location?.file ?? ''}→${c.code_reference?.file ?? ''}`)
+              );
+              let added = 0;
+              const now = Date.now();
+              for (const e of cross) {
+                const fromId = fileToComponentId.get(e.from_file);
+                const toId = fileToComponentId.get(e.to_file ?? '');
+                if (!fromId || !toId) continue;
+                const key = `${e.from_file}→${e.to_file}`;
+                if (existing.has(key)) continue;
+                existing.add(key);
+                allConnections.push({
+                  connection_id: `CONN_imports_scip_${Math.random().toString(36).slice(2, 10)}`,
+                  from: {
+                    component_id: fromId,
+                    location: { file: e.from_file, line: e.from_line + 1 },
+                  },
+                  to: { component_id: toId },
+                  connection_type: 'imports',
+                  code_reference: {
+                    file: e.from_file,
+                    symbol: e.display_name || e.symbol.split('/').pop()?.slice(0, 40) || 'scip-ref',
+                    symbol_type: e.is_definition ? 'export' : 'import',
+                    line_start: e.from_line + 1,
+                  },
+                  description: 'SCIP-resolved cross-file reference',
+                  detected_from: 'scip-typescript',
+                  confidence: 0.99,
+                  timestamp: now,
+                  last_verified: now,
+                });
+                added++;
+              }
+              if (options.verbose) {
+                console.log(`    SCIP added ${added} cross-file edges (${scipResult.duration_ms}ms, ${scipResult.documents_indexed} docs)`);
+              }
+            }
+          }
+        } catch (err) {
+          allWarnings.push({
+            type: 'parse_error',
+            message: `SCIP overlay failed: ${(err as Error).message}`,
+          });
+        }
       }
     } catch (error) {
       allWarnings.push({

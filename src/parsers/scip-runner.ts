@@ -18,6 +18,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+// ESM equivalent of __dirname. NavGator is published as ESM (`"type": "module"`).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface ScipEdge {
   /** Source file the reference appears in (relative to projectRoot). */
