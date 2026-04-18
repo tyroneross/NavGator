@@ -221,6 +221,41 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
 // VIEW EXTRACTION
 // =============================================================================
 
+/**
+ * Extract brace-balanced content starting from a line that contains '{'.
+ * Returns the content between the first '{' on startLine and its matching '}'.
+ */
+function extractBraceContent(lines: string[], startLine: number, endBound: number): string | null {
+  let depth = 0;
+  let started = false;
+  const bodyLines: string[] = [];
+  let openLine = -1;
+
+  for (let i = startLine; i <= endBound && i < lines.length; i++) {
+    for (let k = 0; k < lines[i].length; k++) {
+      if (lines[i][k] === '{') {
+        depth++;
+        if (!started) {
+          started = true;
+          openLine = i;
+        }
+      } else if (lines[i][k] === '}') {
+        depth--;
+        if (depth === 0 && started) {
+          // Collect lines between open and close braces
+          for (let l = openLine + 1; l < i; l++) {
+            bodyLines.push(lines[l]);
+          }
+          const beforeClose = lines[i].substring(0, k).trim();
+          if (beforeClose) bodyLines.push(beforeClose);
+          return bodyLines.join('\n');
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function extractViews(file: SwiftFileInfo): SwiftUIViewInfo[] {
   const views: SwiftUIViewInfo[] = [];
   const { lines, content, relativePath } = file;
@@ -240,18 +275,40 @@ function extractViews(file: SwiftFileInfo): SwiftUIViewInfo[] {
 
     if (!protocols.includes('View')) continue;
 
+    // Find struct bounds for scanning additional patterns
+    const structBounds = findStructBounds(lines, i);
+    if (!structBounds) continue;
+
     // Extract body content using brace-balanced parser
     const bodyContent = extractViewBody(content, viewName, lines, i);
-    if (!bodyContent) continue;
 
-    // Parse composed views from body
-    const composedViews = parseViewComposition(bodyContent);
+    // Collect composed views from body + additional view-returning members
+    const allComposedViews = new Set<string>();
+    let allBodyContent = '';
+
+    if (bodyContent) {
+      allBodyContent = bodyContent;
+      for (const v of parseViewComposition(bodyContent)) {
+        allComposedViews.add(v);
+      }
+    }
+
+    // Scan struct body for additional view-returning patterns
+    const additionalBodies = extractAdditionalViewBodies(lines, structBounds.start, structBounds.end);
+    for (const extra of additionalBodies) {
+      allBodyContent += '\n' + extra;
+      for (const v of parseViewComposition(extra)) {
+        allComposedViews.add(v);
+      }
+    }
+
+    if (!bodyContent && additionalBodies.length === 0) continue;
 
     // Parse modifier chains
-    const modifiers = parseModifierChain(bodyContent, i);
+    const modifiers = parseModifierChain(allBodyContent, i);
 
     // Check for NavigationStack/NavigationView
-    const hasNavigationStack = /NavigationStack|NavigationView/.test(bodyContent);
+    const hasNavigationStack = /NavigationStack|NavigationView/.test(allBodyContent);
 
     // Parse environment dependencies
     const environmentDeps = parseEnvironmentDeps(lines, i);
@@ -260,7 +317,7 @@ function extractViews(file: SwiftFileInfo): SwiftUIViewInfo[] {
       name: viewName,
       file: relativePath,
       line: i + 1,
-      composedViews,
+      composedViews: [...allComposedViews],
       modifiers,
       hasNavigationStack,
       environmentDeps,
@@ -271,16 +328,9 @@ function extractViews(file: SwiftFileInfo): SwiftUIViewInfo[] {
 }
 
 /**
- * Extract the body property content of a SwiftUI view using brace-balanced parsing.
- * Looks for `var body: some View {` inside the struct and extracts its content.
+ * Find the brace-balanced bounds of a struct starting at structLine.
  */
-function extractViewBody(
-  content: string,
-  _viewName: string,
-  lines: string[],
-  structLine: number
-): string | null {
-  // Find the struct's opening brace
+function findStructBounds(lines: string[], structLine: number): { start: number; end: number } | null {
   let braceDepth = 0;
   let structStart = -1;
   let structEnd = -1;
@@ -302,37 +352,96 @@ function extractViewBody(
   }
 
   if (structStart === -1 || structEnd === -1) return null;
+  return { start: structStart, end: structEnd };
+}
+
+/**
+ * Scan inside a struct body for additional view-returning patterns:
+ * 1. @ViewBuilder functions: @ViewBuilder func foo(...) -> some View { }
+ * 2. View-returning functions: func foo(...) -> some View { }
+ * 3. Computed view properties: var content: some View { }
+ *
+ * Returns the extracted body content of each match.
+ */
+function extractAdditionalViewBodies(lines: string[], structStart: number, structEnd: number): string[] {
+  const bodies: string[] = [];
+
+  // Track brace depth to only match at struct-level (depth 1)
+  let depth = 0;
+
+  for (let i = structStart; i <= structEnd; i++) {
+    for (const ch of lines[i]) {
+      if (ch === '{') depth++;
+      if (ch === '}') depth--;
+    }
+
+    // Only scan members at struct body level (depth 1 after counting this line)
+    // We look ahead at the next line patterns
+    if (i >= structEnd) break;
+
+    const line = lines[i];
+
+    // Skip the `var body: some View` line -- already handled by extractViewBody
+    if (/var\s+body\s*:\s*some\s+View\s*\{/.test(line)) continue;
+
+    // Pattern 1 & 2: @ViewBuilder func or func ... -> some View {
+    // @ViewBuilder may be on the same line or the line before
+    const isViewBuilder = /@ViewBuilder/.test(line) ||
+      (i > structStart && /@ViewBuilder/.test(lines[i - 1]));
+
+    const funcViewMatch = line.match(
+      /(?:(?:public|private|internal|open|static|@ViewBuilder)\s+)*func\s+\w+\s*\([^)]*\)\s*->\s*some\s+View\s*\{/
+    );
+
+    if (funcViewMatch || (isViewBuilder && /func\s+\w+/.test(line) && /\{/.test(line))) {
+      const body = extractBraceContent(lines, i, structEnd);
+      if (body) bodies.push(body);
+      continue;
+    }
+
+    // Also handle @ViewBuilder on previous line, func on current line
+    if (i > structStart && /@ViewBuilder/.test(lines[i - 1]) && !/@ViewBuilder/.test(line)) {
+      const funcMatch = line.match(/func\s+\w+\s*\([^)]*\)\s*(->\s*some\s+View\s*)?\{/);
+      if (funcMatch) {
+        const body = extractBraceContent(lines, i, structEnd);
+        if (body) bodies.push(body);
+        continue;
+      }
+    }
+
+    // Pattern 3: Computed view properties (not `body`)
+    // var someProperty: some View {
+    const computedViewMatch = line.match(
+      /var\s+(\w+)\s*:\s*some\s+View\s*\{/
+    );
+    if (computedViewMatch && computedViewMatch[1] !== 'body') {
+      const body = extractBraceContent(lines, i, structEnd);
+      if (body) bodies.push(body);
+    }
+  }
+
+  return bodies;
+}
+
+/**
+ * Extract the body property content of a SwiftUI view using brace-balanced parsing.
+ * Looks for `var body: some View {` inside the struct and extracts its content.
+ */
+function extractViewBody(
+  _content: string,
+  _viewName: string,
+  lines: string[],
+  structLine: number
+): string | null {
+  const bounds = findStructBounds(lines, structLine);
+  if (!bounds) return null;
 
   // Within the struct, find `var body: some View {`
-  for (let i = structStart; i <= structEnd; i++) {
+  for (let i = bounds.start; i <= bounds.end; i++) {
     const bodyMatch = lines[i].match(/var\s+body\s*:\s*some\s+View\s*\{/);
     if (!bodyMatch) continue;
 
-    // Extract body content using brace balancing
-    let bodyDepth = 0;
-    let bodyStart = -1;
-    const bodyLines: string[] = [];
-
-    for (let j = i; j <= structEnd; j++) {
-      for (let k = 0; k < lines[j].length; k++) {
-        if (lines[j][k] === '{') {
-          if (bodyStart === -1) bodyStart = j;
-          bodyDepth++;
-        } else if (lines[j][k] === '}') {
-          bodyDepth--;
-          if (bodyDepth === 0 && bodyStart !== -1) {
-            // Collect all lines between body braces
-            for (let l = bodyStart + 1; l < j; l++) {
-              bodyLines.push(lines[l]);
-            }
-            // Include partial last line if content before closing brace
-            const beforeClose = lines[j].substring(0, k).trim();
-            if (beforeClose) bodyLines.push(beforeClose);
-            return bodyLines.join('\n');
-          }
-        }
-      }
-    }
+    return extractBraceContent(lines, i, bounds.end);
   }
 
   return null;
