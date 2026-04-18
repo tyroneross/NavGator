@@ -246,7 +246,182 @@ export function getBuiltinRules(): ArchitectureRule[] {
         }));
       },
     },
+    {
+      id: 'duplicate-resource-creation',
+      name: 'Duplicate Resource Creation',
+      description: 'Service/LLM component instantiated in multiple places without singleton pattern',
+      severity: 'warning',
+      check: (components, connections) => {
+        return checkDuplicateResourceCreation(components, connections);
+      },
+    },
+    {
+      id: 'transitively-dead',
+      name: 'Transitively Dead',
+      description: 'Component unreachable from any entry point via connection graph',
+      severity: 'warning',
+      check: (components, connections) => {
+        return checkTransitivelyDead(components, connections);
+      },
+    },
   ];
+}
+
+// =============================================================================
+// DUPLICATE RESOURCE CREATION DETECTION
+// =============================================================================
+
+/**
+ * For each service/llm component, find all components that import it.
+ * If >1 unique importing component instantiates the class (ClassName()),
+ * and no singleton pattern is detected, flag it.
+ *
+ * Singleton patterns detected: static let/var, lazy var, .shared
+ */
+function checkDuplicateResourceCreation(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[]
+): RuleViolation[] {
+  const violations: RuleViolation[] = [];
+
+  // Find service and llm components
+  const serviceComponents = components.filter(
+    c => c.type === 'service' || c.type === 'llm'
+  );
+
+  for (const svc of serviceComponents) {
+    // Find all connections TO this service (i.e., components that use/import it)
+    const importers = connections.filter(
+      c => c.to.component_id === svc.component_id
+    );
+
+    if (importers.length <= 1) continue;
+
+    // Check code snippets for instantiation patterns: ClassName()
+    const instantiationSites: string[] = [];
+    for (const conn of importers) {
+      const snippet = conn.code_reference?.code_snippet || '';
+      const file = conn.code_reference?.file || '';
+      const fromComp = components.find(c => c.component_id === conn.from.component_id);
+
+      // Check if the snippet or file context suggests instantiation
+      if (snippet.includes(`${svc.name}(`) || snippet.includes(`${svc.name}()`) || snippet.includes(`= ${svc.name}`)) {
+        // Check for singleton patterns in the snippet
+        const hasSingleton = /static\s+(let|var)|lazy\s+var|\.shared/.test(snippet);
+        if (!hasSingleton) {
+          instantiationSites.push(fromComp?.name || conn.from.component_id);
+        }
+      }
+    }
+
+    if (instantiationSites.length > 1) {
+      violations.push({
+        rule_id: 'duplicate-resource-creation',
+        severity: 'warning',
+        component: svc.name,
+        message: `${svc.name} instantiated in ${instantiationSites.length} places: ${instantiationSites.slice(0, 5).join(', ')}${instantiationSites.length > 5 ? ` +${instantiationSites.length - 5} more` : ''}`,
+        suggestion: `Use a singleton pattern (static let shared, lazy var, or dependency injection) for ${svc.name}`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+// =============================================================================
+// TRANSITIVE DEAD CODE DETECTION
+// =============================================================================
+
+/**
+ * BFS from entry points through the connection graph.
+ * Components unreachable from any entry point are transitively dead.
+ *
+ * Entry points are identified by:
+ * - type: 'api-endpoint', 'worker', 'cron' (natural entry points)
+ * - component names matching app delegate patterns (AppDelegate, App, @main)
+ * - tags containing 'entrypoint', 'route', or 'navigation-root'
+ * - role.layer === 'infra' or role.layer === 'external' (not code we own)
+ */
+function checkTransitivelyDead(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[]
+): RuleViolation[] {
+  if (components.length === 0) return [];
+
+  // Build adjacency list (both directions for reachability)
+  const adj = new Map<string, Set<string>>();
+  for (const c of components) {
+    adj.set(c.component_id, new Set());
+  }
+  for (const conn of connections) {
+    // Forward edges
+    adj.get(conn.from.component_id)?.add(conn.to.component_id);
+    // Reverse edges: if B depends on A, A is reachable from B's perspective
+    adj.get(conn.to.component_id)?.add(conn.from.component_id);
+  }
+
+  // Identify entry points
+  const entryPointTypes = new Set(['api-endpoint', 'worker', 'cron', 'xcode-target']);
+  const entryPointNamePatterns = /App$|AppDelegate|@main|ContentView|SceneDelegate|Main/i;
+  const excludedTypes = new Set(['npm', 'pip', 'spm', 'cargo', 'go', 'gem', 'composer', 'infra', 'config']);
+
+  const entryPoints = new Set<string>();
+  for (const c of components) {
+    if (entryPointTypes.has(c.type)) {
+      entryPoints.add(c.component_id);
+    } else if (entryPointNamePatterns.test(c.name)) {
+      entryPoints.add(c.component_id);
+    } else if (c.tags?.some(t => ['entrypoint', 'route', 'navigation-root'].includes(t))) {
+      entryPoints.add(c.component_id);
+    } else if (c.role.layer === 'infra' || c.role.layer === 'external') {
+      entryPoints.add(c.component_id);
+    }
+  }
+
+  // If no entry points found, skip (can't determine reachability without roots)
+  if (entryPoints.size === 0) return [];
+
+  // BFS from all entry points
+  const reachable = new Set<string>();
+  const queue: string[] = [...entryPoints];
+  for (const ep of entryPoints) {
+    reachable.add(ep);
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const neighbors = adj.get(current);
+    if (!neighbors) continue;
+
+    for (const neighbor of neighbors) {
+      if (!reachable.has(neighbor)) {
+        reachable.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+
+  // Components not reachable and not excluded types are transitively dead
+  const violations: RuleViolation[] = [];
+  for (const c of components) {
+    if (reachable.has(c.component_id)) continue;
+    if (excludedTypes.has(c.type)) continue;
+    // Skip components that already have no connections (caught by orphan-component)
+    const hasAnyConnection = connections.some(
+      conn => conn.from.component_id === c.component_id || conn.to.component_id === c.component_id
+    );
+    if (!hasAnyConnection) continue;
+
+    violations.push({
+      rule_id: 'transitively-dead',
+      severity: 'warning',
+      component: c.name,
+      message: `${c.name} (${c.type}) is connected but unreachable from any entry point`,
+      suggestion: 'Verify this component is used in an active code path, or remove if obsolete',
+    });
+  }
+
+  return violations;
 }
 
 /**
