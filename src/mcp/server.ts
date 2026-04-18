@@ -12,16 +12,18 @@ import { TOOLS, handleToolCall } from "./tools.js";
 // --- JSON-RPC transport over stdio ---
 
 const rl = createInterface({ input: process.stdin, terminal: false });
-let buffer = "";
 
 rl.on("line", (line) => {
-  buffer += line;
+  const trimmed = line.trim();
+  if (!trimmed) return;
+
   try {
-    const msg = JSON.parse(buffer);
-    buffer = "";
+    const msg = JSON.parse(trimmed);
     handleMessage(msg);
   } catch {
-    // Incomplete JSON, keep buffering
+    // Each line should be one complete JSON-RPC message.
+    // Log malformed lines to stderr and move on — don't accumulate.
+    process.stderr.write(`NavGator: malformed JSON-RPC line: ${trimmed.slice(0, 200)}\n`);
   }
 });
 

@@ -26,7 +26,7 @@ import { buildExecutiveSummary } from "../agent-output.js";
 import { checkRules } from "../rules.js";
 import { extractSubgraph } from "../subgraph.js";
 import { deduplicateLLMUseCases } from "../llm-dedup.js";
-import { loadConfig } from "../config.js";
+import { getConfig, getPromptsPath } from "../config.js";
 import { getGitInfo } from "../git.js";
 import type { ArchitectureLayer } from "../types.js";
 import * as fs from "fs";
@@ -384,7 +384,7 @@ async function handleStatus(): Promise<{
     );
   }
 
-  const config = loadConfig();
+  const config = getConfig();
   const index = await loadIndex(config, projectRoot);
 
   const staleness = status.needs_rescan ? "stale" : "fresh";
@@ -424,7 +424,7 @@ async function handleImpact(
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const query = String(args.component);
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -476,7 +476,7 @@ async function handleConnections(
   const query = String(args.component);
   const direction = (args.direction as string) || "both";
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -523,8 +523,11 @@ async function handleConnections(
       const semantic = c.semantic
         ? ` [${c.semantic.classification}]`
         : "";
+      const fileRef = c.code_reference?.file
+        ? `${path.basename(c.code_reference.file)}:${c.code_reference.line_start ?? c.code_reference.symbol ?? "?"}`
+        : "";
       lines.push(
-        `- → ${targetName} (${c.connection_type})${semantic} — ${c.code_reference.file}:${c.code_reference.symbol}`
+        `- ${targetName} (${c.connection_type})${semantic}${fileRef ? ` -- ${fileRef}` : ""}`
       );
     }
     if (outgoing.length > 15) {
@@ -542,8 +545,11 @@ async function handleConnections(
       const semantic = c.semantic
         ? ` [${c.semantic.classification}]`
         : "";
+      const fileRef = c.code_reference?.file
+        ? `${path.basename(c.code_reference.file)}:${c.code_reference.line_start ?? c.code_reference.symbol ?? "?"}`
+        : "";
       lines.push(
-        `- ← ${sourceName} (${c.connection_type})${semantic} — ${c.code_reference.file}:${c.code_reference.symbol}`
+        `- ${sourceName} (${c.connection_type})${semantic}${fileRef ? ` -- ${fileRef}` : ""}`
       );
     }
     if (incoming.length > 15) {
@@ -564,7 +570,7 @@ async function handleDiagram(
   const mode = (args.mode as string) || "summary";
   const focus = args.focus as string | undefined;
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const graph = await loadGraph(config, projectRoot);
   if (!graph) {
@@ -622,7 +628,7 @@ async function handleTrace(
   const direction =
     (args.direction as "forward" | "backward" | "both") || "both";
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -653,7 +659,7 @@ async function handleSummary(): Promise<{
   content: Array<{ type: string; text: string }>;
 }> {
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -680,8 +686,11 @@ async function handleSummary(): Promise<{
 
   if (summary.risks.length > 0) {
     lines.push(`\nRisks (${summary.risks.length}):`);
-    for (const r of summary.risks) {
-      lines.push(`- [${r.severity}] ${r.message}`);
+    for (const r of summary.risks.slice(0, 10)) {
+      lines.push(`[${r.severity.toUpperCase()}] ${r.message}`);
+    }
+    if (summary.risks.length > 10) {
+      lines.push(`  ... and ${summary.risks.length - 10} more`);
     }
   }
 
@@ -706,7 +715,7 @@ async function handleReview(
   args: Record<string, unknown>
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -717,15 +726,26 @@ async function handleReview(
 
   const lines: string[] = ["ARCHITECTURE REVIEW"];
 
-  // 1. Rules check
+  // 1. Rules check — grouped by severity, capped at 5 per group
   const violations = checkRules(components, connections);
   if (violations.length > 0) {
     lines.push(`\nRule violations (${violations.length}):`);
-    for (const v of violations.slice(0, 15)) {
-      lines.push(`- [${v.severity}] ${v.message}${v.suggestion ? ` → ${v.suggestion}` : ""}`);
+    const bySev: Record<string, typeof violations> = {};
+    for (const v of violations) {
+      if (!bySev[v.severity]) bySev[v.severity] = [];
+      bySev[v.severity].push(v);
     }
-    if (violations.length > 15) {
-      lines.push(`  ... and ${violations.length - 15} more`);
+    for (const sev of ["error", "warning", "info"]) {
+      const group = bySev[sev];
+      if (!group || group.length === 0) continue;
+      lines.push(`\n${sev.toUpperCase()} (${group.length}):`);
+      for (const v of group.slice(0, 5)) {
+        lines.push(`[${v.severity.toUpperCase()}] ${v.message}`);
+        if (v.suggestion) lines.push(`  -> ${v.suggestion}`);
+      }
+      if (group.length > 5) {
+        lines.push(`  ... and ${group.length - 5} more ${sev} violations`);
+      }
     }
   } else {
     lines.push("\nRules: all passed");
@@ -761,7 +781,7 @@ async function handleReview(
   try {
     let prompts;
     try {
-      const promptsPath = path.join(config.storagePath, "prompts.json");
+      const promptsPath = getPromptsPath(config, projectRoot);
       const raw = await fs.promises.readFile(promptsPath, "utf-8");
       prompts = JSON.parse(raw)?.prompts;
     } catch { /* no prompts */ }
@@ -781,7 +801,7 @@ async function handleExplore(
   const query = String(args.component);
   const depth = typeof args.depth === "number" ? args.depth : 2;
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
@@ -865,7 +885,7 @@ async function handleRules(): Promise<{
   content: Array<{ type: string; text: string }>;
 }> {
   const projectRoot = getProjectRoot();
-  const config = loadConfig();
+  const config = getConfig();
 
   const components = await loadAllComponents(config, projectRoot);
   const connections = await loadAllConnections(config, projectRoot);
