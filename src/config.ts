@@ -337,14 +337,14 @@ export function shouldRescan(config: NavGatorConfig, projectRoot?: string): bool
  * Validate component ID format
  */
 export function isValidComponentId(id: string): boolean {
-  return /^COMP_[a-z0-9-]+_[a-z0-9_]+_[a-z0-9]{4}$/i.test(id);
+  return /^COMP_[a-z0-9-]+_[a-z0-9_]+_[a-z0-9]{4,8}$/i.test(id);
 }
 
 /**
  * Validate connection ID format
  */
 export function isValidConnectionId(id: string): boolean {
-  return /^CONN_[a-z0-9-]+_[a-z0-9]{6}$/i.test(id);
+  return /^CONN_[a-z0-9-]+_[a-z0-9]{4,8}$/i.test(id);
 }
 
 /**

@@ -113,7 +113,7 @@ export function registerSchemaCommand(program: Command): void {
           console.log(`\nREADERS (${readers.length + readWriters.length}):`);
           for (const conn of [...readers, ...readWriters].slice(0, 20)) {
             const badge = conn.description?.includes('[reads+writes]') ? ' [also writes]' : '';
-            const cls = (conn as any).semantic?.classification;
+            const cls = conn.semantic?.classification;
             const clsBadge = cls && cls !== 'production' ? ` [${cls}]` : '';
             console.log(`  ${conn.code_reference.file}:${conn.code_reference.line_start || ''}${badge}${clsBadge}`);
           }
@@ -123,7 +123,7 @@ export function registerSchemaCommand(program: Command): void {
           console.log(`\nWRITERS (${writers.length + readWriters.length}):`);
           for (const conn of [...writers, ...readWriters].slice(0, 20)) {
             const badge = conn.description?.includes('[reads+writes]') ? ' [also reads]' : '';
-            const cls = (conn as any).semantic?.classification;
+            const cls = conn.semantic?.classification;
             const clsBadge = cls && cls !== 'production' ? ` [${cls}]` : '';
             console.log(`  ${conn.code_reference.file}:${conn.code_reference.line_start || ''}${badge}${clsBadge}`);
           }

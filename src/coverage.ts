@@ -57,7 +57,7 @@ export async function computeCoverage(
   // Classification counts
   const byClassification: Record<string, number> = {};
   for (const conn of connections) {
-    const classification = (conn as any).semantic?.classification || 'unclassified';
+    const classification = conn.semantic?.classification || 'unclassified';
     byClassification[classification] = (byClassification[classification] || 0) + 1;
   }
 

@@ -65,12 +65,12 @@ export function registerConnectionsCommand(program: Command): void {
         if (options.production) {
           // Production = explicitly production + unknown/unclassified (not test/dev/migration)
           filteredConns = connections.filter(c => {
-            const cls = (c as any).semantic?.classification;
+            const cls = c.semantic?.classification;
             return !cls || cls === 'production' || cls === 'unknown' || cls === 'admin' || cls === 'analytics';
           });
         } else if (options.test) {
           filteredConns = connections.filter(c => {
-            const cls = (c as any).semantic?.classification;
+            const cls = c.semantic?.classification;
             return cls === 'test' || cls === 'dev-only';
           });
         }
@@ -100,7 +100,7 @@ export function registerConnectionsCommand(program: Command): void {
 
         // Classification badge helper
         const badge = (conn: typeof incoming[0]) => {
-          const cls = (conn as any).semantic?.classification;
+          const cls = conn.semantic?.classification;
           if (!cls || cls === 'production') return '';
           return ` [${cls}]`;
         };

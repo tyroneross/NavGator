@@ -184,7 +184,7 @@ export function traceDataflow(
     // Apply classification filter
     const filteredConnections = options.filterClassification
       ? connections.filter(({ conn }) => {
-          const cls = (conn as any).semantic?.classification;
+          const cls = conn.semantic?.classification;
           if (options.filterClassification === 'production') {
             // Production = not explicitly test/dev/migration
             return !cls || cls === 'production' || cls === 'unknown' || cls === 'admin' || cls === 'analytics';
@@ -255,7 +255,7 @@ export function traceDataflow(
     const classifications = tracePath.steps
       .filter(s => s.connection)
       .map(s => {
-        const semantic = (allConnections.find(c => c.connection_id === s.connection?.id) as any)?.semantic;
+        const semantic = allConnections.find(c => c.connection_id === s.connection?.id)?.semantic;
         return semantic?.classification;
       })
       .filter(Boolean);

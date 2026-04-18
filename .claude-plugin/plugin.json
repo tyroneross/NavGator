@@ -5,6 +5,6 @@
   "author": { "name": "Tyrone Ross" },
   "homepage": "https://github.com/tyroneross/navgator",
   "repository": "https://github.com/tyroneross/navgator",
-  "license": "MIT",
+  "license": "FSL-1.1-MIT",
   "keywords": ["architecture", "connections", "context", "dependencies", "impact-analysis"]
 }
