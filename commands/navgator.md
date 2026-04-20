@@ -1,0 +1,45 @@
+---
+name: gator
+description: Main gator entry. Dispatches to a subcommand based on your request, or lists options if unclear. Use `gator:<subcommand>` to target a specific action directly.
+argument-hint: "[what you want to do]"
+---
+
+# /gator — Router
+
+Route this request to the appropriate gator subcommand or skill based on the user's intent.
+
+**Raw user input**: $ARGUMENTS
+
+## Routing logic
+
+1. If `$ARGUMENTS` is empty or only whitespace: list the available subcommands below and ask the user what they want to do.
+2. Otherwise: match the user's natural-language request against the subcommand intents below and invoke the best match.
+3. If the request clearly doesn't fit any subcommand but matches a `gator` skill (listed in your available skills), load the skill and follow its guidance instead.
+4. If nothing fits, say so and list the subcommands. Do NOT guess.
+
+## Available subcommands
+
+- **`/gator:dead`** — Find dead code — orphaned components with no connections, unused packages, unuse
+- **`/gator:impact`** — Check what breaks if you change a component — blast radius analysis before modif
+- **`/gator:lessons`** — List, search, promote, and manage NavGator architecture lessons. Use when the us
+- **`/gator:llm-map`** — Map all LLM use cases — shows what each AI call does, which provider, and what i
+- **`/gator:map`** — Map the full architecture of this repository — components, connections, runtime 
+- **`/gator:navgator`**
+- **`/gator:review`** — Run architectural integrity review — checks system flow, component connections, 
+- **`/gator:scan`** — Quick architecture scan — refresh component and connection tracking
+- **`/gator:schema`** — Show which files read from and write to database models
+- **`/gator:test`** — End-to-end architecture test — verify that all components connect correctly, no 
+- **`/gator:trace`** — Trace data flow through the architecture — follow a component's connections from
+
+
+## Examples
+
+- User types `/gator` alone → list subcommands, ask for direction
+- User types `/gator <free-form request>` → match intent, invoke subcommand
+- User types `/gator:<specific>` → bypass this router entirely (direct invocation)
+
+## Rules
+
+- Prefer the most specific subcommand match. If two could fit, ask which.
+- Never invent a new subcommand. Only route to ones listed above.
+- If the user is describing a workflow that spans multiple subcommands, outline the sequence and ask whether to proceed.
