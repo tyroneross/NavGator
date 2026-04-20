@@ -1,10 +1,20 @@
 {
-  "name": "gator",
+  "name": "navgator",
   "version": "0.6.1",
-  "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
-  "author": { "name": "Tyrone Ross" },
+  "description": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
+  "author": {
+    "name": "Tyrone Ross"
+  },
   "homepage": "https://github.com/tyroneross/navgator",
   "repository": "https://github.com/tyroneross/navgator",
   "license": "FSL-1.1-MIT",
-  "keywords": ["architecture", "connections", "context", "dependencies", "impact-analysis"]
+  "keywords": [
+    "architecture",
+    "connections",
+    "context",
+    "dependencies",
+    "impact-analysis"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
 }

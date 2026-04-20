@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "gator",
+      "name": "navgator",
       "source": "./",
       "description": "Architecture connection tracker for Claude Code — know your stack before you change it",
       "version": "0.6.1",
