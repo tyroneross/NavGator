@@ -1,12 +1,12 @@
 {
-  "name": "gator",
+  "name": "navgator",
   "version": "0.6.2",
   "description": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
   "author": {
     "name": "Tyrone Ross"
   },
-  "homepage": "https://github.com/tyroneross/navgator",
-  "repository": "https://github.com/tyroneross/navgator",
+  "homepage": "https://github.com/tyroneross/NavGator",
+  "repository": "https://github.com/tyroneross/NavGator",
   "license": "MIT",
   "keywords": [
     "architecture",
