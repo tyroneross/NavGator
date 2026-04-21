@@ -1,7 +1,7 @@
 {
   "name": "@tyroneross/navgator",
   "version": "0.6.1",
-  "description": "Architecture connection tracker for Claude Code - know your stack before you change it",
+  "description": "Architecture connection tracker for Claude Code and Codex - know your stack before you change it",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,8 +31,11 @@
     "hooks",
     "agents",
     ".claude-plugin",
+    ".codex-plugin",
+    ".agents",
     ".mcp.json",
     "scripts/install-plugin.sh",
+    "scripts/install-codex-plugin.sh",
     "CLAUDE.md",
     "README.md"
   ],
@@ -50,11 +53,15 @@
     "clean": "rm -rf dist web/.next",
     "prepublishOnly": "npm run clean && npm run build",
     "link:local": "npm run build && npm link",
+    "install:claude": "bash scripts/install-plugin.sh --global",
+    "install:codex": "bash scripts/install-codex-plugin.sh --user",
+    "install:codex-workspace": "bash scripts/install-codex-plugin.sh --workspace",
     "install-plugin": "bash scripts/install-plugin.sh --global",
     "mcp": "node dist/mcp/server.js"
   },
   "keywords": [
     "claude-code",
+    "codex",
     "architecture",
     "dependencies",
     "devtools",
