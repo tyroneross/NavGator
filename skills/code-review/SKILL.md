@@ -1,6 +1,6 @@
 ---
 name: code-review
-description: This skill activates when the user asks to "review architecture", "check connections", "gator review", "architectural review", "what's the architectural impact", "review changes", "is this safe to merge", "what did I break", "check integrity", "review before push", or when NavGator scan detects architectural drift. Performs 5-phase architectural integrity review focusing on system flow, component communication, and accumulated lessons.
+description: This skill activates when the user asks to "review architecture", "check connections", "navgator review", "architectural review", "what's the architectural impact", "review changes", "is this safe to merge", "what did I break", "check integrity", "review before push", or when NavGator scan detects architectural drift. Performs 5-phase architectural integrity review focusing on system flow, component communication, and accumulated lessons.
 version: 0.4.0
 user-invocable: true
 ---
@@ -46,8 +46,8 @@ When scope is ambiguous, default to `git diff origin/main..HEAD`. If the branch 
 
 Before starting any phase:
 
-1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run `/gator:scan` first.
-2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — consider running `/gator:scan` first for accurate results."
+1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run `/navgator:scan` first.
+2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — consider running `/navgator:scan` first for accurate results."
 3. Load `.navgator/architecture/file_map.json` for file-to-component resolution.
 4. Load `.navgator/architecture/graph.json` for connection traversal.
 5. Check for `.navgator/lessons/lessons.json`. If missing, create it:
@@ -170,7 +170,7 @@ Output:
 **Goal:** Verify that docs reflect what the code actually does.
 
 1. Read `README.md`. For each CLI command or flag in the implementation, check that it appears in the README CLI Reference section. Run `node dist/cli/index.js --help` (or the equivalent for this project) and compare against what README documents.
-2. Read `CLAUDE.md`. Verify the command table is complete — all `/gator:*` commands that exist in the implementation should be listed.
+2. Read `CLAUDE.md`. Verify the command table is complete — all `/navgator:*` commands that exist in the implementation should be listed.
 3. List all directories under `skills/`. For each capability NavGator has, verify a skill file exists.
 4. Read `plugin.json` (or equivalent config). Verify all referenced directories and entry points exist on disk.
 5. For each new or modified capability identified in Phase 1, check whether it appears in:
@@ -188,7 +188,7 @@ Output:
   Agent-invisible: [features an agent would not discover from available context]
 
   [AGENT-INVISIBLE] --validate flag added to code-review but not in CLAUDE.md command table
-  [STALE] README references `navgator check` but command was renamed to `/gator:check`
+  [STALE] README references `navgator check` but command was renamed to `/navgator:check`
   [UNDOCUMENTED] navgator coverage --typespec — no skill file, not in CLAUDE.md
 ```
 
@@ -304,7 +304,7 @@ When the user runs a review with `learn "..."`:
    - `occurrences: 1`
    - `first_seen` and `last_seen` set to today
 4. Write to `.navgator/lessons/lessons.json`.
-5. Confirm: "Lesson recorded (id: XXXXXXXX). Run `/gator:review --validate` to verify it against current best practice."
+5. Confirm: "Lesson recorded (id: XXXXXXXX). Run `/navgator:review --validate` to verify it against current best practice."
 
 Do not run the full 5-phase review for manual lesson entry — just record and confirm.
 
@@ -365,4 +365,4 @@ These are real architectural findings this skill is designed to surface:
 
 ---
 
-*gator — architecture tracker*
+*navgator — architecture tracker*

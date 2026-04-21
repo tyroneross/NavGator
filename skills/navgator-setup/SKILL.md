@@ -1,6 +1,6 @@
 ---
-name: gator-setup
-description: Install, update, or launch NavGator tools. Use when the user asks to "install gator", "update navgator", "launch dashboard", "gator ui", "set up navgator", or needs maintenance operations.
+name: navgator-setup
+description: Install, update, or launch NavGator tools. Use when the user asks to "install navgator", "update navgator", "launch dashboard", "navgator ui", "set up navgator", or needs maintenance operations.
 version: 0.4.0
 user-invocable: true
 argument-hint: [install|update|ui]
@@ -12,7 +12,7 @@ Install the plugin, update to latest version, or launch the web dashboard. These
 
 ## Install Plugin
 
-Install NavGator as a Claude Code plugin so all `/gator:*` commands are available.
+Install NavGator explicitly for Claude Code or Codex.
 
 ### Steps
 
@@ -26,23 +26,39 @@ npm ls -g @tyroneross/navgator 2>/dev/null | head -3
 npm install -g @tyroneross/navgator
 ```
 
-3. **Create plugin symlink:**
+3. **Install the Claude surface:**
 
 Global (all projects):
 ```bash
 mkdir -p ~/.claude/plugins
-ln -sfn "$(npm root -g)/@tyroneross/navgator" ~/.claude/plugins/gator
+ln -sfn "$(npm root -g)/@tyroneross/navgator" ~/.claude/plugins/navgator
 ```
 
 Project only:
 ```bash
 mkdir -p .claude/plugins
-ln -sfn "$(npm root -g)/@tyroneross/navgator" .claude/plugins/gator
+ln -sfn "$(npm root -g)/@tyroneross/navgator" .claude/plugins/navgator
 ```
 
 4. **Verify:** Check that `plugin.json` is accessible at the symlink target.
 
 5. Restart Claude Code for changes to take effect.
+
+### Codex
+
+Use the Codex installer from the repo root:
+
+```bash
+# user-wide install
+bash scripts/install-codex-plugin.sh --user
+
+# repo-local workspace metadata only
+bash scripts/install-codex-plugin.sh --workspace
+```
+
+Codex uses:
+- `.codex-plugin/plugin.json`
+- `.agents/plugins/marketplace.json`
 
 ## Update
 
@@ -83,10 +99,10 @@ Dashboard at `http://localhost:3002` shows:
 
 ```bash
 # Global
-rm -f ~/.claude/plugins/gator
+rm -f ~/.claude/plugins/navgator
 
 # Project
-rm -f .claude/plugins/gator
+rm -f .claude/plugins/navgator
 ```
 
-*gator — architecture tracker*
+*navgator — architecture tracker*

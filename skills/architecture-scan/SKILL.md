@@ -61,4 +61,4 @@ Use the `navgator scan` MCP tool with a follow-up review of the results. Health 
 
 Keep output concise. Do NOT dump raw CLI output. Summarize into a scannable brief.
 
-*gator — architecture tracker*
+*navgator — architecture tracker*

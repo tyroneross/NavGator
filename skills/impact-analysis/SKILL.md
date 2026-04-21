@@ -77,4 +77,4 @@ Present results clearly:
 3. Transitive dependents (may be affected)
 4. Recommendation: which files to review before making changes
 
-*gator — architecture tracker*
+*navgator — architecture tracker*

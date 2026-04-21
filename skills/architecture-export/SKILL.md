@@ -54,4 +54,4 @@ npx @tyroneross/navgator export json architecture.json --graph
 | "Export architecture docs" | CLI: `npx navgator export md` | File output |
 | "Architecture summary" | `navgator summary` | Executive summary |
 
-*gator — architecture tracker*
+*navgator — architecture tracker*

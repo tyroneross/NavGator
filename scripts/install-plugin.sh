@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# NavGator (gator) plugin installer for Claude Code
+# NavGator Claude Code plugin installer
 # Usage: ./install-plugin.sh [--global | --project]
 
 SCOPE="${1:---global}"
@@ -20,19 +20,21 @@ err()   { echo -e "${RED}$1${RESET}" >&2; }
 case "$SCOPE" in
   --global)
     TARGET_DIR="$HOME/.claude/plugins"
-    LINK_NAME="gator"
-    info "Installing gator plugin globally (all projects)..."
+    LINK_NAME="navgator"
+    info "Installing navgator plugin globally for Claude Code..."
     ;;
   --project)
     TARGET_DIR=".claude/plugins"
-    LINK_NAME="gator"
-    info "Installing gator plugin for current project only..."
+    LINK_NAME="navgator"
+    info "Installing navgator plugin for the current Claude Code project..."
     ;;
   *)
     echo "Usage: $0 [--global | --project]"
     echo ""
-    echo "  --global   Install for all projects (~/.claude/plugins/gator)"
-    echo "  --project  Install for current project only (.claude/plugins/gator)"
+    echo "  --global   Install for all Claude projects (~/.claude/plugins/navgator)"
+    echo "  --project  Install for the current Claude project (.claude/plugins/navgator)"
+    echo ""
+    echo "For Codex installs, run: bash scripts/install-codex-plugin.sh [--user | --workspace]"
     exit 1
     ;;
 esac
@@ -53,11 +55,11 @@ if [ ! -f "$NAVGATOR_PATH/.claude-plugin/plugin.json" ]; then
   exit 1
 fi
 
-# --- Clean up old navgator symlink ---
-OLD_LINK="$HOME/.claude/plugins/navgator"
-if [ -L "$OLD_LINK" ]; then
-  warn "Removing old 'navgator' symlink..."
-  rm -f "$OLD_LINK"
+# --- Clean up old navgator alias ---
+OLD_ALIAS="$TARGET_DIR/navgator"
+if [ -L "$OLD_ALIAS" ]; then
+  warn "Removing legacy 'navgator' Claude plugin alias..."
+  rm -f "$OLD_ALIAS"
 fi
 
 # --- Create symlink ---
@@ -74,22 +76,25 @@ ln -sfn "$NAVGATOR_PATH" "$FULL_LINK"
 # --- Verify ---
 if [ -f "$FULL_LINK/.claude-plugin/plugin.json" ]; then
   echo ""
-  ok "gator plugin installed successfully!"
+  ok "navgator Claude plugin installed successfully!"
   echo ""
   echo "  Location: $FULL_LINK -> $NAVGATOR_PATH"
   echo "  Scope:    $([ "$SCOPE" = "--global" ] && echo "all projects" || echo "current project only")"
   echo ""
-  echo "  Available commands:"
-  echo "    /gator:scan         Scan project architecture"
-  echo "    /gator:status       Show architecture summary"
-  echo "    /gator:impact       Analyze change impact"
-  echo "    /gator:connections  Show component connections"
-  echo "    /gator:diagram      Generate architecture diagram"
-  echo "    /gator:export       Export architecture data"
-  echo "    /gator:check        Run health checks"
-  echo "    /gator:ui           Launch web dashboard"
-  echo "    /gator:update       Update to latest version"
-  echo "    /gator:install      Re-run this installer"
+  echo "  Claude slash commands:"
+  echo "    /navgator:scan"
+  echo "    /navgator:map"
+  echo "    /navgator:trace"
+  echo "    /navgator:impact"
+  echo "    /navgator:test"
+  echo "    /navgator:review"
+  echo "    /navgator:llm-map"
+  echo "    /navgator:schema"
+  echo "    /navgator:dead"
+  echo "    /navgator:lessons"
+  echo ""
+  echo "  Codex install:"
+  echo "    bash scripts/install-codex-plugin.sh --user"
   echo ""
   warn "Restart Claude Code for changes to take effect."
 else
