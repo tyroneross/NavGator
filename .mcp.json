@@ -1,6 +1,8 @@
 {
-  "navgator": {
-    "command": "node",
-    "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"]
+  "mcpServers": {
+    "navgator": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"]
+    }
   }
 }
