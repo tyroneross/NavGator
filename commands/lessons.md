@@ -3,7 +3,7 @@ name: lessons
 description: List, search, promote, and manage NavGator architecture lessons. Use when the user asks about project or cross-project architectural patterns, lesson management, or promoting a lesson from one project to global scope.
 ---
 
-# /gator:lessons
+# /navgator:lessons
 
 NavGator lessons are architectural patterns recorded when a project hits a
 notable issue or discovers a reusable approach. They live in two places:

@@ -156,7 +156,7 @@ interface KnowledgeEntry {
 - `--add` flag: create new entry interactively (or from scan findings)
 - `--validate` flag: check entries for staleness, trigger re-research
 
-### `/gator:knowledge [topic]`
+### `/navgator:knowledge [topic]`
 Slash command that queries the knowledge base and returns recommendations.
 
 ## How Knowledge Accumulates
@@ -168,14 +168,14 @@ When NavGator scans a project and detects patterns:
 3. If no and the pattern is novel: flag for user review ("NavGator detected a new pattern — want to save it?")
 
 ### From lessons
-When a project lesson (`/gator:review learn "..."`) matches patterns seen in 3+ projects, promote it to the knowledge base automatically.
+When a project lesson (`/navgator:review learn "..."`) matches patterns seen in 3+ projects, promote it to the knowledge base automatically.
 
 ### Manual
 User creates entries via `navgator knowledge --add` or directly edits the JSON files.
 
 ## Validation Cycle
 
-### Automatic (on `/gator:review --validate`)
+### Automatic (on `/navgator:review --validate`)
 1. Check all entries with `lastValidated` > 6 months ago
 2. For each stale entry: use WebSearch to verify the recommendation is still current
 3. Update `validationStatus` to 'current' or 'superseded'
@@ -194,7 +194,7 @@ After scanning, compare detected patterns against knowledge base:
 - "This project uses OpenAI for reranking — knowledge base suggests Groq would be 3x faster"
 - "This project has 2 workers on the same queue — known anti-pattern"
 
-### In `/gator:review`
+### In `/navgator:review`
 Phase 2 (Connection Integrity) checks architecture against knowledge base patterns.
 
 ## Migration Path

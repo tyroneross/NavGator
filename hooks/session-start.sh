@@ -7,7 +7,7 @@ project="${CLAUDE_PROJECT_DIR:-$PWD}"
 index="$project/.navgator/architecture/index.json"
 
 # Not a navgator-tracked project yet — stay silent. A user who wants tracking
-# runs `/gator:scan` explicitly; auto-nagging on every SessionStart across
+# runs `/navgator:scan` explicitly; auto-nagging on every SessionStart across
 # every project is noise.
 [ -f "$index" ] || exit 0
 

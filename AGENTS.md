@@ -6,10 +6,10 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 ## What This Project Is
 
-NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude Code. It maps dependencies, analyzes impact, and visualizes your stack before you make changes. It ships as both an npm package and a Claude Code plugin.
+NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude Code and Codex. It maps dependencies, analyzes impact, and visualizes your stack before you make changes. It ships as an npm package plus explicit host surfaces for Claude and Codex.
 
 - **npm package:** `@tyroneross/navgator` (v0.6.1)
-- **Plugin name:** `gator`
+- **Plugin name:** `navgator`
 - **Runtime:** Node.js >= 20.0.0, TypeScript (ES2022, NodeNext modules)
 - **License:** MIT
 
@@ -46,7 +46,7 @@ NavGator/
 ├── skills/                     # 6 Claude Code skills
 │   ├── architecture-scan/      # Auto-scan triggers
 │   ├── architecture-export/    # Export/diagram generation
-│   ├── gator-setup/            # First-run setup guidance
+│   ├── navgator-setup/         # First-run setup guidance
 │   ├── impact-analysis/        # Impact query guidance
 │   ├── code-review/            # Architecture-aware review
 │   └── infrastructure-scanning.md  # Infrastructure detection skill
@@ -59,7 +59,11 @@ NavGator/
 │   ├── architecture-advisor.md     # Stack decisions + migration planning
 │   └── architecture-investigator.md  # SRE-style read-only investigation
 ├── .claude-plugin/
-│   └── plugin.json             # Plugin manifest (name: gator)
+│   └── plugin.json             # Claude plugin manifest (name: navgator)
+├── .codex-plugin/
+│   └── plugin.json             # Codex plugin manifest (name: navgator)
+├── .agents/plugins/
+│   └── marketplace.json        # Repo-local Codex marketplace metadata
 ├── web/                        # Optional Next.js UI
 ├── scripts/
 │   └── install-plugin.sh       # Global plugin installer
@@ -86,14 +90,20 @@ Build output goes to `dist/`. The MCP server entry point after build is `dist/mc
 
 ## Plugin Architecture
 
-### Plugin Manifest (`.claude-plugin/plugin.json`)
+### Plugin Manifests
 
-Registered as plugin name `gator`. Points to:
+Claude remains authoritative for host-specific behavior. The repo also ships an additive Codex surface.
+
+Claude surface (`.claude-plugin/plugin.json`) points to:
 - Hooks: `./hooks/hooks.json`
 - Skills: `./skills/`
-- Agents: `./agents/`
 - Commands: `./commands/`
 - MCP servers: `./.mcp.json`
+
+Codex surface (`.codex-plugin/plugin.json`) points to:
+- Skills: `./skills/`
+- MCP servers: `./.mcp.json`
+- Interface metadata for Codex UI
 
 ### MCP Server
 
@@ -114,13 +124,13 @@ JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 | `explore` | Full detail on a specific component (type, layer, files, metadata) |
 | `rules` | Rule checks: orphans, layer violations, cycles, hotspots |
 
-### Slash Commands (9)
+### Slash Commands (10)
 
-`/gator:dead`, `/gator:impact`, `/gator:llm-map`, `/gator:map`, `/gator:review`, `/gator:scan`, `/gator:schema`, `/gator:test`, `/gator:trace`
+`/navgator:dead`, `/navgator:impact`, `/navgator:llm-map`, `/navgator:map`, `/navgator:review`, `/navgator:scan`, `/navgator:schema`, `/navgator:test`, `/navgator:trace`
 
 ### Skills (6)
 
-`architecture-scan`, `architecture-export`, `gator-setup`, `impact-analysis`, `code-review`, `infrastructure-scanning`
+`architecture-scan`, `architecture-export`, `navgator-setup`, `impact-analysis`, `code-review`, `infrastructure-scanning`
 
 Skills have different auto-trigger patterns — check each `SKILL.md` before modifying trigger conditions.
 

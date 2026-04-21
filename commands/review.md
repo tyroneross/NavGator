@@ -7,7 +7,7 @@ arguments:
     required: false
 ---
 
-Run the gator code-review skill to perform a 5-phase architectural integrity review.
+Run the navgator code-review skill to perform a 5-phase architectural integrity review.
 
 **Scope:** $ARGUMENTS
 

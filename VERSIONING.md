@@ -8,7 +8,7 @@
   - GitHub: https://github.com/tyroneross/NavGator
   - npm: `@tyroneross/navgator`
   - Marketplace: `navgator` in `RossLabs-AI-Toolkit` (via GitHub source)
-- **Claude Code registry entry:** `gator@local` (loaded directly from source path; no cache dir)
+- **Claude Code registry entry:** `navgator@local` (loaded directly from source path; no cache dir)
 
 ## Key changes in 0.6.1
 

@@ -15,6 +15,6 @@ Run an architecture scan to refresh NavGator's tracking data.
 
 1. Run the navgator `scan` MCP tool with the specified options
 2. Report what changed since the last scan (new components, removed connections, etc.)
-3. If significant changes detected, suggest running `/gator:review` to check architectural integrity
+3. If significant changes detected, suggest running `/navgator:review` to check architectural integrity
 
-**Default behavior:** Full scan with connection detection. Faster than `/gator:map` — no status display or analysis, just the scan itself.
+**Default behavior:** Full scan with connection detection. Faster than `/navgator:map` — no status display or analysis, just the scan itself.

@@ -1,10 +1,10 @@
 # NavGator
 
-**Architecture Connection Tracker for Claude Code**
+**Architecture Connection Tracker for Claude Code and Codex**
 
 > Know your stack before you change it
 
-NavGator tracks architecture connections across your entire stack—packages, services, databases, queues, and infrastructure—so Claude knows what else needs to change when you modify one part of the system.
+NavGator tracks architecture connections across your entire stack—packages, services, databases, queues, and infrastructure—so your coding agent knows what else needs to change when you modify one part of the system.
 
 ## Features
 
@@ -13,7 +13,8 @@ NavGator tracks architecture connections across your entire stack—packages, se
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: Hooks, skills, and slash commands
+- **Claude Code Integration**: Hooks, skills, agents, and slash commands
+- **Codex Integration**: Skills, MCP tools, and native marketplace metadata
 
 ## Installation
 
@@ -29,7 +30,7 @@ npx @tyroneross/navgator scan
 
 ### As a Claude Code Plugin
 
-After installing globally, use the `/gator:install` command inside Claude Code, or run the install script:
+Install the Claude surface directly from this repo:
 
 ```bash
 # Install for all projects (user scope)
@@ -42,10 +43,29 @@ bash scripts/install-plugin.sh --project
 Or link manually:
 
 ```bash
-ln -s $(npm root -g)/@tyroneross/navgator ~/.claude/plugins/gator
+ln -s $(npm root -g)/@tyroneross/navgator ~/.claude/plugins/navgator
 ```
 
-Restart Claude Code after installing. All `/gator:*` commands will be available.
+Restart Claude Code after installing. All `/navgator:*` commands will be available.
+
+### As a Codex Plugin
+
+Install the Codex surface directly from this repo:
+
+```bash
+# Install for your Codex user account
+bash scripts/install-codex-plugin.sh --user
+
+# Or refresh repo-local workspace metadata only
+bash scripts/install-codex-plugin.sh --workspace
+```
+
+This repo now includes native Codex metadata in:
+
+- `.codex-plugin/plugin.json`
+- `.agents/plugins/marketplace.json`
+
+Claude remains the authoritative host for hooks, slash commands, and agent wiring. Codex uses the additive plugin surface for skills and MCP tools.
 
 ## Quick Start
 
@@ -55,7 +75,7 @@ Restart Claude Code after installing. All `/gator:*` commands will be available.
 navgator setup
 ```
 
-This runs the initial scan and offers to link NavGator as a Claude Code plugin (if Claude Code is installed).
+This runs the initial scan and then you can install the Claude or Codex surface explicitly from the scripts above.
 
 ### 2. Scan Your Project
 
@@ -180,34 +200,33 @@ navgator diagram --output architecture.md --markdown
 
 ## Claude Code Slash Commands
 
-When installed as a Claude Code plugin, all commands are available as `/gator:*` slash commands:
+When installed as a Claude Code plugin, all commands are available as `/navgator:*` slash commands:
 
 | Command | Description |
 |---------|-------------|
-| `/gator:scan` | Scan project architecture |
-| `/gator:status` | Show architecture summary |
-| `/gator:impact <component>` | Analyze what's affected by a change |
-| `/gator:connections <component>` | Show all connections for a component |
-| `/gator:diagram` | Generate architecture diagram |
-| `/gator:export` | Export architecture to markdown or JSON |
-| `/gator:check` | Run health checks (outdated packages, vulnerabilities) |
-| `/gator:ui` | Launch the web dashboard |
-| `/gator:update` | Update NavGator to the latest version |
-| `/gator:install` | Install/reinstall the plugin (choose scope) |
-| `/gator:review` | Architectural integrity review (connections, flow, drift, lessons) |
-| `/gator:review --all` | Review entire architecture, not just changes |
-| `/gator:review --validate` | Validate lessons against current docs (internet research) |
-| `/gator:review learn "..."` | Record a manual architectural lesson |
+| `/navgator:map` | Map full architecture — components, connections, runtime topology, and LLM use cases |
+| `/navgator:scan` | Quick scan — refresh tracking data |
+| `/navgator:trace <component>` | Trace data flow through the system |
+| `/navgator:impact <component>` | Analyze what's affected by a change |
+| `/navgator:test [instructions]` | Run an end-to-end architecture test |
+| `/navgator:review` | Architectural integrity review (connections, flow, drift, lessons) |
+| `/navgator:review --all` | Review entire architecture, not just changes |
+| `/navgator:review --validate` | Validate lessons against current docs (internet research) |
+| `/navgator:review learn "..."` | Record a manual architectural lesson |
+| `/navgator:llm-map` | Map LLM use cases by purpose and provider |
+| `/navgator:schema [model]` | Show database readers and writers |
+| `/navgator:dead` | Find orphaned components and dead code |
+| `/navgator:lessons` | Manage project and global architecture lessons |
 
 ### Hooks
 
 NavGator includes hooks that integrate with Claude Code:
 
-**SessionStart**: Checks if architecture data is stale (>24h) and suggests running `/gator:scan`.
+**SessionStart**: Checks if architecture data is stale (>24h) and suggests running `/navgator:scan`.
 
-**PreToolUse (Edit/Write)**: Before modifying architecture-critical files, reminds to check impact with `/gator:impact`.
+**PreToolUse (Edit/Write)**: Before modifying architecture-critical files, reminds to check impact with `/navgator:impact`.
 
-**PostToolUse (Bash)**: Detects package manager commands (`npm install`, `pip install`, etc.) and reminds to update architecture with `/gator:scan`.
+**PostToolUse (Bash)**: Detects package manager commands (`npm install`, `pip install`, etc.) and reminds to update architecture with `/navgator:scan`.
 
 **Stop**: After significant changes, reminds to rescan.
 
@@ -544,3 +563,28 @@ Contributions welcome! Please read the contributing guidelines first.
 - [GitHub Repository](https://github.com/tyroneross/navgator)
 - [Issue Tracker](https://github.com/tyroneross/navgator/issues)
 - [Claude Code](https://claude.ai/claude-code)
+
+## Codex
+
+This package now ships an additive Codex plugin surface alongside the existing Claude Code package. Claude remains the authoritative runtime for hooks, slash commands, and agents. Codex support is explicit and parallel rather than inferred from the Claude surface.
+
+Package root for Codex installs:
+- the repository root (`.`)
+
+Primary Codex surface:
+- manifest: `./.codex-plugin/plugin.json`
+- workspace marketplace metadata: `./.agents/plugins/marketplace.json`
+- skills from `./skills`
+- MCP config from `./.mcp.json`
+
+Recommended Codex flows:
+
+```bash
+# user-wide install
+bash scripts/install-codex-plugin.sh --user
+
+# repo-local workspace metadata
+bash scripts/install-codex-plugin.sh --workspace
+```
+
+The Codex package is additive only: Claude-specific hooks, slash commands, and agent wiring remain unchanged for Claude Code.
