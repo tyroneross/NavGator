@@ -434,11 +434,23 @@ export async function scan(
     // File-level import graph (TS/JS local imports)
     if (options.verbose) console.log('  - Scanning file imports...');
     try {
-      const importResult = await scanImports(root, sourceFiles);
+      // Collect npm package components so bare imports (`import X from "react"`)
+      // can be resolved to the package component and emitted as `uses-package`
+      // edges. Use config_files filter instead of type filter: packages can be
+      // classified as 'npm' | 'framework' | 'database' | 'service' depending
+      // on FRAMEWORK_SIGNATURES, but all originate from a package.json.
+      const knownPackages = allComponents
+        .filter(c => c.source.config_files?.some(f =>
+          f === 'package.json' || f.endsWith('/package.json')
+        ))
+        .map(c => ({ name: c.name, component_id: c.component_id }));
+
+      const importResult = await scanImports(root, sourceFiles, knownPackages);
       allComponents.push(...importResult.components);
       allConnections.push(...importResult.connections);
       if (options.verbose) {
-        console.log(`    Found ${importResult.components.length} internal modules, ${importResult.connections.length} file-level imports`);
+        const usesPkgCount = importResult.connections.filter(c => c.connection_type === 'uses-package').length;
+        console.log(`    Found ${importResult.components.length} internal modules, ${importResult.connections.length} file-level imports (${usesPkgCount} uses-package)`);
       }
 
       // SCIP overlay (T11): when --scip / NAVGATOR_SCIP=1, run the
