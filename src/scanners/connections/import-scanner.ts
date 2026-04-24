@@ -31,6 +31,15 @@ const ES_REEXPORT_REL_RE = /export\s+(?:\{[^}]*\}|\*)\s+from\s+['"](\.\/[^'"]+)[
 const REQUIRE_REL_RE = /require\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
 const DYNAMIC_IMPORT_REL_RE = /import\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
 
+// Bare specifier patterns — npm package imports (NOT relative, NOT alias).
+// Captures anything not starting with ./ ../ @/ ~/ — includes @scope/name and bare names.
+// Excludes node: protocol (built-ins) and data: / http: protocols.
+const BARE_SPEC = `(?!\\.\\.?\\/|@\\/|~\\/|node:|data:|http:|https:|file:)([a-zA-Z0-9@][a-zA-Z0-9@_./-]*)`;
+const ES_IMPORT_BARE_RE = new RegExp(`import\\s+(?:[\\s\\S]*?\\s+from\\s+)?['\"]${BARE_SPEC}['\"]`, 'g');
+const ES_REEXPORT_BARE_RE = new RegExp(`export\\s+(?:\\{[^}]*\\}|\\*(?:\\s+as\\s+\\w+)?)\\s+from\\s+['\"]${BARE_SPEC}['\"]`, 'g');
+const REQUIRE_BARE_RE = new RegExp(`require\\s*\\(\\s*['\"]${BARE_SPEC}['\"]\\s*\\)`, 'g');
+const DYNAMIC_IMPORT_BARE_RE = new RegExp(`import\\s*\\(\\s*['\"]${BARE_SPEC}['\"]\\s*\\)`, 'g');
+
 // Map .js/.jsx extensions to their TypeScript equivalents
 // (TS convention: `import './foo.js'` resolves to `./foo.ts`)
 const JS_TO_TS: [string, string][] = [
@@ -180,6 +189,46 @@ function extractImports(content: string): string[] {
 }
 
 /**
+ * Extract bare package specifiers from file content.
+ * Returns raw specifiers before subpath stripping (e.g. "react/jsx-runtime").
+ */
+function extractBareImports(content: string): string[] {
+  const specifiers: string[] = [];
+  const patterns = [
+    ES_IMPORT_BARE_RE, ES_REEXPORT_BARE_RE, REQUIRE_BARE_RE, DYNAMIC_IMPORT_BARE_RE,
+  ];
+
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      if (match[1]) specifiers.push(match[1]);
+    }
+  }
+
+  return [...new Set(specifiers)];
+}
+
+/**
+ * Strip subpath from a bare specifier to get the package root.
+ *   "react"                       → "react"
+ *   "react/jsx-runtime"           → "react"
+ *   "@radix-ui/react-dialog"      → "@radix-ui/react-dialog"
+ *   "@radix-ui/react-dialog/Root" → "@radix-ui/react-dialog"
+ */
+function stripSubpath(specifier: string): string {
+  if (specifier.startsWith('@')) {
+    // Scoped package: keep first two segments
+    const parts = specifier.split('/');
+    if (parts.length < 2) return specifier;
+    return `${parts[0]}/${parts[1]}`;
+  }
+  // Unscoped: keep first segment
+  const idx = specifier.indexOf('/');
+  return idx === -1 ? specifier : specifier.slice(0, idx);
+}
+
+/**
  * Find the line number where a specifier appears in the content.
  */
 function findImportLine(content: string, specifier: string): number {
@@ -248,13 +297,29 @@ function buildFileComponent(file: string, timestamp: number): ArchitectureCompon
 }
 
 /**
+ * A minimal shape used to resolve bare imports to npm package components.
+ * Callers pass { name, component_id } pairs — typically the npm-type components
+ * produced by `scanNpmPackages`.
+ */
+export interface KnownPackage {
+  name: string;
+  component_id: string;
+}
+
+/**
  * Scan source files and build file-level import connections.
  * Accepts the already-discovered source file list from the main scanner
  * to avoid redundant glob and ensure consistent file coverage.
+ *
+ * When `knownPackages` is provided, bare imports (e.g. `import X from "react"`)
+ * are emitted as `uses-package` edges from the source file component to the
+ * matching npm package component. Bare specifiers with no matching known
+ * package are skipped silently (no ghost nodes).
  */
 export async function scanImports(
   projectRoot: string,
-  sourceFiles?: string[]
+  sourceFiles?: string[],
+  knownPackages?: KnownPackage[]
 ): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
@@ -287,6 +352,17 @@ export async function scanImports(
   const knownFiles = new Set(files);
   const now = Date.now();
   const componentIdByFile = new Map<string, string>();
+
+  // Build a Map<packageName, component_id> for O(1) bare-import resolution.
+  // Only populated when caller provided knownPackages; otherwise bare-import
+  // edges are not emitted (backwards-compatible with callers that don't pass
+  // the package list).
+  const packageIdByName = new Map<string, string>();
+  if (knownPackages) {
+    for (const pkg of knownPackages) {
+      packageIdByName.set(pkg.name, pkg.component_id);
+    }
+  }
 
   for (const file of files) {
     const component = buildFileComponent(file, now);
@@ -346,6 +422,46 @@ export async function scanImports(
           timestamp: now,
           last_verified: now,
         });
+      }
+
+      // Bare-package edges: `import X from "react"` → file uses-package react.
+      // Only emitted when the caller provided a knownPackages set; bare
+      // specifiers that don't match a known package are skipped silently
+      // (no ghost nodes).
+      if (packageIdByName.size > 0) {
+        const bareSpecs = extractBareImports(content);
+        const emitted = new Set<string>(); // dedupe per-file: one edge per package
+        for (const rawSpec of bareSpecs) {
+          const pkgName = stripSubpath(rawSpec);
+          const targetId = packageIdByName.get(pkgName);
+          if (!targetId) continue;
+          if (emitted.has(pkgName)) continue;
+          emitted.add(pkgName);
+
+          const line = findImportLine(content, rawSpec);
+          connections.push({
+            connection_id: generateConnectionId('uses-package'),
+            from: {
+              component_id: componentIdByFile.get(file) || `FILE:${file}`,
+              location: { file, line },
+            },
+            to: {
+              component_id: targetId,
+            },
+            connection_type: 'uses-package',
+            code_reference: {
+              file,
+              symbol: pkgName,
+              symbol_type: 'import',
+              line_start: line,
+            },
+            description: `${file} uses ${pkgName}`,
+            detected_from: 'import-scanner (bare)',
+            confidence: 1.0,
+            timestamp: now,
+            last_verified: now,
+          });
+        }
       }
     }
   }
