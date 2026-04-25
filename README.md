@@ -205,6 +205,7 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 | Command | Description |
 |---------|-------------|
 | `/navgator:map` | Map full architecture — components, connections, runtime topology, and LLM use cases |
+| `/navgator:plan "<intent>"` | Plan an architecture change or investigation. Delegates to the `architecture-planner` agent, which checks graph freshness, runs an incremental scan if stale, then dispatches the right read-only NavGator tools and aggregates findings |
 | `/navgator:scan` | Quick scan — refresh tracking data |
 | `/navgator:trace <component>` | Trace data flow through the system |
 | `/navgator:impact <component>` | Analyze what's affected by a change |
@@ -242,13 +243,30 @@ Scan project and update architecture tracking.
 | `-c, --connections` | Focus on connection detection |
 | `-p, --prompts` | Enhanced AI prompt scanning with full content |
 | `-v, --verbose` | Detailed output |
-| `--clear` | Clear existing data before scan |
+| `--auto` | Auto-pick scan mode (default — see Scan modes below) |
+| `--full` | Force a full scan (clear all and rebuild) |
+| `--incremental` | Force an incremental scan (walk only changed files + reverse-deps) |
+| `--clear` | Alias for `--full` (legacy) |
 | `--ast` | Use AST-based scanning (requires `ts-morph`) |
 | `--field-usage` | Analyze Prisma model field usage across codebase |
 | `--typespec` | Validate Prisma types against TypeScript interfaces |
 | `--track-branch` | Capture git branch/commit in scan output |
 | `--json` | Output scan results as JSON |
 | `--agent` | Wrap output in agent envelope (implies `--json`) |
+
+#### Scan modes
+
+NavGator supports three scan modes. By default (`--auto`), the scanner picks one based on what changed since the last scan and how stale the cached graph is.
+
+| Mode | When it runs | Behavior |
+|------|--------------|----------|
+| `full` | first scan, or any of: `--full`/`--clear`, manifest or build-config changed (e.g. `package.json`, `prisma/schema.prisma`, `tsconfig.json`, `vercel.json`, `fly.toml`, `railway.json`, `.gitignore`), a new source file was added, `last_full_scan > 7 days ago`, or `incrementals_since_full ≥ 20` | Clears `.navgator/architecture/` and rebuilds the entire graph |
+| `incremental` | a code file changed and none of the full-scan triggers fire | Walks only changed files plus their reverse-dependencies, merges results into the existing graph by stable_id, runs an integrity check |
+| `noop` | nothing changed since the last scan | Updates `last_scan`, writes a `noop` timeline entry, leaves the graph untouched |
+
+If an incremental scan fails its integrity check, NavGator automatically promotes it to a full scan and records `scan_type: 'incremental→full'` in the timeline. Atomic file writes ensure that a crashed scan leaves the prior `.navgator/architecture/` intact.
+
+The mode used for any given scan appears in `.navgator/architecture/timeline.json` under `scan_type`.
 
 ### `navgator status`
 

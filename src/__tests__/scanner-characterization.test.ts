@@ -82,6 +82,66 @@ function countBy<T>(arr: T[], key: (t: T) => string): Record<string, number> {
   return m;
 }
 
+/**
+ * Run 1 — D4: Lock the FULL-SCAN output of `scan()` on the bench-repo
+ * fixture. This is the regression baseline for D1+D2 refactors. If this
+ * snapshot diff appears, treat it as a regression and investigate before
+ * accepting the new shape.
+ *
+ * Strips: timestamps, component_id random suffixes, scan duration,
+ * absolute paths, git info, last_scan/last_full_scan, NavSummary text
+ * (markdown depends on per-component random IDs).
+ */
+function normalizeFullScan(result: {
+  components: Array<{ component_id?: string; stable_id?: string; timestamp?: number; last_updated?: number; type?: string; name?: string }>;
+  connections: Array<{ connection_id?: string; timestamp?: number; last_verified?: number; connection_type?: string; code_reference?: { file?: string; symbol?: string } }>;
+  warnings: unknown[];
+}): Record<string, unknown> {
+  const componentTypes: Record<string, number> = {};
+  const stableIds = new Set<string>();
+  for (const c of result.components) {
+    componentTypes[c.type ?? 'unknown'] = (componentTypes[c.type ?? 'unknown'] ?? 0) + 1;
+    if (c.stable_id) stableIds.add(c.stable_id);
+  }
+
+  const connectionTypes: Record<string, number> = {};
+  const connectionFingerprints: string[] = [];
+  for (const c of result.connections) {
+    connectionTypes[c.connection_type ?? 'unknown'] = (connectionTypes[c.connection_type ?? 'unknown'] ?? 0) + 1;
+    // Fingerprint: type + file + symbol (no line numbers — those drift).
+    connectionFingerprints.push(
+      `${c.connection_type ?? '?'}::${c.code_reference?.file ?? ''}::${c.code_reference?.symbol ?? ''}`
+    );
+  }
+  connectionFingerprints.sort();
+
+  const stableIdList = Array.from(stableIds).sort();
+
+  return {
+    component_count: result.components.length,
+    connection_count: result.connections.length,
+    components_by_type: componentTypes,
+    connections_by_type: connectionTypes,
+    stable_ids_sample: stableIdList.slice(0, 20), // First 20 stable IDs (alphabetical)
+    connection_fingerprints_sample: connectionFingerprints.slice(0, 30), // First 30 fingerprints
+    warnings_count: result.warnings.length,
+  };
+}
+
+describe('full-scan characterization (Run 1 — D4)', () => {
+  it('full scan on bench-repo fixture: locked output shape', async () => {
+    // Late import to avoid circular import issues with the storage atomic-rename helpers.
+    const { scan } = await import('../scanner.js');
+    const result = await scan(FIXTURE, { mode: 'full' });
+    const normalized = normalizeFullScan({
+      components: result.components,
+      connections: result.connections,
+      warnings: result.warnings,
+    });
+    expect(normalized).toMatchSnapshot();
+  });
+});
+
 describe('scanner characterization (Wave 2 T9)', () => {
   it('import-scanner: stable on bench-repo fixture', async () => {
     // Pre-collect source files the way the main scanner does, so the test

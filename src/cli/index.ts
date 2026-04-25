@@ -94,13 +94,48 @@ const arg = process.argv[2];
 const isFlag = arg?.startsWith('-');
 const hasCommandOrFlag = process.argv.length > 2;
 
+/**
+ * Detect a natural-language intent argument: a non-flag, non-subcommand
+ * first arg that contains spaces or quotes (e.g. `navgator "review my auth"`).
+ *
+ * Run 1 — D3: redirect such input to /navgator:plan. The planner agent runs
+ * inside Claude Code; the bare CLI cannot reach it. Print a redirect message
+ * and exit 0 so wrappers don't treat this as a failure.
+ */
+function looksLikeNaturalLanguage(rawArg: string | undefined, knownCommands: Set<string>): boolean {
+  if (!rawArg) return false;
+  if (rawArg.startsWith('-')) return false;
+  // Subcommand match → not natural language.
+  if (knownCommands.has(rawArg)) return false;
+  // Quotes, spaces, or known NL-shaped punctuation → treat as intent.
+  if (rawArg.includes(' ') || rawArg.includes('"') || rawArg.includes("'")) return true;
+  // Single token that's NOT a registered command and NOT in knownCommands:
+  // let commander handle it (will produce its own unknown-command error).
+  return false;
+}
+
 if (!hasCommandOrFlag) {
   // No arguments at all → show welcome menu
   showWelcomeMenu('no-command').catch((err) => {
     console.error('Error:', err);
     process.exit(1);
   });
+} else if (!isFlag && arg !== undefined) {
+  // Build the set of registered subcommand names from commander's metadata.
+  const knownCommands = new Set<string>(program.commands.map((c) => c.name()));
+  if (looksLikeNaturalLanguage(arg, knownCommands)) {
+    // Natural-language intent — redirect to /navgator:plan.
+    const intent = arg;
+    process.stdout.write(
+      `navgator "${intent}" needs Claude Code. From a terminal use a subcommand directly ` +
+        `(e.g. \`navgator scan\`, \`navgator impact <component>\`), or run /navgator:plan "${intent}" ` +
+        `from inside Claude Code.\n`
+    );
+    process.exit(0);
+  }
+  // Non-NL token → fall through to commander (it will print its own error).
+  program.parse();
 } else {
-  // Has a command or flag (--help, --version, etc.) → let Commander handle it
+  // Has a flag (--help, --version, etc.) → let Commander handle it
   program.parse();
 }

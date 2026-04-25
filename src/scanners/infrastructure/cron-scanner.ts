@@ -158,7 +158,10 @@ function parseRailwayCrons(projectRoot: string): { crons: CronDefinition[]; warn
 /**
  * Scan for programmatic cron job definitions in source code
  */
-async function findCodeCrons(projectRoot: string): Promise<{ crons: CronDefinition[]; warnings: ScanWarning[] }> {
+async function findCodeCrons(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<{ crons: CronDefinition[]; warnings: ScanWarning[] }> {
   const crons: CronDefinition[] = [];
   const warnings: ScanWarning[] = [];
 
@@ -179,10 +182,13 @@ async function findCodeCrons(projectRoot: string): Promise<{ crons: CronDefiniti
 
   // Scan source files for cron.schedule('expression', handler) patterns
   const { glob: globFn } = await import('glob');
-  const sourceFiles = await globFn('**/*.{ts,tsx,js,jsx,mjs}', {
+  const allSourceFiles = await globFn('**/*.{ts,tsx,js,jsx,mjs}', {
     cwd: projectRoot,
     ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/.git/**'],
   });
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   for (const file of sourceFiles) {
     try {
@@ -284,16 +290,20 @@ function resolveApiRoute(projectRoot: string, cronPath: string): string | null {
 /**
  * Scan for cron job definitions
  */
-export async function scanCronJobs(projectRoot: string): Promise<ScanResult> {
+export async function scanCronJobs(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
   const timestamp = Date.now();
 
-  // Gather crons from all sources
+  // Gather crons from all sources. The Vercel/Railway parsers are manifest-driven
+  // (they read vercel.json / railway.json) and thus walk-set-independent.
   const vercelResult = parseVercelCrons(projectRoot);
   const railwayResult = parseRailwayCrons(projectRoot);
-  const codeResult = await findCodeCrons(projectRoot);
+  const codeResult = await findCodeCrons(projectRoot, walkSet);
 
   const allCrons = [
     ...vercelResult.crons,

@@ -36,18 +36,22 @@ interface QueueDefinition {
  * Scan source files for queue definitions (new Queue, new Worker, etc.)
  */
 async function findQueueDefinitions(
-  projectRoot: string
+  projectRoot: string,
+  walkSet?: Set<string>
 ): Promise<{ queues: QueueDefinition[]; warnings: ScanWarning[] }> {
   const queues: QueueDefinition[] = [];
   const warnings: ScanWarning[] = [];
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**', '**/dist/**', '**/build/**',
       '**/.next/**', '**/coverage/**', '**/.git/**',
     ],
   });
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   for (const file of sourceFiles) {
     try {
@@ -334,13 +338,16 @@ function extractRedisConnection(
 /**
  * Scan for queue definitions and create components/connections
  */
-export async function scanQueues(projectRoot: string): Promise<ScanResult> {
+export async function scanQueues(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
   const timestamp = Date.now();
 
-  const { queues, warnings: scanWarnings } = await findQueueDefinitions(projectRoot);
+  const { queues, warnings: scanWarnings } = await findQueueDefinitions(projectRoot, walkSet);
   warnings.push(...scanWarnings);
 
   if (queues.length === 0) {

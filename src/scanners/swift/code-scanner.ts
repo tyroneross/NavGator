@@ -140,17 +140,24 @@ const LLM_CALL_PATTERNS: { pattern: RegExp; provider: string }[] = [
 // MAIN SCANNER
 // =============================================================================
 
-export async function scanSwiftCode(projectRoot: string): Promise<ScanResult & { projectMeta: Partial<ProjectMetadata> }> {
+export async function scanSwiftCode(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult & { projectMeta: Partial<ProjectMetadata> }> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
   const timestamp = Date.now();
 
   // Load all Swift files
-  const swiftFiles = await glob('**/*.swift', {
+  const allSwiftFiles = await glob('**/*.swift', {
     cwd: projectRoot,
     ignore: ['.build/**', 'DerivedData/**', '.swiftpm/**', 'Pods/**', 'Carthage/**', '*.playground/**'],
   });
+  // Walk-set restriction (incremental). Bit-identical when undefined.
+  const swiftFiles = walkSet
+    ? allSwiftFiles.filter(f => walkSet.has(f))
+    : allSwiftFiles;
 
   const files: SwiftFileInfo[] = [];
   for (const relPath of swiftFiles) {

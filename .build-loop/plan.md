@@ -1,142 +1,105 @@
-# Plan — NavGator Global Install + Data-Split Clarification
+# Plan — NavGator Run 1.6 (Defensive fixes + layout improvements)
 
-Linked goal: `.build-loop/goal.md`
-Status: **PROPOSED**
+Branch: `salvage/audit-improvements`
+Builds on: Run 1 + Run 1.5 uncommitted work
+Hard constraint: zero new runtime npm deps · bit-identical full-scan output (characterization snapshot enforces) · all 322 existing tests pass · atomic writes preserved.
 
-## Executive summary
+## Verify-step decisions made during Assess
 
-Seven tasks across three layers (manifest fixes → registration → lessons
-store). Mostly sequential with one parallel-safe pair. Total surface area
-is small (< 500 LOC new + ~20 manifest edits). Core install is 30 minutes of
-work; the lessons store adds another hour.
+- **Item #2 — slash-command namespace:** plugin name in `.claude-plugin/plugin.json` is `navgator`. Slash command IS `/navgator:plan`. README and `commands/plan.md` body must align to this.
+- **Item #6 — renames:** Current `pickCanonicalPath` enables path-disambiguation for 6 component types (`api-endpoint`, `db-table`, `prompt`, `worker`, `component`, `cron`). For `component` type the name = basename only (e.g. `index`), so collisions are real (`src/utils/index.ts` vs `src/lib/index.ts` would collapse). **Removing path-disambiguation would cause stable_id collisions in big repos.** The prompt's "name-only with optional FNV hash" doesn't apply here — the tradeoff is collisions vs rename-stability. **Plan: document the tradeoff in `pickCanonicalPath` docstring; rely on integrity-check + promote-to-full to keep renames correct (perf-suboptimal but correct). No code change to stable_id derivation.** Honest call per the prompt's "If any item turns out impossible or the right call differs from this prompt, return early with reasoning."
+- **Item #7 — aliased imports:** `import-scanner.ts:399` calls `resolveImport` which at line 67-73 maps aliases to actual paths and at line 79 normalizes to project-relative resolved paths BEFORE constructing the connection. Confirmed `to.location.file` and `code_reference.file` always store resolved paths. **No fix needed. Add docstring comment + 1 test using a tsconfig-paths fixture.**
 
-## Layers at a glance
+## Execution waves
 
-```
-Layer 1: Manifest hygiene          (T1, T2, T3)
-                ↓
-Layer 2: Install + /reload verify  (T4, T5)
-                ↓
-Layer 3: Global lessons store      (T6, T7)
-```
+### Wave A — single subagent (touch-and-go in scanner.ts/types.ts/README.md)
+Items: 1, 2, 3, 5, 6.
 
-## Task breakdown
+**1. Trigger-list gaps** (`src/scanner.ts:112-124`):
+- Extend `FULL_SCAN_TRIGGER_FILES` with `tsconfig.json`, `vercel.json`, `fly.toml`, `railway.json`, `.gitignore`. Skip `swift.config.swift` — not a real well-known filename (the user listed "if present" so a no-op when absent is fine).
+- Also extend `manifestPatterns` at `src/scanner.ts:296-308` so these files are tracked for change detection.
+- Update existing trigger test at `src/__tests__/scanner-incremental.test.ts:116` to also exercise `tsconfig.json` (1 new assertion in same test or a new sibling test).
 
-### Task 1 — Fix plugin.json duplicate paths
-**File**: `.claude-plugin/plugin.json`
-**Change**: Remove five path fields (`hooks`, `skills`, `agents`, `commands`, `mcpServers`). All point at standard auto-discovery locations and cause duplicate-load errors (same bug we fixed in mockup-gallery this morning).
-**Surface**: -5 lines
-**Dependencies**: none
-**Parallel-safe**: yes
-**Grader**: criterion 1
+**2. Slash-command namespace consistency:**
+- Edit `commands/plan.md` body to use `/navgator:plan`.
+- Edit `README.md` "Scan modes" section / slash-command row to use `/navgator:plan`.
 
-### Task 2 — Fix .mcp.json shape
-**File**: `.mcp.json`
-**Change**: Wrap existing content in `{ "mcpServers": { ... } }` so it's parseable as a standalone MCP config after the plugin.json reference is removed.
-**Surface**: +3 lines, 0 deletions
-**Dependencies**: none
-**Parallel-safe**: yes
-**Grader**: criterion 2
+**3. files_scanned metric clarity** (`src/scanner.ts:1189` and `:1381`):
+- Change ternary to: `(scanType === 'incremental' || scanType === 'incremental→full') ? walkSet.size : sourceFiles.length`.
+- Add 1 test in `scanner-incremental.test.ts` asserting that an `incremental→full` promotion reports `files_scanned === walkSet.size` (small) not `sourceFiles.length` — synthesize via mocked integrity failure or assert via observed walk-set on a fixture.
 
-### Task 3 — Reconcile marketplace.json version (optional, Q2)
-**File**: `.claude-plugin/marketplace.json`
-**Change**: Update `metadata.version` and `plugins[0].version` to match `package.json` (0.6.1).
-**Surface**: 2 lines changed
-**Dependencies**: none
-**Parallel-safe**: yes
-**Grader**: manual visual (not a blocker for install)
-**Skip if**: user vetoes Q2
+**5. New-file orphan in-edges** (`src/scanner.ts:162` `selectScanMode`):
+- After the trigger-files loop, add: `if (fileChanges && fileChanges.added.length > 0) return { mode: 'full', reason: 'new-files' };`
+- Update `ScanModeDecision.reason` union type to include `'new-files'`.
+- Add a test: fixture with one new file in `fileChanges.added`, no triggers, prior index present → `decision.mode === 'full'` and `reason === 'new-files'`.
 
-### Task 4 — Register marketplace in ~/.claude/settings.json
-**File**: `~/.claude/settings.json`
-**Changes**:
-1. Add `"navgator"` entry to `extraKnownMarketplaces` with `{ source: { source: "directory", path: "/Users/tyroneross/Desktop/git-folder/NavGator" } }`
-2. Add `"gator@navgator": true` to `enabledPlugins` (uses existing plugin internal name per Q1)
-**Surface**: ~8 lines added to settings.json
-**Dependencies**: T1, T2 (otherwise `/reload-plugins` fails immediately)
-**Parallel-safe**: no (sequential after T1/T2)
-**Grader**: criterion 3
+**6. Renames — verify only:**
+- Add doc comment on `pickCanonicalPath` (`src/storage.ts:35`) explaining the collision-vs-rename tradeoff. No code change.
 
-### Task 5 — Verify `/reload-plugins` is clean
-**Action**: User runs `/reload-plugins` after T4. I verify via `/doctor`.
-**Expected**: plugin count increases from 14 to 15. Zero new errors.
-**Dependencies**: T4
-**Grader**: criterion 4
-**If fails**: Phase 6 iterate — diagnose, fix, retry up to 5x.
+### Wave B — Concurrency lock (item #4) — own subagent
+- New file `src/scan-lock.ts` (~80 LOC):
+  - `acquireLock(storeDir): Promise<{ ok: true, release: () => void } | { ok: false, message: string }>`
+  - Lock file at `<storeDir>/scan.lock`, JSON `{pid, started_at, scan_type}`.
+  - On entry: check existence; if exists, parse, then check `(now - started_at) < 600_000` AND `process.kill(pid, 0)` does not throw → return `{ok:false, message:"Scan already in progress (pid N, started Xs ago)"}`. Otherwise stale-clear (unlink) and proceed.
+  - Atomic write via `fs.openSync(path, 'wx')` (fail-fast on race) + `fs.writeFileSync` + close.
+  - `release` deletes the lock file (idempotent — wraps in try/catch for ENOENT).
+- Integration in `src/scanner.ts:scan()`: acquire lock right after `ensureStorageDirectories`. If `!ok`, `console.log(message)` and `return` an empty-shape result early (matching the existing noop shape — preserves CLI exit 0).
+- Wrap the rest of `scan()` body in `try { ... } finally { release(); }` so the lock releases on errors too.
+- Test in `scanner-incremental.test.ts`: stub a held lock file (current pid, current ts), call `scan()`, assert it returns the empty-shape result and prints the message; clean up.
 
-### Task 6 — Global lessons store scaffolding
-**Files to create**:
-- `~/.navgator/lessons/global-lessons.json` — seed with empty schema
-- `src/cli/commands/lessons.ts` (new) OR extend existing command file — adds `navgator lessons` subcommands: `list`, `list --global`, `promote <id>`, `demote <id>`, `search <query>`
-- `src/lessons-store.ts` (new) — filesystem abstraction with read/write/query helpers for both local and global stores
-- `src/__tests__/lessons-store.test.ts` — vitest suite (NavGator already has vitest per package.json)
+### Wave C — Aliased-import verification (item #7) — own subagent
+- Add doc comment on `loadReverseDeps` (`src/storage.ts:1735`) noting: connection target paths are resolved at write time by `resolveImport`, so reading `code_reference.file` and matching against `changedFiles` is correct without further normalization.
+- Add a test fixture: `src/__tests__/fixtures/aliased-imports/` with `tsconfig.json` containing `"paths": { "@/*": ["src/*"] }`, a `src/utils/foo.ts`, and a `src/index.ts` that does `import { x } from '@/utils/foo';`. Test asserts:
+  - After scan, the connection's `to.location.file === 'src/utils/foo.ts'` (resolved, not `@/utils/foo`).
+  - `loadReverseDeps(new Set(['src/utils/foo.ts']))` returns a set including `src/index.ts`.
 
-**Schema addition** to the existing lesson shape:
-```json
-{
-  // existing fields...
-  "source_project": "NavGator",         // who learned this
-  "applies_to": ["llm-architecture"],   // tag-based filtering
-  "promoted_at": "2026-04-11T..."       // when moved from local to global
-}
-```
+### Wave D — Reverse-deps index (item #8) — own subagent (HEADLINE PERF WIN)
+- New file at scan end: `.navgator/architecture/reverse-deps.json`:
+  ```ts
+  {
+    schema_version: '1.0.0',
+    generated_at: <number>,
+    edges: { [target_file: string]: string[] }  // target → list of source files that import it
+  }
+  ```
+- Build in-memory at end of scan from `finalConnections`. For each connection where the target has a file location (`to.location.file`), push `c.code_reference.file` into `edges[to_file]`. Dedupe via `Set` → `Array`.
+- Write atomically via `atomicWriteJSON` at scan end (after `buildIndex/buildGraph/buildFileMap`).
+- Update `loadReverseDeps` in `src/storage.ts:1735`:
+  - First try to read `reverse-deps.json`. If present and `schema_version` matches: for each `f in changedFiles`, return union of `edges[f]` lookups. Single file open total.
+  - Fallback: if file missing or parse fails → existing per-edge JSON walk (retained, renamed `loadReverseDepsLegacy` if cleaner, or kept inline as the else branch).
+- Test: assert file exists after scan; assert shape; assert both new-path and legacy-path return the same set on a fixture.
 
-**Surface**: ~200 LOC new + ~100 LOC tests
-**Dependencies**: T1-T5 (install must be clean first so we can test the MCP path if needed)
-**Parallel-safe**: can draft in parallel with T7 (docs)
+### Wave E — Manifest of derived artifacts (item #9) — own subagent
+- New file: `.navgator/architecture/manifest.json`:
+  ```ts
+  {
+    schema_version: '1.0.0',
+    generated_at: <number>,
+    files: {
+      'reverse-deps.json': { generated_at, source_count: <connection count> },
+      'graph.json': { generated_at },
+      'index.json': { generated_at },
+      'file_map.json': { generated_at }
+    }
+  }
+  ```
+- Write at scan end, after all other artifacts. Atomic write.
+- Reading is optional. No consumer changes required this run.
+- Test: assert file exists after scan; assert shape.
 
-**Scope if Q3 = A**: skip `list --global`, `search`, skill integration — just scaffolding + `promote`
-**Scope if Q3 = B (recommended)**: full set including a new `global-lessons` skill that auto-activates when the user asks architecture questions across projects
-**Scope if Q3 = C**: skip this task entirely; ship install-only
+## Phase 4 Review plan
 
-### Task 7 — Documentation
-**Files modified**:
-- `CLAUDE.md` (NavGator's) — add new section explaining the three-tier data model and the `lessons promote` workflow
-- `commands/lessons.md` (new, if T6 chose B) — slash command wrapper for `navgator lessons`
+- A. Critic — sonnet-critic on full diff
+- B. Validate — `npm test`, `npm run build:cli`, e2e timing recipe on atomize-ai (FULL + INCREMENTAL with touch), assert `reverse-deps.json` + `manifest.json` exist
+- D. Fact-check — fact-checker + mock-scanner in parallel; verify zero new deps
+- E. Simplify — `/simplify` on changed files
+- F. Report — scorecard + state.json append
 
-**Surface**: ~40 lines docs
-**Dependencies**: T6 complete
-**Parallel-safe**: depends only on T6 API being frozen
-
-## Dependency graph
-
-```
-T1, T2, T3 (parallel) ──→ T4 (register) ──→ T5 (verify) ──→ T6 (lessons) ──→ T7 (docs)
-```
-
-One linear critical path: T1-T5 for install, T6-T7 for lessons.
-
-## Parallelization strategy
-
-- **Wave 1** (parallel): T1, T2, T3 — all simple manifest edits
-- **Wave 2** (serial): T4 (settings.json) → T5 (reload verification, requires user action)
-- **Wave 3** (serial): T6 → T7
-
-Waves 1-2 are the install. Wave 3 is the lessons extension. If Q3 = C, Wave 3 is skipped entirely.
-
-## Risk register
-
-| Risk | Severity | Mitigation |
-|---|---|---|
-| `/reload-plugins` errors after register | High | Waves 1-2 are atomic; rollback = remove enabledPlugins entry. Test suite runs manifest validators before registration. |
-| Global lessons store mutates per-project files | **High** | `promote` must be copy-then-mark, never move. Local file stays in place with a `promoted: true` flag. |
-| Plugin internal name "gator" confuses user | Low | Document both names in CLAUDE.md. Flag for future rename. |
-| Lessons schema evolves and breaks old data | Medium | Version field on every lessons.json file. Validator enforces schema version match. |
-| `navgator lessons search` is slow at scale | Low | Grep-based for now; add index if >1000 lessons. |
-
-## Coordination checkpoints
-
-- **After Wave 1**: diff `plugin.json`, `.mcp.json`, `marketplace.json` and confirm changes are surgical before touching settings.json
-- **After Wave 2 (T4)**: before claiming install success, confirm via `/reload-plugins` + `/doctor`
-- **Before T6**: freeze the schema addition for global lessons. All subsequent code reads that schema as the contract.
-
-## Not included in this plan (deferred)
-
-- Hook type rewrite (5 prompt hooks → command hooks per feedback_hook_design.md)
-- Plugin name rename (`gator` → `navgator`)
-- Version reconciliation beyond marketplace.json
-- CLI publish to npm registry (it's installed via `npm link`, not published)
-- Web UI changes
-- MCP tool additions beyond the existing tools
-- Auto-application of global lessons to new projects
-- Lesson quality scoring / deduplication
+## Out of scope (rejected per prompt)
+- SQC audit / AQL / SPRT (Run 2)
+- Stratified parallel workers (Run 3)
+- EWMA / SPC drift (Run 4)
+- Phase 5/6 architecture diff + hash optimizations
+- New MCP tools / agents / slash commands
+- Mirror sync
+- Planner agent runtime smoke test

@@ -52,6 +52,7 @@ function toPascalCase(camelCase: string): string {
 export async function scanPrismaCalls(
   projectRoot: string,
   modelComponents: ArchitectureComponent[],
+  walkSet?: Set<string>,
 ): Promise<ScanResult> {
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
@@ -79,7 +80,7 @@ export async function scanPrismaCalls(
 
   if (modelMap.size === 0) return { components: [], connections, warnings };
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**', '**/dist/**', '**/build/**',
@@ -87,6 +88,10 @@ export async function scanPrismaCalls(
       '**/prisma/migrations/**',
     ],
   });
+  // Walk-set restriction (incremental mode). Bit-identical when undefined.
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   for (const file of sourceFiles) {
     try {

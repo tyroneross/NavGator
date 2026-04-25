@@ -31,6 +31,21 @@ import {
  * Prefer the first config_file (e.g. "prisma/schema.prisma" for Prisma models),
  * else fall back to a documentation/repository URL component.
  * Returns undefined if nothing path-like is available.
+ *
+ * RENAME BEHAVIOR (Run 1.6 — item #6):
+ * For path-disambiguated types (api-endpoint, db-table, prompt, worker,
+ * component, cron) the resulting stable_id includes the canonical path. This
+ * prevents collisions when two components share a name in different files
+ * (e.g. `src/utils/index.ts` vs `src/lib/index.ts` — both named `index` for
+ * the `component` type). The tradeoff: when a file is RENAMED or MOVED its
+ * stable_id changes, so the merge step treats the renamed file as a brand-new
+ * component and the old stable_id falls out of the surviving set.
+ *
+ * Correctness is preserved by the integrity check (`runIntegrityCheck`):
+ * after merge, missing connection endpoints or orphan components trigger
+ * `scan_type='incremental→full'` (full rebuild). Renames thus stay correct
+ * but pay the full-scan cost. Not optimal, but keeping path in stable_id is
+ * the simpler and safer default.
  */
 function pickCanonicalPath(c: ArchitectureComponent): string | undefined {
   if (c.source?.config_files?.length) {
@@ -48,6 +63,15 @@ function pickCanonicalPath(c: ArchitectureComponent): string | undefined {
  * the same name across different files (api-endpoint, db-table, prompt,
  * worker, component, cron) include canonical_path.
  */
+/**
+ * Public re-export of ensureStableId. Callers (e.g. the scanner during
+ * incremental merge) need to populate stable_ids on freshly-scanned
+ * in-memory components BEFORE merging with disk-loaded survivors.
+ */
+export function ensureStableIdPublic(c: ArchitectureComponent): ArchitectureComponent {
+  return ensureStableId(c);
+}
+
 function ensureStableId(c: ArchitectureComponent): ArchitectureComponent {
   if (c.stable_id) return c;
   const PATH_DISAMBIGUATED: ReadonlySet<ComponentType> = new Set<ComponentType>([
@@ -106,7 +130,7 @@ export async function storeComponent(
   ensureStableId(component);
   const filePath = path.join(componentsPath, `${component.component_id}.json`);
 
-  await fs.promises.writeFile(filePath, JSON.stringify(component, null, 2), 'utf-8');
+  await atomicWriteJSON(filePath, component);
 
   return {
     component_id: component.component_id,
@@ -217,7 +241,7 @@ export async function storeConnection(
   const connectionsPath = getConnectionsPath(cfg, projectRoot);
   const filePath = path.join(connectionsPath, `${connection.connection_id}.json`);
 
-  await fs.promises.writeFile(filePath, JSON.stringify(connection, null, 2), 'utf-8');
+  await atomicWriteJSON(filePath, connection);
 
   return {
     connection_id: connection.connection_id,
@@ -416,9 +440,9 @@ export async function buildIndex(
       (index.stats.connections_by_type[connection.connection_type] || 0) + 1;
   }
 
-  // Save index
+  // Save index (atomic: write to .tmp, then rename)
   const indexPath = getIndexPath(cfg, projectRoot);
-  await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+  await atomicWriteJSON(indexPath, index);
 
   return index;
 }
@@ -439,7 +463,24 @@ export async function loadIndex(
 
   try {
     const content = await fs.promises.readFile(indexPath, 'utf-8');
-    return JSON.parse(content) as ArchitectureIndex;
+    const parsed = JSON.parse(content) as ArchitectureIndex;
+    // Read-time defaults for back-compat with 1.0.0 archives.
+    // 1.0.0 archives have no schema_version, last_full_scan, or
+    // incrementals_since_full. Synthesize sensible defaults so callers
+    // (especially selectScanMode) can treat 1.0.0 + 1.1.0 uniformly.
+    if (!parsed.schema_version) {
+      parsed.schema_version = '1.0.0';
+    }
+    if (parsed.last_full_scan === undefined) {
+      // Treat the existing last_scan as if it had been a full scan.
+      // This is conservative: it ensures the 7-day staleness rule
+      // doesn't immediately demand a full scan on the first 1.1.0 run.
+      parsed.last_full_scan = parsed.last_scan ?? 0;
+    }
+    if (parsed.incrementals_since_full === undefined) {
+      parsed.incrementals_since_full = 0;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -487,9 +528,9 @@ export async function buildGraph(
     },
   };
 
-  // Save graph
+  // Save graph (atomic)
   const graphPath = getGraphPath(cfg, projectRoot);
-  await fs.promises.writeFile(graphPath, JSON.stringify(graph, null, 2), 'utf-8');
+  await atomicWriteJSON(graphPath, graph);
 
   return graph;
 }
@@ -541,7 +582,7 @@ export async function buildFileMap(
   };
 
   const fileMapPath = getFileMapPath(cfg, root);
-  await fs.promises.writeFile(fileMapPath, JSON.stringify(wrapped, null, 2), 'utf-8');
+  await atomicWriteJSON(fileMapPath, wrapped);
 
   return fileMap;
 }
@@ -592,7 +633,7 @@ export async function savePromptScan(
     ? { schema_version: SCHEMA_VERSION, ...(promptData as Record<string, unknown>) }
     : promptData;
 
-  await fs.promises.writeFile(promptsPath, JSON.stringify(output, null, 2), 'utf-8');
+  await atomicWriteJSON(promptsPath, output);
 }
 
 // =============================================================================
@@ -1269,7 +1310,7 @@ export async function storeComponents(
       batch.map(async (component) => {
         ensureStableId(component);
         const filePath = path.join(componentsPath, `${component.component_id}.json`);
-        await fs.promises.writeFile(filePath, JSON.stringify(component, null, 2), 'utf-8');
+        await atomicWriteJSON(filePath, component);
       })
     );
   }
@@ -1294,7 +1335,7 @@ export async function storeConnections(
     await Promise.all(
       batch.map(async (connection) => {
         const filePath = path.join(connectionsPath, `${connection.connection_id}.json`);
-        await fs.promises.writeFile(filePath, JSON.stringify(connection, null, 2), 'utf-8');
+        await atomicWriteJSON(filePath, connection);
       })
     );
   }
@@ -1480,7 +1521,7 @@ export async function saveHashes(
   };
 
   const hashesPath = getHashesPath(cfg, root);
-  await fs.promises.writeFile(hashesPath, JSON.stringify(navHashes, null, 2), 'utf-8');
+  await atomicWriteJSON(hashesPath, navHashes);
 }
 
 /**
@@ -1559,6 +1600,458 @@ export async function detectFileChanges(
   result.removed = Array.from(previousFiles);
 
   return result;
+}
+
+// =============================================================================
+// ATOMIC WRITES (Run 1 — D1)
+// =============================================================================
+
+/**
+ * Atomically write a string to disk. Writes to `<target>.tmp` first, then
+ * renames over `<target>`. fs.rename is atomic on POSIX within the same
+ * filesystem, so a crashed mid-write leaves the prior file intact.
+ *
+ * Use this for any file that must remain readable during/after a scan
+ * (index.json, graph.json, file_map.json, NAVSUMMARY.md, hashes.json).
+ */
+export async function atomicWriteFile(
+  target: string,
+  content: string,
+  encoding: BufferEncoding = 'utf-8'
+): Promise<void> {
+  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+  await fs.promises.mkdir(path.dirname(target), { recursive: true });
+  await fs.promises.writeFile(tmp, content, encoding);
+  await fs.promises.rename(tmp, target);
+}
+
+/**
+ * Atomically write a JSON-serializable value to disk (pretty-printed).
+ */
+export async function atomicWriteJSON(target: string, value: unknown): Promise<void> {
+  await atomicWriteFile(target, JSON.stringify(value, null, 2), 'utf-8');
+}
+
+/**
+ * Clear only the components and connections whose source files overlap
+ * `changedPaths`. Used by incremental scans so we re-emit just the touched
+ * subset and merge the rest by stable_id.
+ *
+ * - For components: a component is cleared if any of its `source.config_files`
+ *   appears in `changedPaths`.
+ * - For connections: a connection is cleared if its `code_reference.file`
+ *   appears in `changedPaths`. (We do NOT delete based on the target's
+ *   source files — that would over-clear.)
+ *
+ * Survivors stay on disk and get merged with new incoming data via
+ * mergeByStableId.
+ */
+export async function clearForFiles(
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined,
+  changedPaths: Set<string>
+): Promise<{ componentsCleared: number; connectionsCleared: number }> {
+  const cfg = config || getConfig();
+  const componentsPath = getComponentsPath(cfg, projectRoot);
+  const connectionsPath = getConnectionsPath(cfg, projectRoot);
+
+  let componentsCleared = 0;
+  let connectionsCleared = 0;
+
+  if (changedPaths.size === 0) {
+    return { componentsCleared, connectionsCleared };
+  }
+
+  // Components: scan and delete those whose source.config_files overlap.
+  if (fs.existsSync(componentsPath)) {
+    const files = await fs.promises.readdir(componentsPath);
+    await Promise.all(
+      files.map(async (file) => {
+        const fp = path.join(componentsPath, file);
+        try {
+          const content = await fs.promises.readFile(fp, 'utf-8');
+          const c = JSON.parse(content) as ArchitectureComponent;
+          const sourceFiles = c.source?.config_files ?? [];
+          for (const sf of sourceFiles) {
+            if (changedPaths.has(sf)) {
+              await fs.promises.unlink(fp).catch(() => {});
+              componentsCleared++;
+              return;
+            }
+          }
+        } catch {
+          // Corrupt component file — leave alone; integrity check will catch it.
+        }
+      })
+    );
+  }
+
+  // Connections: delete those whose origin file is in changedPaths.
+  if (fs.existsSync(connectionsPath)) {
+    const files = await fs.promises.readdir(connectionsPath);
+    await Promise.all(
+      files.map(async (file) => {
+        const fp = path.join(connectionsPath, file);
+        try {
+          const content = await fs.promises.readFile(fp, 'utf-8');
+          const c = JSON.parse(content) as ArchitectureConnection;
+          const refFile = c.code_reference?.file;
+          if (refFile && changedPaths.has(refFile)) {
+            await fs.promises.unlink(fp).catch(() => {});
+            connectionsCleared++;
+          }
+        } catch {
+          // Corrupt connection — leave alone.
+        }
+      })
+    );
+  }
+
+  return { componentsCleared, connectionsCleared };
+}
+
+/**
+ * Merge two arrays by stable_id, keeping the incoming entry on collision
+ * (incoming wins because it's the freshly-scanned version of that entity).
+ *
+ * Generic over T because we use it for both components (keyed by stable_id)
+ * and connections (keyed by composite from|to|type|file:line). Caller
+ * supplies the key picker.
+ */
+export function mergeByStableId<T>(
+  existing: T[],
+  incoming: T[],
+  pickKey: (t: T) => string
+): T[] {
+  const merged = new Map<string, T>();
+  for (const e of existing) {
+    const k = pickKey(e);
+    if (k) merged.set(k, e);
+  }
+  for (const i of incoming) {
+    const k = pickKey(i);
+    if (k) merged.set(k, i); // incoming overwrites
+  }
+  return Array.from(merged.values());
+}
+
+/**
+ * Load only the connections whose target component's source files include
+ * any path in `changedFiles`. Returns the set of FROM-side source files —
+ * i.e. files that import / depend on something in changedFiles.
+ *
+ * This is the reverse-dependency walk used by selectScanMode to widen the
+ * incremental walk-set so changes to a leaf module re-scan the modules
+ * that depend on it.
+ *
+ * Single-level only. Acceptable for Run 1; deeper transitivity is part of
+ * Run 2's SQC audit layer.
+ *
+ * ALIASED IMPORTS (Run 1.6 — item #7 verify): connection target paths are
+ * stored as RESOLVED, project-relative paths. The import scanner
+ * (`src/scanners/connections/import-scanner.ts:resolveImport`) maps tsconfig
+ * `paths` aliases (e.g. `@/utils/foo`) and `~/`-style aliases to actual file
+ * paths (`src/utils/foo.ts`) before constructing the connection. This means
+ * matching `changedFiles` against `code_reference.file` and the target
+ * component's `source.config_files` is correct without alias-aware
+ * normalization here. See `aliased-imports` test fixture for the regression
+ * lock.
+ *
+ * RUN 1.6 — ITEM #8: This function now reads a derived
+ * `.navgator/architecture/reverse-deps.json` index when present (single file
+ * open per scan). Falls back to the per-edge JSON walk if the index file is
+ * missing, corrupt, or schema-mismatched.
+ */
+export async function loadReverseDeps(
+  changedFiles: Set<string>,
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined
+): Promise<Set<string>> {
+  const cfg = config || getConfig();
+  const out = new Set<string>();
+
+  if (changedFiles.size === 0) return out;
+
+  // Run 1.6 — item #8 fast path: read the derived reverse-deps.json index if
+  // present. Single file open vs O(connections) opens.
+  const indexPath = path.join(getStoragePath(cfg, projectRoot), 'reverse-deps.json');
+  if (fs.existsSync(indexPath)) {
+    try {
+      const raw = await fs.promises.readFile(indexPath, 'utf-8');
+      const parsed = JSON.parse(raw) as ReverseDepsIndex;
+      if (parsed && parsed.schema_version === '1.0.0' && parsed.edges) {
+        for (const f of changedFiles) {
+          const importers = parsed.edges[f];
+          if (importers) {
+            for (const imp of importers) out.add(imp);
+          }
+        }
+        return out;
+      }
+      // Bad shape → fall through to legacy walk.
+    } catch {
+      // Corrupt or unreadable → fall through to legacy walk.
+    }
+  }
+
+  return loadReverseDepsLegacy(changedFiles, config, projectRoot);
+}
+
+/**
+ * Legacy reverse-deps walk: opens every per-edge connection JSON. Retained
+ * as the fallback when `reverse-deps.json` is missing, corrupt, or
+ * schema-mismatched. Also useful as the regression baseline for the index.
+ */
+export async function loadReverseDepsLegacy(
+  changedFiles: Set<string>,
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined
+): Promise<Set<string>> {
+  const cfg = config || getConfig();
+  const connectionsPath = getConnectionsPath(cfg, projectRoot);
+  const componentsPath = getComponentsPath(cfg, projectRoot);
+  const out = new Set<string>();
+
+  if (changedFiles.size === 0) return out;
+  if (!fs.existsSync(connectionsPath) || !fs.existsSync(componentsPath)) {
+    return out;
+  }
+
+  // Build component_id → source files map once (all on-disk components).
+  const compSourceFiles = new Map<string, string[]>();
+  const compFiles = await fs.promises.readdir(componentsPath);
+  await Promise.all(
+    compFiles.map(async (file) => {
+      try {
+        const content = await fs.promises.readFile(path.join(componentsPath, file), 'utf-8');
+        const c = JSON.parse(content) as ArchitectureComponent;
+        compSourceFiles.set(c.component_id, c.source?.config_files ?? []);
+      } catch {
+        // Corrupt component — ignore.
+      }
+    })
+  );
+
+  // Walk connections; if target's component has a source_file in changedFiles,
+  // the FROM-side code_reference.file goes into the walk-set.
+  const connFiles = await fs.promises.readdir(connectionsPath);
+  await Promise.all(
+    connFiles.map(async (file) => {
+      try {
+        const content = await fs.promises.readFile(path.join(connectionsPath, file), 'utf-8');
+        const c = JSON.parse(content) as ArchitectureConnection;
+        const targetId = c.to?.component_id;
+        if (!targetId) return;
+        const targetSources = compSourceFiles.get(targetId) ?? [];
+        const targetMatches = targetSources.some((sf) => changedFiles.has(sf));
+        // Also cover the case where to.component_id IS a FILE: ref.
+        const directFile = targetId.startsWith('FILE:') ? targetId.slice(5) : undefined;
+        const directMatch = directFile ? changedFiles.has(directFile) : false;
+        if (targetMatches || directMatch) {
+          const fromFile = c.code_reference?.file;
+          if (fromFile) out.add(fromFile);
+        }
+      } catch {
+        // Corrupt connection — ignore.
+      }
+    })
+  );
+
+  return out;
+}
+
+/**
+ * Reverse-deps index file shape (Run 1.6 — item #8).
+ * Stored at `.navgator/architecture/reverse-deps.json`. Computed from the
+ * in-memory connection set at scan end (no per-edge file walk).
+ *
+ * `edges[target_file]` is the list of source files that reference (import,
+ * call, depend on) `target_file`.
+ */
+export interface ReverseDepsIndex {
+  schema_version: '1.0.0';
+  generated_at: number;
+  edges: Record<string, string[]>;
+}
+
+/**
+ * Build and atomically write `.navgator/architecture/reverse-deps.json` from
+ * the in-memory connection set + components. This avoids re-walking per-edge
+ * JSON files on the next incremental scan.
+ *
+ * Run 1.6 — item #8: HEADLINE PERF WIN. On atomize-ai's 4,570 connections,
+ * this drops `loadReverseDeps` from ~4,570 file opens to 1.
+ */
+export async function buildReverseDepsIndex(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined
+): Promise<{ path: string; edge_count: number }> {
+  const cfg = config || getConfig();
+  const indexPath = path.join(getStoragePath(cfg, projectRoot), 'reverse-deps.json');
+
+  // component_id → source files map (in-memory, no I/O).
+  const compSourceFiles = new Map<string, string[]>();
+  for (const c of components) {
+    compSourceFiles.set(c.component_id, c.source?.config_files ?? []);
+  }
+
+  // Build edges: target_file → list of source files that import/reference it.
+  const edges: Record<string, Set<string>> = {};
+  let edgeCount = 0;
+  for (const c of connections) {
+    const fromFile = c.code_reference?.file;
+    if (!fromFile) continue;
+    const targetId = c.to?.component_id;
+    if (!targetId) continue;
+
+    // Resolve target file(s) — same logic as loadReverseDepsLegacy.
+    const targetFiles = new Set<string>();
+    const targetSources = compSourceFiles.get(targetId) ?? [];
+    for (const sf of targetSources) targetFiles.add(sf);
+    if (targetId.startsWith('FILE:')) targetFiles.add(targetId.slice(5));
+    // Also use to.location.file when present (e.g. import-scanner stores resolved path here).
+    const locFile = c.to?.location?.file;
+    if (locFile) targetFiles.add(locFile);
+
+    for (const tf of targetFiles) {
+      if (tf === fromFile) continue; // Skip self-edges
+      if (!edges[tf]) edges[tf] = new Set<string>();
+      if (!edges[tf].has(fromFile)) {
+        edges[tf].add(fromFile);
+        edgeCount += 1;
+      }
+    }
+  }
+
+  // Sets → arrays for JSON.
+  const edgesOut: Record<string, string[]> = {};
+  for (const [target, importers] of Object.entries(edges)) {
+    edgesOut[target] = Array.from(importers).sort();
+  }
+
+  const payload: ReverseDepsIndex = {
+    schema_version: '1.0.0',
+    generated_at: Date.now(),
+    edges: edgesOut,
+  };
+
+  await atomicWriteJSON(indexPath, payload);
+  return { path: indexPath, edge_count: edgeCount };
+}
+
+/**
+ * Derived-artifact manifest shape (Run 1.6 — item #9).
+ * Stored at `.navgator/architecture/manifest.json`. Lists the derived files
+ * (graph.json, file_map.json, reverse-deps.json, index.json) with their
+ * generation timestamps so future scans can detect stale derivations.
+ *
+ * Reading is OPTIONAL — existing consumers ignore the manifest. Writing it
+ * is cheap and unlocks future incremental optimizations.
+ */
+export interface DerivedManifest {
+  schema_version: '1.0.0';
+  generated_at: number;
+  files: Record<string, { generated_at: number; source_count?: number }>;
+}
+
+/**
+ * Atomically write `.navgator/architecture/manifest.json` describing the
+ * derived artifacts NavGator just emitted. Best-effort — the scan succeeds
+ * even if this fails.
+ */
+export async function buildDerivedManifest(
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined,
+  details: { reverseDepsEdgeCount?: number }
+): Promise<{ path: string }> {
+  const cfg = config || getConfig();
+  const storeDir = getStoragePath(cfg, projectRoot);
+  const manifestPath = path.join(storeDir, 'manifest.json');
+  const now = Date.now();
+
+  const files: DerivedManifest['files'] = {};
+  const candidates: Array<{ name: string; source_count?: number }> = [
+    { name: 'index.json' },
+    { name: 'graph.json' },
+    { name: 'file_map.json' },
+    { name: 'reverse-deps.json', source_count: details.reverseDepsEdgeCount },
+  ];
+
+  for (const cand of candidates) {
+    const full = path.join(storeDir, cand.name);
+    try {
+      const stat = await fs.promises.stat(full);
+      files[cand.name] = {
+        generated_at: stat.mtimeMs,
+        ...(cand.source_count !== undefined ? { source_count: cand.source_count } : {}),
+      };
+    } catch {
+      // File doesn't exist — skip silently.
+    }
+  }
+
+  const payload: DerivedManifest = {
+    schema_version: '1.0.0',
+    generated_at: now,
+    files,
+  };
+  await atomicWriteJSON(manifestPath, payload);
+  return { path: manifestPath };
+}
+
+/**
+ * Run an integrity check on the post-merge state.
+ * - Every connection endpoint (from + to component_id) must exist in
+ *   the components set, OR be a FILE:-prefixed unresolved ref.
+ * - Every component's source.config_files must exist on disk
+ *   (relative to projectRoot). Missing files → orphan component.
+ * - Optional walkSet narrows the source-file existence check to
+ *   files in the walk-set; full-scan callers pass an empty set
+ *   (means "check all").
+ *
+ * Returns ok=false on any failure with a list of issue strings.
+ * Caller is expected to log scan_type='incremental→full' and
+ * fall through to a full scan on failure.
+ */
+export async function runIntegrityCheck(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  projectRoot: string,
+  walkSet: Set<string> = new Set()
+): Promise<{ ok: boolean; issues: string[] }> {
+  const issues: string[] = [];
+
+  // 1. Every connection endpoint must exist (or be FILE:).
+  const ids = new Set(components.map((c) => c.component_id));
+  for (const c of connections) {
+    const fromId = c.from?.component_id;
+    const toId = c.to?.component_id;
+    if (fromId && !fromId.startsWith('FILE:') && !ids.has(fromId)) {
+      issues.push(`connection ${c.connection_id}: missing FROM component ${fromId}`);
+    }
+    if (toId && !toId.startsWith('FILE:') && !ids.has(toId)) {
+      issues.push(`connection ${c.connection_id}: missing TO component ${toId}`);
+    }
+  }
+
+  // 2. Every component's source.config_files must exist on disk.
+  //    If walkSet is non-empty, only check files in the walk-set
+  //    (we trust the rest from the prior scan).
+  for (const comp of components) {
+    const sourceFiles = comp.source?.config_files ?? [];
+    for (const sf of sourceFiles) {
+      if (walkSet.size > 0 && !walkSet.has(sf)) continue;
+      try {
+        await fs.promises.access(path.join(projectRoot, sf));
+      } catch {
+        issues.push(`component ${comp.component_id} (${comp.name}): missing source file ${sf}`);
+      }
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
 }
 
 /**

@@ -153,8 +153,11 @@ const READ_PATTERNS = [
 /**
  * Read all source files eligible for scanning
  */
-async function collectSourceFiles(projectRoot: string): Promise<string[]> {
-  return glob('**/*.{ts,tsx,js,jsx}', {
+async function collectSourceFiles(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<string[]> {
+  const all = await glob('**/*.{ts,tsx,js,jsx}', {
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**',
@@ -169,6 +172,9 @@ async function collectSourceFiles(projectRoot: string): Promise<string[]> {
     ],
     absolute: true,
   });
+  return walkSet
+    ? all.filter(f => walkSet.has(path.relative(projectRoot, f)))
+    : all;
 }
 
 /**
@@ -275,7 +281,10 @@ function classifyUsage(
 /**
  * Scan field usage across the codebase for all Prisma models
  */
-export async function scanFieldUsage(projectRoot: string): Promise<ScanResult & { report?: FieldUsageReport }> {
+export async function scanFieldUsage(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult & { report?: FieldUsageReport }> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
@@ -338,7 +347,7 @@ export async function scanFieldUsage(projectRoot: string): Promise<ScanResult & 
   // Collect source files
   let sourceFilePaths: string[];
   try {
-    sourceFilePaths = await collectSourceFiles(projectRoot);
+    sourceFilePaths = await collectSourceFiles(projectRoot, walkSet);
   } catch (error) {
     warnings.push({
       type: 'parse_error',

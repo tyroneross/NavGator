@@ -42,13 +42,25 @@ import {
   buildSummary,
   savePromptScan,
   clearStorage,
+  clearForFiles,
+  loadIndex,
+  loadAllComponents,
+  loadAllConnections,
+  loadReverseDeps,
+  runIntegrityCheck,
+  mergeByStableId,
+  atomicWriteJSON,
+  ensureStableIdPublic,
+  buildReverseDepsIndex,
+  buildDerivedManifest,
   createSnapshot,
   computeFileHashes,
   saveHashes,
   detectFileChanges,
   formatFileChangeSummary,
 } from './storage.js';
-import { getConfig, ensureStorageDirectories, NavGatorConfig } from './config.js';
+import { getConfig, ensureStorageDirectories, NavGatorConfig, getIndexPath, getStoragePath, SCHEMA_VERSION } from './config.js';
+import { acquireLock } from './scan-lock.js';
 import {
   computeArchitectureDiff,
   classifySignificance,
@@ -58,7 +70,7 @@ import {
   generateTimelineId,
 } from './diff.js';
 import { registerProject } from './projects.js';
-import { TimelineEntry } from './types.js';
+import { TimelineEntry, ScanType, ArchitectureIndex } from './types.js';
 import { classifyAllConnections } from './classify.js';
 import { isSandboxMode } from './sandbox.js';
 import { ensureSafeGitignore } from './gitignore-safety.js';
@@ -67,12 +79,22 @@ import { ensureSafeGitignore } from './gitignore-safety.js';
 // SCAN OPTIONS
 // =============================================================================
 
+/**
+ * Mode the scanner runs in.
+ * - 'auto': default. Inspect index + file changes; pick full or incremental.
+ * - 'full': clearStorage + scan all files (forced).
+ * - 'incremental': scan only walk-set (changedFiles ∪ reverseDeps).
+ *   If no prior state exists, falls back to 'full'.
+ */
+export type ScanMode = 'auto' | 'full' | 'incremental';
+
 export interface ScanOptions {
   quick?: boolean;           // Only scan package files, skip code analysis
   connections?: boolean;     // Focus on connection detection
   verbose?: boolean;         // Show detailed output
-  clearFirst?: boolean;      // Clear existing data before scan
-  incremental?: boolean;     // Only scan changed files (uses hashes)
+  clearFirst?: boolean;      // Clear existing data before scan (legacy alias for mode='full')
+  incremental?: boolean;     // Legacy alias for mode='incremental'
+  mode?: ScanMode;           // Run 1 — explicit mode selector. Default: 'auto'.
   useAST?: boolean;          // Use AST-based scanning (more accurate, slightly slower)
   prompts?: boolean;         // Enhanced prompt scanning with full content
   trackBranch?: boolean;     // Opt-in: capture git branch/commit in scan output
@@ -80,6 +102,140 @@ export interface ScanOptions {
   typeSpec?: boolean;        // Validate Prisma types against TS interfaces (FEATURE FLAG)
   commit?: boolean;          // Opt-in: auto-commit scan output to nested .navgator/.git for temporal queries
   scip?: boolean;            // Opt-in: run SCIP indexer for resolved cross-file edges (~500ms cold)
+}
+
+// =============================================================================
+// MODE SELECTION (Run 1 — D2)
+// =============================================================================
+
+/**
+ * Files whose presence in fileChanges forces a full scan because they alter
+ * the package/dependency graph in ways that ripple through every component.
+ */
+const FULL_SCAN_TRIGGER_FILES: ReadonlySet<string> = new Set<string>([
+  // Lockfiles / manifests — change the package graph
+  'package.json',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  'pyproject.toml',
+  'requirements.txt',
+  'requirements-dev.txt',
+  'requirements-test.txt',
+  'prisma/schema.prisma',
+  'Package.swift',
+  'Package.resolved',
+  // Build / runtime config — change resolution, deploy targets, ignore rules
+  'tsconfig.json',
+  'vercel.json',
+  'fly.toml',
+  'railway.json',
+  '.gitignore',
+]);
+
+/** Days × ms in one day — used by stale-full check. */
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Cap on consecutive incremental scans before forcing a full scan. */
+const INCREMENTAL_CAP = 20;
+
+export interface ScanModeDecision {
+  mode: 'full' | 'incremental';
+  reason:
+    | 'flag-full'
+    | 'flag-incremental'
+    | 'no-prior-state'
+    | 'schema-mismatch'
+    | 'manifest-changed'
+    | 'new-files'
+    | 'stale-full'
+    | 'incremental-cap'
+    | 'no-changes'
+    | 'fast-path';
+}
+
+/**
+ * Decide whether to run a full or incremental scan based on the requested
+ * mode, the prior index state, and the file changes since last scan.
+ *
+ * Pure function — no I/O. All inputs precomputed by the caller.
+ *
+ * Policy (for mode='auto'):
+ * 1. No prior index → full / no-prior-state
+ * 2. schema_version mismatch (and not 1.0.0 → 1.1.0 soft-upgrade) → full / schema-mismatch
+ * 3. Any FULL_SCAN_TRIGGER_FILES in changedFiles → full / manifest-changed
+ * 4. now − last_full_scan > 7 days → full / stale-full
+ * 5. incrementals_since_full ≥ 20 → full / incremental-cap
+ * 6. No file changes at all → noop case (caller handles); we still return
+ *    'incremental' here for the no-op flow.
+ * 7. Else → incremental / fast-path
+ */
+export function selectScanMode(
+  fileChanges: FileChangeResult | undefined,
+  index: ArchitectureIndex | null,
+  options: { mode?: ScanMode; clearFirst?: boolean; incremental?: boolean },
+  now: number = Date.now()
+): ScanModeDecision {
+  const mode = options.mode ?? (options.clearFirst ? 'full' : options.incremental ? 'incremental' : 'auto');
+
+  if (mode === 'full') {
+    return { mode: 'full', reason: 'flag-full' };
+  }
+
+  if (mode === 'incremental') {
+    if (!index) {
+      return { mode: 'full', reason: 'no-prior-state' };
+    }
+    return { mode: 'incremental', reason: 'flag-incremental' };
+  }
+
+  // mode === 'auto'
+  if (!index) {
+    return { mode: 'full', reason: 'no-prior-state' };
+  }
+
+  // 1.0.0 → 1.1.0 is a soft upgrade (loadIndex injected defaults).
+  // Any other mismatch demands a full rebuild.
+  const sv = index.schema_version ?? '1.0.0';
+  if (sv !== '1.0.0' && sv !== SCHEMA_VERSION) {
+    return { mode: 'full', reason: 'schema-mismatch' };
+  }
+
+  const changed = new Set<string>();
+  if (fileChanges) {
+    for (const f of fileChanges.added) changed.add(f);
+    for (const f of fileChanges.modified) changed.add(f);
+    for (const f of fileChanges.removed) changed.add(f);
+  }
+
+  for (const trigger of FULL_SCAN_TRIGGER_FILES) {
+    if (changed.has(trigger)) {
+      return { mode: 'full', reason: 'manifest-changed' };
+    }
+  }
+
+  // New files have no recorded reverse-dep edges yet, so an incremental walk-set
+  // can't find their importers. Cleaner to force a full scan than gymnastics
+  // (Run 1.6 — item #5).
+  if (fileChanges && fileChanges.added.length > 0) {
+    return { mode: 'full', reason: 'new-files' };
+  }
+
+  const lastFull = index.last_full_scan ?? 0;
+  if (lastFull > 0 && now - lastFull > SEVEN_DAYS_MS) {
+    return { mode: 'full', reason: 'stale-full' };
+  }
+
+  const incCount = index.incrementals_since_full ?? 0;
+  if (incCount >= INCREMENTAL_CAP) {
+    return { mode: 'full', reason: 'incremental-cap' };
+  }
+
+  if (changed.size === 0) {
+    return { mode: 'incremental', reason: 'no-changes' };
+  }
+
+  return { mode: 'incremental', reason: 'fast-path' };
 }
 
 // =============================================================================
@@ -139,14 +295,37 @@ export async function scan(
     console.log(`Scanning project: ${root}`);
   }
 
-  // Clear existing data if requested
-  if (options.clearFirst) {
-    await clearStorage(config, root);
-  }
-
-  // Ensure storage directories exist
+  // Ensure storage directories exist BEFORE we look at any prior state.
   ensureStorageDirectories(config, root);
 
+  // ==========================================================================
+  // Phase 0.0: Concurrency lock (Run 1.6 — item #4)
+  // ==========================================================================
+  // Prevent two `navgator scan` processes corrupting each other's
+  // .navgator/architecture/ output. Stale locks (>10 min OR pid gone)
+  // auto-clear. Live contention exits cleanly with code 0.
+  const storeDir = getStoragePath(config, root);
+  const requestedScanType = options.mode ?? (options.clearFirst ? 'full' : options.incremental ? 'incremental' : 'auto');
+  const lock = acquireLock(storeDir, requestedScanType);
+  if (!lock.ok) {
+    console.log(lock.message);
+    const duration = Date.now() - startTime;
+    return {
+      components: [],
+      connections: [],
+      warnings: [],
+      stats: {
+        scan_duration_ms: duration,
+        components_found: 0,
+        connections_found: 0,
+        warnings_count: 0,
+        files_scanned: 0,
+        files_changed: 0,
+      },
+    };
+  }
+
+  try {
   // ==========================================================================
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================
@@ -156,20 +335,160 @@ export async function scan(
     ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/__pycache__/**', '**/venv/**', '**/.git/**', '**/.build/**', '**/DerivedData/**', '**/.swiftpm/**', '**/Pods/**', '**/coverage/**'],
   });
 
-  let fileChanges: FileChangeResult | undefined;
+  // For change detection, also include manifest files at the project root
+  // (and a few well-known nested ones). selectScanMode consults these to
+  // decide whether to force a full scan. Manifests are NOT scanned by the
+  // per-language scanners — they're tracked here only for change detection.
+  const manifestPatterns = [
+    'package.json',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'yarn.lock',
+    'pyproject.toml',
+    'requirements.txt',
+    'requirements-dev.txt',
+    'requirements-test.txt',
+    'prisma/schema.prisma',
+    'Package.swift',
+    'Package.resolved',
+    // Build / runtime config — track so changes trigger full scan
+    'tsconfig.json',
+    'vercel.json',
+    'fly.toml',
+    'railway.json',
+    '.gitignore',
+  ];
+  const manifestFiles: string[] = [];
+  for (const m of manifestPatterns) {
+    try {
+      const fs = await import('node:fs');
+      if (fs.existsSync(path.join(root, m))) manifestFiles.push(m);
+    } catch {
+      // ignore
+    }
+  }
+  const filesForChangeDetection = [...sourceFiles, ...manifestFiles];
 
-  if (!options.clearFirst) {
-    fileChanges = await detectFileChanges(sourceFiles, root, config);
+  // Detect file changes using prior hashes BEFORE any clearing.
+  // (Used by mode selection AND timeline summary even on full scans.)
+  let fileChanges: FileChangeResult | undefined;
+  fileChanges = await detectFileChanges(filesForChangeDetection, root, config);
+
+  if (options.verbose) {
+    console.log(`File changes: ${formatFileChangeSummary(fileChanges)}`);
+    if (fileChanges.added.length > 0 && fileChanges.added.length <= 5) {
+      console.log(`  Added: ${fileChanges.added.join(', ')}`);
+    }
+    if (fileChanges.modified.length > 0 && fileChanges.modified.length <= 5) {
+      console.log(`  Modified: ${fileChanges.modified.join(', ')}`);
+    }
+  }
+
+  // ==========================================================================
+  // Phase 0.5: Scan-mode selection (Run 1 — D2)
+  // ==========================================================================
+
+  const priorIndex: ArchitectureIndex | null = await loadIndex(config, root);
+  const decision = selectScanMode(fileChanges, priorIndex, options);
+
+  // scanType captures the mode the scan ACTUALLY ran in (after potential
+  // integrity-check promotion). Initialized to the decision; may be promoted
+  // to 'incremental→full' below.
+  let scanType: ScanType = decision.mode;
+
+  if (options.verbose) {
+    console.log(`Scan mode: ${decision.mode} (${decision.reason})`);
+  }
+
+  // Compute walk-set for incremental: changedFiles ∪ reverseDeps
+  const changedSet = new Set<string>();
+  if (fileChanges) {
+    for (const f of fileChanges.added) changedSet.add(f);
+    for (const f of fileChanges.modified) changedSet.add(f);
+    for (const f of fileChanges.removed) changedSet.add(f);
+  }
+  let walkSet = new Set<string>(changedSet);
+  if (decision.mode === 'incremental' && changedSet.size > 0) {
+    const reverseDeps = await loadReverseDeps(changedSet, config, root);
+    for (const f of reverseDeps) walkSet.add(f);
+    if (options.verbose) {
+      console.log(`  Walk-set: ${changedSet.size} changed + ${reverseDeps.size} reverse-deps = ${walkSet.size} files`);
+    }
+  }
+  // Pass walkSet to scanners only on incremental. Full scans pass undefined to
+  // preserve bit-identical output (regression-locked by characterization snapshot).
+  const incWalkSet: Set<string> | undefined = decision.mode === 'incremental' ? walkSet : undefined;
+
+  // ==========================================================================
+  // Phase 0.6: Noop short-circuit (incremental + zero changes)
+  // ==========================================================================
+
+  if (decision.mode === 'incremental' && decision.reason === 'no-changes') {
+    // Nothing changed since last scan. Bump last_scan, update incrementals_since_full
+    // to 0 (no incremental work was done — but keep it as-is to honor the cap).
+    // Save fresh hashes (idempotent), update index timestamp, record noop timeline entry.
+    if (priorIndex) {
+      priorIndex.last_scan = Date.now();
+      // Note: incrementals_since_full and last_full_scan unchanged on noop.
+      await atomicWriteJSON(getIndexPath(config, root), priorIndex);
+    }
+    const fileHashes = await computeFileHashes(filesForChangeDetection, root);
+    await saveHashes(fileHashes, config, root);
+
+    const noopTimelineEntry: TimelineEntry = {
+      id: generateTimelineId(),
+      timestamp: Date.now(),
+      significance: 'patch',
+      triggers: [],
+      diff: {
+        components: { added: [], removed: [], modified: [] },
+        connections: { added: [], removed: [] },
+        stats: {
+          total_changes: 0,
+          components_before: priorIndex?.stats.total_components ?? 0,
+          components_after: priorIndex?.stats.total_components ?? 0,
+          connections_before: priorIndex?.stats.total_connections ?? 0,
+          connections_after: priorIndex?.stats.total_connections ?? 0,
+        },
+      },
+      git: gitInfo,
+      scan_type: 'noop',
+      files_scanned: 0,
+    };
+    await saveTimelineEntry(noopTimelineEntry, config, root);
+
+    // Load existing components/connections so callers see the unchanged graph.
+    const existingComponents = await loadAllComponents(config, root);
+    const existingConnections = await loadAllConnections(config, root);
+    const duration = Date.now() - startTime;
 
     if (options.verbose) {
-      console.log(`File changes: ${formatFileChangeSummary(fileChanges)}`);
-      if (fileChanges.added.length > 0 && fileChanges.added.length <= 5) {
-        console.log(`  Added: ${fileChanges.added.join(', ')}`);
-      }
-      if (fileChanges.modified.length > 0 && fileChanges.modified.length <= 5) {
-        console.log(`  Modified: ${fileChanges.modified.join(', ')}`);
-      }
+      console.log(`Scan complete (noop) in ${duration}ms`);
     }
+
+    return {
+      components: existingComponents,
+      connections: existingConnections,
+      warnings: [],
+      fileChanges,
+      timelineEntry: noopTimelineEntry,
+      gitInfo,
+      stats: {
+        scan_duration_ms: duration,
+        components_found: existingComponents.length,
+        connections_found: existingConnections.length,
+        warnings_count: 0,
+        files_scanned: 0,
+        files_changed: 0,
+      },
+    };
+  }
+
+  // For full scans: clear ALL prior data up front (legacy clearFirst semantics).
+  // For incremental: defer to Phase 4 (clearForFiles + merge).
+  if (decision.mode === 'full' || options.clearFirst) {
+    await clearStorage(config, root);
+    ensureStorageDirectories(config, root);
   }
 
   const allComponents: ArchitectureComponent[] = [];
@@ -253,7 +572,7 @@ export async function scan(
   if (options.fieldUsage && canAnalyzeFieldUsage(root)) {
     if (options.verbose) console.log('  - Analyzing DB field usage...');
     try {
-      const fieldResult = await scanFieldUsage(root) as ScanResult & { report?: FieldUsageReport };
+      const fieldResult = await scanFieldUsage(root, incWalkSet) as ScanResult & { report?: FieldUsageReport };
       allComponents.push(...fieldResult.components);
       allConnections.push(...fieldResult.connections);
       allWarnings.push(...fieldResult.warnings);
@@ -296,7 +615,7 @@ export async function scan(
 
     if (detectEnvFiles(root)) {
       if (options.verbose) console.log('  - Detected environment files');
-      infraTasks.push(scanEnvVars(root).then(envResult => {
+      infraTasks.push(scanEnvVars(root, incWalkSet).then(envResult => {
         allComponents.push(...envResult.components);
         allConnections.push(...envResult.connections);
         allWarnings.push(...envResult.warnings);
@@ -313,7 +632,7 @@ export async function scan(
 
     if (detectQueues(root)) {
       if (options.verbose) console.log('  - Detected queue system');
-      infraTasks.push(scanQueues(root).then(queueResult => {
+      infraTasks.push(scanQueues(root, incWalkSet).then(queueResult => {
         allComponents.push(...queueResult.components);
         allConnections.push(...queueResult.connections);
         allWarnings.push(...queueResult.warnings);
@@ -330,7 +649,7 @@ export async function scan(
 
     if (detectCrons(root)) {
       if (options.verbose) console.log('  - Detected cron jobs');
-      infraTasks.push(scanCronJobs(root).then(cronResult => {
+      infraTasks.push(scanCronJobs(root, incWalkSet).then(cronResult => {
         allComponents.push(...cronResult.components);
         allConnections.push(...cronResult.connections);
         allWarnings.push(...cronResult.warnings);
@@ -370,7 +689,7 @@ export async function scan(
   if (prismaModelComps.length > 0) {
     if (options.verbose) console.log('  - Scanning Prisma client calls...');
     try {
-      const prismaCallResult = await scanPrismaCalls(root, prismaModelComps);
+      const prismaCallResult = await scanPrismaCalls(root, prismaModelComps, incWalkSet);
       allConnections.push(...prismaCallResult.connections);
       if (options.verbose && prismaCallResult.connections.length > 0) {
         const uniqueModels = new Set(prismaCallResult.connections.map(c => c.description?.split(' queries ')[1]?.split(' ')[0]));
@@ -398,14 +717,14 @@ export async function scan(
       if (options.verbose) console.log('  - Running AST analysis (ts-morph)...');
 
       try {
-        const astResult = await scanWithAST(root);
+        const astResult = await scanWithAST(root, incWalkSet);
         allComponents.push(...astResult.components);
         allConnections.push(...astResult.connections);
         allWarnings.push(...astResult.warnings);
 
         // Also scan for database operations
         if (options.verbose) console.log('  - Scanning database operations...');
-        const dbResult = await scanDatabaseOperations(root);
+        const dbResult = await scanDatabaseOperations(root, incWalkSet);
         allComponents.push(...dbResult.components);
         allConnections.push(...dbResult.connections);
         allWarnings.push(...dbResult.warnings);
@@ -417,7 +736,7 @@ export async function scan(
 
         // Fall back to regex scanning
         if (options.verbose) console.log('  - Falling back to regex scanning...');
-        const serviceResult = await scanServiceCalls(root);
+        const serviceResult = await scanServiceCalls(root, incWalkSet);
         allComponents.push(...serviceResult.components);
         allConnections.push(...serviceResult.connections);
         allWarnings.push(...serviceResult.warnings);
@@ -425,7 +744,7 @@ export async function scan(
     } else {
       // Regex-based scanning (faster but less accurate)
       if (options.verbose) console.log('  - Scanning service calls (regex)...');
-      const serviceResult = await scanServiceCalls(root);
+      const serviceResult = await scanServiceCalls(root, incWalkSet);
       allComponents.push(...serviceResult.components);
       allConnections.push(...serviceResult.connections);
       allWarnings.push(...serviceResult.warnings);
@@ -445,7 +764,12 @@ export async function scan(
         ))
         .map(c => ({ name: c.name, component_id: c.component_id }));
 
-      const importResult = await scanImports(root, sourceFiles, knownPackages);
+      // In incremental mode, restrict the import scan to walk-set files. Falls
+      // back to the full sourceFiles list (bit-identical) on full scans.
+      const importSourceFiles = incWalkSet
+        ? sourceFiles.filter(f => incWalkSet.has(f))
+        : sourceFiles;
+      const importResult = await scanImports(root, importSourceFiles, knownPackages);
       allComponents.push(...importResult.components);
       allConnections.push(...importResult.connections);
       if (options.verbose) {
@@ -538,7 +862,7 @@ export async function scan(
     if (detectSpm(root)) {
       if (options.verbose) console.log('  - Scanning Swift code connections...');
       try {
-        const swiftResult = await scanSwiftCode(root);
+        const swiftResult = await scanSwiftCode(root, incWalkSet);
         allComponents.push(...swiftResult.components);
         allConnections.push(...swiftResult.connections);
         allWarnings.push(...swiftResult.warnings);
@@ -621,7 +945,7 @@ export async function scan(
       if (options.verbose) console.log('  - Running LLM call tracer (anchor-based)...');
       let traceResult: LLMTraceResult | undefined;
       try {
-        traceResult = await traceLLMCalls(root);
+        traceResult = await traceLLMCalls(root, incWalkSet);
         allComponents.push(...traceResult.scanResult.components);
         allConnections.push(...traceResult.scanResult.connections);
 
@@ -651,7 +975,7 @@ export async function scan(
         includeRawContent: true,
         detectVariables: true,
         aggressive: true,
-      });
+      }, incWalkSet);
 
       // Attach tracer results to prompt scan data (for web UI)
       if (traceResult) {
@@ -760,23 +1084,135 @@ export async function scan(
   // Snapshot previous state before overwriting (for change tracking)
   // Also load the pre-scan snapshot for diff computation
   let preScanSnapshot = null;
-  if (!options.clearFirst) {
+  if (!options.clearFirst && decision.mode !== 'full') {
     try {
       await createSnapshot('pre-scan', config, root);
       preScanSnapshot = await loadLatestSnapshot(config, root);
     } catch {
       // No previous data to snapshot — first scan
     }
+  } else if (decision.mode === 'full') {
+    // For full scans, still create a snapshot for diff (if prior data exists)
+    try {
+      preScanSnapshot = await loadLatestSnapshot(config, root);
+    } catch {
+      // First-ever scan, no prior snapshot.
+    }
   }
 
-  // Clear old components/connections before storing new ones
-  // This ensures no duplicate accumulation across scans
-  await clearStorage(config, root);
-  ensureStorageDirectories(config, root);
+  // ==========================================================================
+  // Phase 4 storage decision (Run 1 — D1 + D2):
+  //   - 'full': clearStorage was already done up front; now store everything fresh.
+  //   - 'incremental': clear ONLY components/connections that originate in the
+  //     walk-set, then merge the freshly-scanned uniqueComponents/Connections
+  //     with the survivors. Run integrity check; on failure, promote to full.
+  // ==========================================================================
 
-  // Store components and connections
-  await storeComponents(uniqueComponents, config, root);
-  await storeConnections(uniqueConnections, config, root);
+  let finalComponents = uniqueComponents;
+  let finalConnections = uniqueConnections;
+
+  if (decision.mode === 'incremental' && !options.clearFirst) {
+    // Snapshot the FULL prior on-disk component set BEFORE clearForFiles —
+    // we need it to remap surviving connections from old random component_ids
+    // to the new ones (since stable_id is the join key but connections
+    // reference component_id, which gets a fresh random suffix per scan).
+    const preClearComponents = await loadAllComponents(config, root);
+
+    // Clear only the touched subset.
+    await clearForFiles(config, root, walkSet);
+
+    // Load survivors (everything NOT in walk-set, still on disk).
+    const survivingComponents = await loadAllComponents(config, root);
+    const survivingConnections = await loadAllConnections(config, root);
+
+    // Populate stable_ids on the in-memory uniqueComponents BEFORE merging.
+    // Disk-loaded survivors get stable_ids from loadAllComponents, but
+    // freshly-scanned components don't have them set until storeComponents
+    // runs — and we merge BEFORE store. Without this, every fresh component
+    // looks like a new entry to mergeByStableId (because its key falls back
+    // to its random component_id), breaking dedup.
+    for (const c of uniqueComponents) ensureStableIdPublic(c);
+
+    // Merge: incoming wins on stable_id collision (component) or composite key (connection).
+    // Components keyed by stable_id (or component_id fallback).
+    finalComponents = mergeByStableId(
+      survivingComponents,
+      uniqueComponents,
+      (c) => c.stable_id ?? c.component_id
+    );
+
+    // Build a remap: prior_component_id → new_component_id (via stable_id).
+    // Connections from disk reference OLD random component_ids; the freshly
+    // scanned components have NEW random component_ids. Same stable_id ties
+    // them together. Rewrite surviving connection from/to ids so the merged
+    // graph stays consistent.
+    const stableToNewId = new Map<string, string>();
+    for (const c of finalComponents) {
+      if (c.stable_id) stableToNewId.set(c.stable_id, c.component_id);
+    }
+    // oldIdToStable: maps every PRIOR-scan component_id (including ones we
+    // just deleted via clearForFiles) to its stable_id. Built from the
+    // pre-clear snapshot so we can resolve connection refs to their new IDs.
+    const oldIdToStable = new Map<string, string>();
+    for (const c of preClearComponents) {
+      if (c.stable_id) oldIdToStable.set(c.component_id, c.stable_id);
+    }
+    // Also map fresh components' ids → stable (no remap needed but keeps the
+    // rewrite loop a no-op for these instead of leaving them undefined).
+    for (const c of uniqueComponents) {
+      if (c.stable_id) oldIdToStable.set(c.component_id, c.stable_id);
+    }
+
+    function remapId(id: string | undefined): string | undefined {
+      if (!id) return id;
+      if (id.startsWith('FILE:')) return id;
+      const stable = oldIdToStable.get(id);
+      if (stable) {
+        const newId = stableToNewId.get(stable);
+        if (newId) return newId;
+      }
+      return id; // No remap available — leave alone, integrity check may catch
+    }
+
+    // Rewrite surviving connections to use the latest component_ids.
+    for (const conn of survivingConnections) {
+      if (conn.from?.component_id) {
+        conn.from.component_id = remapId(conn.from.component_id) ?? conn.from.component_id;
+      }
+      if (conn.to?.component_id) {
+        conn.to.component_id = remapId(conn.to.component_id) ?? conn.to.component_id;
+      }
+    }
+
+    // Connections keyed by from|to|type|file:line composite (matches dedup key).
+    const connKey = (c: ArchitectureConnection): string =>
+      `${c.from?.component_id ?? ''}|${c.to?.component_id ?? ''}|${c.connection_type}|${c.code_reference?.file ?? ''}:${c.code_reference?.line_start ?? ''}`;
+    finalConnections = mergeByStableId(survivingConnections, uniqueConnections, connKey);
+
+    // Integrity check: every connection endpoint must exist; every walk-set
+    // component must reference real source files. On failure → promote to full.
+    const integrity = await runIntegrityCheck(finalComponents, finalConnections, root, walkSet);
+    if (!integrity.ok) {
+      if (options.verbose) {
+        console.log(`  Integrity check failed (${integrity.issues.length} issues) — promoting to full scan`);
+        for (const issue of integrity.issues.slice(0, 3)) {
+          console.log(`    ${issue}`);
+        }
+      }
+      // Promote: wipe everything, fall back to the in-memory uniqueComponents/Connections
+      // (these were freshly scanned in Phase 1–3 and are authoritative for the full set
+      // of files the package/infra/connection scanners walked).
+      await clearStorage(config, root);
+      ensureStorageDirectories(config, root);
+      finalComponents = uniqueComponents;
+      finalConnections = uniqueConnections;
+      scanType = 'incremental→full';
+    }
+  }
+
+  // Store final state (atomic per-file writes — see storage.ts).
+  await storeComponents(finalComponents, config, root);
+  await storeConnections(finalConnections, config, root);
 
   // ==========================================================================
   // Phase 5: Architecture Diff
@@ -801,6 +1237,14 @@ export async function scan(
       diff,
       snapshot_id: currentSnapshot.snapshot_id,
       git: gitInfo,
+      scan_type: scanType,
+      // Run 1.6 — item #3: report walk-set size for both 'incremental' AND
+      // 'incremental→full' so a silent integrity-promote doesn't erase evidence
+      // that an incremental walk-set was attempted.
+      files_scanned:
+        scanType === 'incremental' || scanType === 'incremental→full'
+          ? walkSet.size
+          : sourceFiles.length,
     };
 
     // Only save timeline entry if there are changes (or first scan)
@@ -827,14 +1271,63 @@ export async function scan(
   await buildGraph(config, root);
   await buildFileMap(config, root);
 
+  // ==========================================================================
+  // Phase 5.4: Derived reverse-deps index + manifest (Run 1.6 — items #8 + #9)
+  // ==========================================================================
+  // The reverse-deps index lets the next incremental scan compute walk-set
+  // expansion from a single file open instead of walking every per-edge JSON.
+  // The manifest lists all derived artifacts with their generated_at stamps.
+  let reverseDepsEdgeCount: number | undefined;
+  try {
+    const result = await buildReverseDepsIndex(finalComponents, finalConnections, config, root);
+    reverseDepsEdgeCount = result.edge_count;
+  } catch (err) {
+    if (process.env['NAVGATOR_DEBUG']) {
+      console.error('[reverse-deps] index build skipped:', (err as Error).message);
+    }
+  }
+  try {
+    await buildDerivedManifest(config, root, { reverseDepsEdgeCount });
+  } catch (err) {
+    if (process.env['NAVGATOR_DEBUG']) {
+      console.error('[manifest] write skipped:', (err as Error).message);
+    }
+  }
+
+  // ==========================================================================
+  // Phase 5.5: Annotate index with mode-tracking fields (Run 1 — D2)
+  //   Run AFTER buildIndex so we can annotate the freshly-written index
+  //   without buildIndex needing to know about modes.
+  // ==========================================================================
+  try {
+    const freshIndex = await loadIndex(config, root);
+    if (freshIndex) {
+      if (scanType === 'full' || scanType === 'incremental→full') {
+        freshIndex.last_full_scan = Date.now();
+        freshIndex.incrementals_since_full = 0;
+      } else if (scanType === 'incremental') {
+        // Preserve last_full_scan from prior index; bump counter.
+        if (priorIndex) {
+          freshIndex.last_full_scan = priorIndex.last_full_scan ?? priorIndex.last_scan ?? 0;
+        }
+        freshIndex.incrementals_since_full = (priorIndex?.incrementals_since_full ?? 0) + 1;
+      }
+      // Always set schema_version to current build's version.
+      freshIndex.schema_version = SCHEMA_VERSION;
+      await atomicWriteJSON(getIndexPath(config, root), freshIndex);
+    }
+  } catch {
+    // Non-fatal: mode-tracking annotation is best-effort.
+  }
+
   // Compute graph-wide metrics (PageRank + Louvain communities) → metrics.json,
   // and back-write per-component scores into component metadata so any consumer
   // that loads a component sees them. Suppressed for graphs <20 nodes.
   try {
     const { computeAndStoreMetrics } = await import('./metrics/pagerank-louvain.js');
     await computeAndStoreMetrics(config, root, {
-      components: uniqueComponents,
-      connections: uniqueConnections,
+      components: finalComponents,
+      connections: finalConnections,
     });
   } catch (err) {
     // Non-fatal — scan still produces all other artifacts.
@@ -855,8 +1348,8 @@ export async function scan(
       const { writeComponentMarkdownViews, writeConnectionsJsonl } = await import('./storage/markdown-view.js');
       const { getStoragePath: getStoragePathFn } = await import('./config.js');
       const storeDir = getStoragePathFn(config, root);
-      await writeComponentMarkdownViews(storeDir, uniqueComponents, uniqueConnections);
-      await writeConnectionsJsonl(storeDir, uniqueComponents, uniqueConnections);
+      await writeComponentMarkdownViews(storeDir, finalComponents, finalConnections);
+      await writeConnectionsJsonl(storeDir, finalComponents, finalConnections);
     } catch (err) {
       if (process.env['NAVGATOR_DEBUG']) {
         console.error('[markdown-view] skipped:', (err as Error).message);
@@ -897,8 +1390,8 @@ export async function scan(
     await registerProject(
       root,
       {
-        components: uniqueComponents.length,
-        connections: uniqueConnections.length,
+        components: finalComponents.length,
+        connections: finalConnections.length,
         prompts: promptScanResultHolder?.prompts.length ?? 0,
       },
       timelineEntry?.significance,
@@ -916,7 +1409,9 @@ export async function scan(
     console.log('Phase 6: Saving file hashes...');
   }
 
-  const fileHashes = await computeFileHashes(sourceFiles, root);
+  // Phase 6: hash both source files AND manifests so manifest edits are
+  // detectable on the next scan (selectScanMode uses this to fire 'manifest-changed').
+  const fileHashes = await computeFileHashes(filesForChangeDetection, root);
   await saveHashes(fileHashes, config, root);
 
   const duration = Date.now() - startTime;
@@ -926,8 +1421,8 @@ export async function scan(
 
   if (options.verbose) {
     console.log(`\nScan complete in ${duration}ms`);
-    console.log(`  Components: ${uniqueComponents.length}`);
-    console.log(`  Connections: ${uniqueConnections.length}`);
+    console.log(`  Components: ${finalComponents.length}`);
+    console.log(`  Connections: ${finalConnections.length}`);
     console.log(`  Files scanned: ${sourceFiles.length}`);
     console.log(`  Files changed: ${filesChanged}`);
     console.log(`  Warnings: ${allWarnings.length}`);
@@ -950,8 +1445,8 @@ export async function scan(
   }
 
   return {
-    components: uniqueComponents,
-    connections: uniqueConnections,
+    components: finalComponents,
+    connections: finalConnections,
     warnings: allWarnings,
     fileChanges,
     promptScan: promptScanResultHolder,
@@ -961,14 +1456,25 @@ export async function scan(
     gitInfo,
     stats: {
       scan_duration_ms: duration,
-      components_found: uniqueComponents.length,
-      connections_found: allConnections.length,
+      components_found: finalComponents.length,
+      connections_found: finalConnections.length,
       warnings_count: allWarnings.length,
-      files_scanned: sourceFiles.length,
+      // Run 1.6 — item #3: report walk-set size for both 'incremental' AND
+      // 'incremental→full' so a silent integrity-promote doesn't erase evidence
+      // that an incremental walk-set was attempted.
+      files_scanned:
+        scanType === 'incremental' || scanType === 'incremental→full'
+          ? walkSet.size
+          : sourceFiles.length,
       files_changed: filesChanged,
       prompts_found: promptScanResultHolder?.prompts.length,
     },
   };
+  } finally {
+    // Run 1.6 — item #4: release the scan lock on every exit path
+    // (success, early-return, throw). Idempotent.
+    lock.release();
+  }
 }
 
 /**

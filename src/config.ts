@@ -14,7 +14,7 @@ export { NavGatorConfig, StorageMode };
 // DEFAULT CONFIGURATION
 // =============================================================================
 
-export const SCHEMA_VERSION = '1.0.0';
+export const SCHEMA_VERSION = '1.1.0';
 
 const DEFAULT_CONFIG: NavGatorConfig = {
   storageMode: 'local',

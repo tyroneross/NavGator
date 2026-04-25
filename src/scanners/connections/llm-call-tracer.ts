@@ -709,14 +709,21 @@ export interface LLMTraceResult {
   scanResult: ScanResult;
 }
 
-export async function traceLLMCalls(projectRoot: string): Promise<LLMTraceResult> {
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+export async function traceLLMCalls(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<LLMTraceResult> {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
     cwd: projectRoot,
     ignore: [
       'node_modules/**', 'dist/**', 'build/**', '.next/**',
       '__pycache__/**', 'venv/**', '**/node_modules/**', '**/.git/**',
     ],
   });
+  // Walk-set restriction (incremental mode). Bit-identical when undefined.
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   // Read all source files
   const fileContents = new Map<string, { content: string; lines: string[] }>();

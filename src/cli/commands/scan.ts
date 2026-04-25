@@ -10,7 +10,10 @@ export function registerScanCommand(program: Command): void {
     .option('-c, --connections', 'Focus on connection detection')
     .option('-p, --prompts', 'Enhanced AI prompt scanning with full content')
     .option('-v, --verbose', 'Show detailed output')
-    .option('--clear', 'Clear existing data before scanning')
+    .option('--clear', 'Clear existing data before scanning (alias for --full)')
+    .option('--full', 'Force a full scan (clear all and rebuild)')
+    .option('--incremental', 'Force an incremental scan (walk only changed files + reverse-deps)')
+    .option('--auto', 'Auto-pick mode based on file changes and index staleness (default)')
     .option('--ast', 'Use AST-based scanning (more accurate, slightly slower)')
     .option('--track-branch', 'Capture git branch/commit in scan output')
     .option('--commit', 'Auto-commit scan output to nested .navgator/.git for temporal queries (~180ms overhead)')
@@ -30,12 +33,20 @@ export function registerScanCommand(program: Command): void {
           console.log = () => {};
         }
 
+        // Resolve mode: explicit flags > --clear (legacy alias) > default 'auto'.
+        // Mutually-exclusive flags resolve in priority order full > incremental > auto.
+        let mode: 'full' | 'incremental' | 'auto' = 'auto';
+        if (options.full || options.clear) mode = 'full';
+        else if (options.incremental) mode = 'incremental';
+        else if (options.auto) mode = 'auto';
+
         const result = await scan(process.cwd(), {
           quick: options.quick,
           connections: options.connections,
           prompts: options.prompts,
           verbose: options.verbose,
           clearFirst: options.clear,
+          mode,
           useAST: options.ast,
           trackBranch: options.trackBranch,
           fieldUsage: options.fieldUsage,

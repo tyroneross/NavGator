@@ -207,19 +207,25 @@ function parseEnvFileWithValues(content: string): Map<string, string> {
 
 /**
  * Scan source files for process.env.X references
+ *
+ * `walkSet` (optional, incremental mode) restricts which files are scanned.
  */
 async function findEnvReferences(
-  projectRoot: string
+  projectRoot: string,
+  walkSet?: Set<string>
 ): Promise<Map<string, string[]>> {
   const envRefs = new Map<string, string[]>(); // envVar -> [file1, file2, ...]
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**', '**/dist/**', '**/build/**',
       '**/.next/**', '**/coverage/**', '**/.git/**',
     ],
   });
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   for (const file of sourceFiles) {
     try {
@@ -302,7 +308,10 @@ export function categorizeEnvVar(name: string): EnvCategory {
 /**
  * Scan for environment variables across .env files and source code
  */
-export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
+export async function scanEnvVars(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
@@ -344,7 +353,7 @@ export async function scanEnvVars(projectRoot: string): Promise<ScanResult> {
   }
 
   // Phase 2: Scan source files for process.env references
-  const envRefs = await findEnvReferences(projectRoot);
+  const envRefs = await findEnvReferences(projectRoot, walkSet);
 
   // Phase 3: Merge defined + referenced vars
   const allVarNames = new Set([...definedVars.keys(), ...envRefs.keys()]);

@@ -459,13 +459,16 @@ function computeConfidence(
 /**
  * Scan for service calls in the codebase
  */
-export async function scanServiceCalls(projectRoot: string): Promise<ScanResult> {
+export async function scanServiceCalls(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const timestamp = Date.now();
 
   // Find all source files
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
     cwd: projectRoot,
     ignore: [
       'node_modules/**',
@@ -478,6 +481,11 @@ export async function scanServiceCalls(projectRoot: string): Promise<ScanResult>
       '**/.git/**',
     ],
   });
+  // Walk-set restriction (incremental mode): only scan files in the change set.
+  // Bit-identical when undefined (full-scan path).
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(f))
+    : allSourceFiles;
 
   // Track which services we've found
   const foundServices = new Map<string, ArchitectureComponent>();

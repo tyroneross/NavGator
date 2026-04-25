@@ -57,10 +57,11 @@ export { PromptDetector, createDetector } from './detector.js';
  */
 export async function scanPrompts(
   projectRoot: string,
-  options?: DetectorOptions
+  options?: DetectorOptions,
+  walkSet?: Set<string>
 ): Promise<PromptScanResult> {
   const detector = createDetector(options);
-  const { prompts, warnings } = await detector.scanProject(projectRoot);
+  const { prompts, warnings } = await detector.scanProject(projectRoot, walkSet);
 
   // Build summary
   const summary = buildSummary(prompts);

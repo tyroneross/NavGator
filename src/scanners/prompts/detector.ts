@@ -208,9 +208,12 @@ export class PromptDetector {
   }
 
   /**
-   * Scan a project for prompts
+   * Scan a project for prompts.
+   *
+   * `walkSet` (optional) restricts the set of project-relative files scanned
+   * — used by incremental mode. Bit-identical to today when undefined.
    */
-  async scanProject(projectRoot: string): Promise<{
+  async scanProject(projectRoot: string, walkSet?: Set<string>): Promise<{
     prompts: DetectedPrompt[];
     warnings: PromptWarning[];
   }> {
@@ -218,7 +221,7 @@ export class PromptDetector {
     const warnings: PromptWarning[] = [];
 
     // Find source files
-    const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
       cwd: projectRoot,
       ignore: [
         'node_modules/**',
@@ -232,6 +235,9 @@ export class PromptDetector {
         '*.bundle.js',
       ],
     });
+    const sourceFiles = walkSet
+      ? allSourceFiles.filter(f => walkSet.has(f))
+      : allSourceFiles;
 
     for (const file of sourceFiles) {
       try {

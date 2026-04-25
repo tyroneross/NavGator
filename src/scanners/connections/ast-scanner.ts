@@ -116,8 +116,15 @@ export async function isTsMorphAvailable(): Promise<boolean> {
 
 /**
  * Scan TypeScript/JavaScript files using AST analysis
+ *
+ * When `walkSet` is provided (incremental mode), only files whose project-relative
+ * path is in the set are loaded into the ts-morph project. When `undefined`, all
+ * matching source files are loaded (bit-identical to full-scan behavior).
  */
-export async function scanWithAST(projectRoot: string): Promise<ScanResult> {
+export async function scanWithAST(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
@@ -142,11 +149,16 @@ export async function scanWithAST(projectRoot: string): Promise<ScanResult> {
   const { Project, Node } = tsMorphModule;
 
   // Find all TypeScript/JavaScript files
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
     cwd: projectRoot,
     ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '*.d.ts'],
     absolute: true,
   });
+  // Walk-set restriction: glob returns absolute paths, walkSet holds project-relative
+  // paths — normalize before membership check.
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(path.relative(projectRoot, f)))
+    : allSourceFiles;
 
   if (sourceFiles.length === 0) {
     return { components, connections, warnings };
@@ -382,8 +394,14 @@ export async function scanWithAST(projectRoot: string): Promise<ScanResult> {
 
 /**
  * Scan for database operations (Prisma patterns)
+ *
+ * Accepts an optional `walkSet` of project-relative paths to restrict
+ * the scan in incremental mode. Bit-identical to today when undefined.
  */
-export async function scanDatabaseOperations(projectRoot: string): Promise<ScanResult> {
+export async function scanDatabaseOperations(
+  projectRoot: string,
+  walkSet?: Set<string>
+): Promise<ScanResult> {
   const components: ArchitectureComponent[] = [];
   const connections: ArchitectureConnection[] = [];
   const warnings: ScanWarning[] = [];
@@ -400,11 +418,14 @@ export async function scanDatabaseOperations(projectRoot: string): Promise<ScanR
 
   const { Project, Node } = tsMorphModule;
 
-  const sourceFiles = await glob('**/*.{ts,tsx}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx}', {
     cwd: projectRoot,
     ignore: ['node_modules/**', 'dist/**', 'build/**'],
     absolute: true,
   });
+  const sourceFiles = walkSet
+    ? allSourceFiles.filter(f => walkSet.has(path.relative(projectRoot, f)))
+    : allSourceFiles;
 
   const project = new Project({
     compilerOptions: { allowJs: true, skipLibCheck: true, noEmit: true },
