@@ -729,3 +729,186 @@ describe('manifest.json (Run 1.6 — item #9)', () => {
     expect(typeof parsed.files['index.json'].generated_at).toBe('number');
   });
 });
+
+// =============================================================================
+// Run 1.7 — Problem A: integrity-promote must NOT truncate the graph
+// =============================================================================
+//
+// Repros the atomize-ai bug. Pre-Run-1.7, a failed integrity check on an
+// incremental scan reused the in-memory uniqueComponents/uniqueConnections
+// that were just computed under the walk-set restriction. Result: post-promote
+// disk state had the package + infra components but only the walk-set's slice
+// of code-level components, and the graph was wiped from N → tiny.
+//
+// The Run 1.7 fix is recursive re-entry: scan() releases its lock, calls
+// itself with `mode: 'full', clearFirst: true`, and returns the inner scan's
+// result with `scan_type` overridden to 'incremental→full' for evidence
+// (Run 1.6 #3 contract).
+
+describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
+  it('promote retains full graph (>= baseline counts), not just walk-set slice', async () => {
+    const root = makeTmpProject();
+
+    // 1. Baseline: full scan, capture component/connection counts on disk.
+    const baseline = await scan(root, { mode: 'full' });
+    expect(baseline.timelineEntry?.scan_type).toBe('full');
+    const cfgArg = {
+      storageMode: 'local',
+      storagePath: '.navgator/architecture',
+      autoScan: false,
+      healthCheckEnabled: false,
+      scanDepth: 'shallow',
+      defaultConfidenceThreshold: 0.6,
+    } as never;
+    const componentsDir = path.join(getStoragePath(cfgArg, root), 'components');
+    const connectionsDir = path.join(getStoragePath(cfgArg, root), 'connections');
+    const baselineComponentCount = fs.readdirSync(componentsDir).length;
+    const baselineConnectionCount = fs.readdirSync(connectionsDir).length;
+    expect(baselineComponentCount).toBeGreaterThan(0);
+    expect(baselineConnectionCount).toBeGreaterThan(0);
+
+    // 2. Corrupt one surviving connection's `to.component_id` so integrity
+    //    fails on the next incremental scan.
+    const connFiles = fs.readdirSync(connectionsDir);
+    // Pick a connection whose source file is NOT the one we'll touch, so
+    // clearForFiles doesn't wipe it before the integrity check sees it.
+    let chosen: string | undefined;
+    for (const f of connFiles) {
+      const c = JSON.parse(fs.readFileSync(path.join(connectionsDir, f), 'utf-8'));
+      if (c.code_reference?.file && c.code_reference.file !== 'src/a.ts') {
+        chosen = f;
+        break;
+      }
+    }
+    expect(chosen).toBeDefined();
+    const corruptPath = path.join(connectionsDir, chosen as string);
+    const corrupt = JSON.parse(fs.readFileSync(corruptPath, 'utf-8'));
+    corrupt.to.component_id = 'COMP_bogus_does_not_exist_zzz123';
+    fs.writeFileSync(corruptPath, JSON.stringify(corrupt, null, 2));
+
+    // 3. Touch one source file → triggers incremental.
+    await new Promise((r) => setTimeout(r, 5));
+    fs.appendFileSync(path.join(root, 'src', 'a.ts'), '\n// touched\n');
+
+    // 4. Incremental scan: integrity fails → recursive promote.
+    const inc = await scan(root, { mode: 'auto' });
+    expect(inc.timelineEntry?.scan_type).toBe('incremental→full');
+
+    // 5. CORE ASSERTIONS — Run 1.7 — Problem A. Pre-fix, these counts dropped
+    //    to a tiny walk-set slice. Post-fix, they MUST equal (or exceed by 1
+    //    for the new connection introduced by the touch) the baseline.
+    const postComponentCount = fs.readdirSync(componentsDir).length;
+    const postConnectionCount = fs.readdirSync(connectionsDir).length;
+    expect(postComponentCount).toBeGreaterThanOrEqual(baselineComponentCount);
+    expect(postConnectionCount).toBeGreaterThanOrEqual(baselineConnectionCount);
+    // In-memory result must also match disk.
+    expect(inc.components.length).toBe(postComponentCount);
+    expect(inc.connections.length).toBe(postConnectionCount);
+
+    // 6. Sanity: the recursive promote DID label its index as a fresh full
+    //    scan (last_full_scan moved forward, incrementals_since_full reset).
+    const idx = await loadIndex(undefined, root);
+    expect(idx?.incrementals_since_full).toBe(0);
+    expect((idx?.last_full_scan ?? 0)).toBeGreaterThan(0);
+  });
+});
+
+// =============================================================================
+// Run 1.7 — Problem B: dedup-by-name must not collide cross-type
+// =============================================================================
+//
+// Pre-Run-1.7, scanner.ts dedup-by-name keyed on `component.name` alone. That
+// silently dropped a file-level component (type='component', name='prisma',
+// from `lib/prisma.ts`) when it collided with the Prisma database component
+// (type='database', name='prisma'). Import edges already referenced the
+// dropped component_id → integrity check failed → graph truncated (Problem A).
+//
+// Fix: key on `${type}|${name}`. Different types coexist; same-type same-name
+// still dedupes.
+
+describe('dedup-by-name cross-type collision (Run 1.7 — Problem B)', () => {
+  it('file component "prisma" coexists with database component "prisma"', async () => {
+    // Build a fixture that exercises the collision path: a file named
+    // `lib/prisma.ts` that other files import. The file-level component
+    // produced by import-scanner is named `prisma` (after stripping `lib/`
+    // and the `.ts` extension). We don't have a Prisma schema in the
+    // fixture, so we synthesize the cross-type collision by adding a
+    // package named `prisma` (the npm-package scanner produces a
+    // type='package' component named `prisma`). Pre-fix, dedup-by-name
+    // dropped one of them; post-fix, both must be present.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-prob-b-'));
+    fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify(
+        { name: 'prob-b-fixture', version: '0.0.0', dependencies: { prisma: '^5.0.0' } },
+        null,
+        2
+      )
+    );
+    fs.writeFileSync(
+      path.join(root, 'lib', 'prisma.ts'),
+      `export const client = { query: () => null };\n`
+    );
+    fs.writeFileSync(
+      path.join(root, 'src', 'a.ts'),
+      `import { client } from '../lib/prisma';\nexport const x = client;\n`
+    );
+
+    const result = await scan(root, { mode: 'full' });
+
+    // Two components named 'prisma' — different types — must both exist.
+    const prismaComps = result.components.filter((c) => c.name === 'prisma');
+    expect(prismaComps.length).toBeGreaterThanOrEqual(2);
+    const types = new Set(prismaComps.map((c) => c.type));
+    // 'package' for npm package, 'component' for the file-level entry.
+    expect(types.has('component')).toBe(true);
+    expect(types.size).toBeGreaterThanOrEqual(2);
+
+    // The import edge from src/a.ts → lib/prisma.ts must resolve to the
+    // file-level component, not orphan to a missing target. Find a connection
+    // pointing at any of the prisma components and assert the target id
+    // matches one of the actually-existing prisma component ids.
+    const prismaIds = new Set(prismaComps.map((c) => c.component_id));
+    const importEdges = result.connections.filter(
+      (c) =>
+        c.connection_type === 'imports' &&
+        c.code_reference?.file === 'src/a.ts' &&
+        c.code_reference?.symbol === '../lib/prisma'
+    );
+    expect(importEdges.length).toBe(1);
+    expect(prismaIds.has(importEdges[0].to.component_id ?? '')).toBe(true);
+  });
+
+  it('same-type same-name still dedupes (regression)', async () => {
+    // Two components synthesized in allComponents with same (type, name) but
+    // different confidence — only the higher-confidence one survives, as
+    // before. We exercise this through scan() rather than calling internal
+    // dedup, but the path is the same: the import scanner emits one file
+    // component per file; if two scanners both emit a component for the
+    // same file (same type, same name), dedup keeps the higher-confidence
+    // one. Verifying via index lookup: the file-level component for
+    // src/a.ts must appear exactly once across the components/ directory.
+    const root = makeTmpProject();
+    await scan(root, { mode: 'full' });
+    const cfgArg = {
+      storageMode: 'local',
+      storagePath: '.navgator/architecture',
+      autoScan: false,
+      healthCheckEnabled: false,
+      scanDepth: 'shallow',
+      defaultConfidenceThreshold: 0.6,
+    } as never;
+    const componentsDir = path.join(getStoragePath(cfgArg, root), 'components');
+    const compFiles = fs.readdirSync(componentsDir);
+    const aMatches = compFiles
+      .map((f) => JSON.parse(fs.readFileSync(path.join(componentsDir, f), 'utf-8')))
+      .filter(
+        (c) =>
+          c.type === 'component' &&
+          (c.source?.config_files ?? []).includes('src/a.ts')
+      );
+    expect(aMatches.length).toBe(1);
+  });
+});

@@ -59,7 +59,7 @@ import {
   detectFileChanges,
   formatFileChangeSummary,
 } from './storage.js';
-import { getConfig, ensureStorageDirectories, NavGatorConfig, getIndexPath, getStoragePath, SCHEMA_VERSION } from './config.js';
+import { getConfig, ensureStorageDirectories, NavGatorConfig, getIndexPath, getStoragePath, SCHEMA_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
 import { acquireLock } from './scan-lock.js';
 import {
   computeArchitectureDiff,
@@ -102,6 +102,16 @@ export interface ScanOptions {
   typeSpec?: boolean;        // Validate Prisma types against TS interfaces (FEATURE FLAG)
   commit?: boolean;          // Opt-in: auto-commit scan output to nested .navgator/.git for temporal queries
   scip?: boolean;            // Opt-in: run SCIP indexer for resolved cross-file edges (~500ms cold)
+  /**
+   * Internal-only (Run 1.7 — Problem A). When the integrity check on an
+   * incremental scan fails, the outer scan releases its lock and recursively
+   * re-enters with `mode: 'full', clearFirst: true, _promotedFromIncremental: true`.
+   * The inner scan honors this flag by labeling its timeline entry and stats
+   * `scan_type: 'incremental→full'` (instead of plain 'full') so downstream
+   * tooling — and the Run 1.6 #3 evidence-preservation contract — sees the
+   * promotion. NEVER set this flag from outside scanner.ts.
+   */
+  _promotedFromIncremental?: boolean;
 }
 
 // =============================================================================
@@ -394,7 +404,13 @@ export async function scan(
   // scanType captures the mode the scan ACTUALLY ran in (after potential
   // integrity-check promotion). Initialized to the decision; may be promoted
   // to 'incremental→full' below.
-  let scanType: ScanType = decision.mode;
+  //
+  // Run 1.7 — Problem A: when this scan is the recursive re-entry from a
+  // failed integrity check (`_promotedFromIncremental === true`), `decision.mode`
+  // is 'full' (clearFirst forces it), but the user-visible scan_type should
+  // remain 'incremental→full' so timeline + stats consumers see the promotion
+  // evidence (Run 1.6 #3 contract). The actual scan body still runs as full.
+  let scanType: ScanType = options._promotedFromIncremental ? 'incremental→full' : decision.mode;
 
   if (options.verbose) {
     console.log(`Scan mode: ${decision.mode} (${decision.reason})`);
@@ -1034,12 +1050,36 @@ export async function scan(
     console.log('Phase 4: Storing results...');
   }
 
-  // Deduplicate components by name (within current scan)
+  // Deduplicate components by (type, name, primary-source-file) within current scan.
+  //
+  // Run 1.7 — Problem B: the prior key was `component.name` alone. That
+  // collided cross-type — e.g., the file-level component for `lib/prisma.ts`
+  // (type='component', name='prisma') vs the Prisma DB component
+  // (type='database', name='prisma'). The DB component won on confidence;
+  // the file component was silently dropped. But the import-scanner had
+  // already emitted edges referencing the dropped file component_id —
+  // 410 orphan edges on atomize-ai, which fired the integrity-promote and
+  // truncated the graph (Problem A's loud symptom).
+  //
+  // The fix keys by `${type}|${name}|${first-config-file}`:
+  //   • Different types coexist (was: collided).
+  //   • Same-type same-name from different paths coexist (was: collided —
+  //     `app/proxy.ts` and `proxy.ts` both produce a file-level component
+  //     named `proxy`; both are real, both must be kept). Path
+  //     disambiguation matches Run 1.6 verify #6's stable_id contract for
+  //     the 6 component types where `name` alone isn't unique.
+  //   • Same-type same-name same-file STILL dedupes (the genuine duplicate
+  //     case — AST + regex both detecting the same service call), with
+  //     highest confidence winning. For components with no config_files
+  //     (rare) the key falls back to `${type}|${name}|` and behaves like
+  //     the legacy by-name dedup within that type.
   const componentMap = new Map<string, ArchitectureComponent>();
   for (const component of allComponents) {
-    const existing = componentMap.get(component.name);
+    const primaryFile = component.source?.config_files?.[0] ?? '';
+    const key = `${component.type}|${component.name}|${primaryFile}`;
+    const existing = componentMap.get(key);
     if (!existing || component.source.confidence > existing.source.confidence) {
-      componentMap.set(component.name, component);
+      componentMap.set(key, component);
     }
   }
   const uniqueComponents = Array.from(componentMap.values());
@@ -1199,14 +1239,83 @@ export async function scan(
           console.log(`    ${issue}`);
         }
       }
-      // Promote: wipe everything, fall back to the in-memory uniqueComponents/Connections
-      // (these were freshly scanned in Phase 1–3 and are authoritative for the full set
-      // of files the package/infra/connection scanners walked).
-      await clearStorage(config, root);
-      ensureStorageDirectories(config, root);
-      finalComponents = uniqueComponents;
-      finalConnections = uniqueConnections;
-      scanType = 'incremental→full';
+      // ============================================================
+      // Run 1.7 — Problem A (recursive re-entry promote)
+      // ============================================================
+      // The pre-Run-1.7 promote reused the in-memory uniqueComponents/
+      // uniqueConnections that were just computed under the walk-set
+      // restriction. After Run 1.5's walk-set plumbing, those are NOT
+      // the full source tree — only the walk-set's slice of it. Reusing
+      // them on promote truncated the graph (atomize-ai: 6,445 → 58
+      // connections, 2,452 → 58 components).
+      //
+      // Fix: release the scan lock and recursively re-enter scan() with
+      // `mode: 'full', clearFirst: true`. The inner scan walks the full
+      // source tree, the lock re-acquires cleanly inside, and its result
+      // is returned verbatim. The internal `_promotedFromIncremental`
+      // flag tells the inner scan to label its timeline entry and stats
+      // `scan_type: 'incremental→full'` — preserving the Run 1.6 #3
+      // evidence-preservation contract.
+      //
+      // We `return` early so the rest of the outer scan's phases
+      // (storage, timeline, manifest, hashes) don't double-run.
+      lock.release();
+      return await scan(root, {
+        ...options,
+        mode: 'full',
+        clearFirst: true,
+        incremental: false,
+        _promotedFromIncremental: true,
+      });
+    }
+
+    // ============================================================
+    // Run 1.7 — orphan-disk-file cleanup on successful incremental merge.
+    // ============================================================
+    // `clearForFiles` only deletes disk files whose `source.config_files`
+    // overlap the walk-set. Components produced by always-full scanners
+    // (npm/pip/swift packages, infra, prisma) don't list user source
+    // files in `config_files` (they list manifests / abs paths), so
+    // their disk files survive `clearForFiles`. After the merge, the
+    // freshly-scanned versions get NEW random `component_id`s and are
+    // written to NEW filenames. The OLD survivor files are now orphans:
+    // unreachable from `finalComponents` but still on disk.
+    //
+    // Pre-Run-1.7 this was masked by the always-failing integrity check
+    // on real projects (`clearStorage` on promote wiped the orphans).
+    // Now that integrity passes (Problem B fix), and the promote is
+    // recursive (Problem A fix), this latent bug surfaces as a doubling
+    // of `npm`/`database`/`config`/`infra` components per incremental.
+    //
+    // Fix: after the merge, walk the components/connections directories
+    // and unlink any file whose ID isn't in `finalComponents` /
+    // `finalConnections`. Idempotent and atomic per-file (unlink errors
+    // are silently swallowed — best-effort, matches the integrity-promote
+    // pattern). Connections also need this since their random IDs aren't
+    // stable across scans either.
+    {
+      const finalComponentIds = new Set(finalComponents.map((c) => c.component_id));
+      const finalConnectionIds = new Set(finalConnections.map((c) => c.connection_id));
+      const fsPromises = (await import('node:fs')).promises;
+      const purgeOrphans = async (dir: string, keepIds: Set<string>): Promise<void> => {
+        try {
+          const files = await fsPromises.readdir(dir);
+          await Promise.all(
+            files
+              .filter((f) => f.endsWith('.json'))
+              .map(async (f) => {
+                const id = f.slice(0, -'.json'.length);
+                if (!keepIds.has(id)) {
+                  await fsPromises.unlink(path.join(dir, f)).catch(() => {});
+                }
+              })
+          );
+        } catch {
+          // Dir missing or unreadable — non-fatal.
+        }
+      };
+      await purgeOrphans(getComponentsPath(config, root), finalComponentIds);
+      await purgeOrphans(getConnectionsPath(config, root), finalConnectionIds);
     }
   }
 
@@ -1238,11 +1347,24 @@ export async function scan(
       snapshot_id: currentSnapshot.snapshot_id,
       git: gitInfo,
       scan_type: scanType,
-      // Run 1.6 — item #3: report walk-set size for both 'incremental' AND
-      // 'incremental→full' so a silent integrity-promote doesn't erase evidence
+      // Run 1.6 — item #3: report walk-set size for 'incremental' AND for the
+      // legacy in-place 'incremental→full' promote (which kept walkSet
+      // populated), so a silent integrity-promote didn't erase evidence
       // that an incremental walk-set was attempted.
+      //
+      // Run 1.7 — Problem A: the recursive-re-entry promote runs as a true
+      // full scan (walkSet empty). Reporting `walkSet.size = 0` would be
+      // dishonest — the inner scan really did walk every source file.
+      // Report `sourceFiles.length` in that case. Run 1.6 #3 still holds:
+      // any future in-place promote path (walkSet populated under
+      // 'incremental→full') reports walk-set size.
+      // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
+      // (the user-visible label). On the recursive-re-entry promote (Run 1.7
+      // Problem A), decision.mode='full' even though scanType='incremental→full',
+      // and walkSet may be populated by the still-modified file — but the inner
+      // scan walked the full source tree, so files_scanned must be sourceFiles.length.
       files_scanned:
-        scanType === 'incremental' || scanType === 'incremental→full'
+        decision.mode === 'incremental' && walkSet.size > 0
           ? walkSet.size
           : sourceFiles.length,
     };
@@ -1459,11 +1581,16 @@ export async function scan(
       components_found: finalComponents.length,
       connections_found: finalConnections.length,
       warnings_count: allWarnings.length,
-      // Run 1.6 — item #3: report walk-set size for both 'incremental' AND
-      // 'incremental→full' so a silent integrity-promote doesn't erase evidence
-      // that an incremental walk-set was attempted.
+      // Run 1.6 — item #3 / Run 1.7 — Problem A: walk-set size for incremental
+      // and for an in-place promote (walkSet populated). Recursive-re-entry
+      // promote (walkSet empty) reports actual source-file count.
+      // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
+      // (the user-visible label). On the recursive-re-entry promote (Run 1.7
+      // Problem A), decision.mode='full' even though scanType='incremental→full',
+      // and walkSet may be populated by the still-modified file — but the inner
+      // scan walked the full source tree, so files_scanned must be sourceFiles.length.
       files_scanned:
-        scanType === 'incremental' || scanType === 'incremental→full'
+        decision.mode === 'incremental' && walkSet.size > 0
           ? walkSet.size
           : sourceFiles.length,
       files_changed: filesChanged,

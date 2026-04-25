@@ -328,10 +328,31 @@ export interface ProjectMetadata {
   xcodeProject?: { path: string; targets: { name: string; type: string; bundleId?: string }[] };
 }
 
+/**
+ * Scan mode types (Run 1 — D2). 'auto' is the default decision, resolved
+ * by selectScanMode to one of full/incremental/noop. 'incremental→full'
+ * is the runtime label for an incremental scan that promoted to full
+ * after an integrity-check failure.
+ */
+export type ScanType = 'full' | 'incremental' | 'incremental→full' | 'noop';
+
 export interface ArchitectureIndex {
   schema_version?: string;      // NavGator schema version (e.g., '1.0.0')
   version: string;              // Index format version
   last_scan: number;            // Unix timestamp of last scan
+  /**
+   * Run 1 — D2: timestamp of the most recent FULL scan (or
+   * 'incremental→full' promote). Used by selectScanMode to enforce the
+   * staleness trigger (force full after 7 days). Optional for backward
+   * compat; selectScanMode treats `undefined` as "never had a full scan".
+   */
+  last_full_scan?: number;
+  /**
+   * Run 1 — D2: count of incremental scans since the most recent full
+   * scan. selectScanMode forces a full scan once this exceeds the cap
+   * (currently 20). Reset to 0 on every full or 'incremental→full' scan.
+   */
+  incrementals_since_full?: number;
   project_path: string;         // Absolute path to project root
 
   // Project-level metadata (for agent context)
@@ -724,6 +745,22 @@ export interface TimelineEntry {
   diff: DiffResult;
   snapshot_id?: string;    // the post-scan snapshot id
   git?: GitInfo;           // branch/commit when --track-branch used
+  /**
+   * Run 1 — D2: which scan mode produced this entry. 'incremental→full'
+   * is the special promote case (Run 1.6 #3 / Run 1.7 — Problem A).
+   * Optional for backward compat with timeline entries written before
+   * mode tracking shipped.
+   */
+  scan_type?: ScanType;
+  /**
+   * Run 1.6 — item #3: number of source files actually walked by the
+   * scanners. For 'incremental' this is the walk-set size (changed +
+   * reverse-deps). For 'full' (or recursive-re-entry promote per Run 1.7
+   * Problem A) this is the full source-file count. Lets agents detect
+   * a silent integrity-promote vs a true full scan by comparing
+   * scan_type and files_scanned.
+   */
+  files_scanned?: number;
 }
 
 export interface Timeline {
