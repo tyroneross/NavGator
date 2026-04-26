@@ -1,6 +1,24 @@
 /**
  * Environment Variable Scanner
- * Discovers env vars from .env files and process.env references in source code
+ * Discovers env vars from .env files and process.env references in source code.
+ *
+ * Run 3 precision fix (Option A): env vars referenced in source but not defined
+ * in any .env* file are NOT emitted as components. They were previously emitted
+ * with `config_files: ['runtime-injected']` (a placeholder string), which the
+ * audit's HALLUCINATED_COMPONENT verifier flagged because the placeholder isn't
+ * a real file on disk.
+ *
+ * The information is still surfaced via a ScanWarning (see Phase 4 below), so
+ * users still see "VAR is referenced in source but not defined in any .env file
+ * (may be runtime-injected)" — the data path that conveys this signal is the
+ * warning channel, not a phantom component.
+ *
+ * Trade-off considered (Option B): emit components with `confidence: 0.5` and
+ * a `runtime_injected: true` flag, then teach the audit verifier to skip
+ * low-confidence components. Rejected because (a) source-only env vars carry no
+ * graph signal once their `env-dependency` connections are dropped (which they
+ * must be — without a real component they would become HALLUCINATED_EDGE), and
+ * (b) the warning already provides visibility without inflating the graph.
  */
 
 import * as fs from 'fs';
@@ -362,17 +380,23 @@ export async function scanEnvVars(
     return { components, connections, warnings };
   }
 
-  // Categorize and create components by category group
+  // Categorize and create components by category group.
+  // Run 3: Skip env vars defined nowhere on disk (source-only / runtime-injected).
+  // They are surfaced via ScanWarning below; emitting them as components with
+  // `config_files: ['runtime-injected']` triggered audit HALLUCINATED_COMPONENT
+  // defects because the placeholder doesn't exist on disk.
   const byCategory = new Map<EnvCategory, EnvVarDefinition[]>();
 
   for (const varName of allVarNames) {
+    const definedIn = definedVars.get(varName) || [];
+    if (definedIn.length === 0) continue; // source-only → skip; warning emitted in Phase 4
     const category = categorizeEnvVar(varName);
     const group = byCategory.get(category) || [];
     group.push({
       name: varName,
-      definedIn: definedVars.get(varName) || [],
+      definedIn,
       referencedIn: envRefs.get(varName) || [],
-      hasDefault: (definedVars.get(varName) || []).length > 0,
+      hasDefault: definedIn.length > 0,
     });
     byCategory.set(category, group);
   }
@@ -385,11 +409,9 @@ export async function scanEnvVars(
       const componentId = generateComponentId('config', envVar.name);
       envComponentMap.set(envVar.name, componentId);
 
-      const isDefined = envVar.definedIn.length > 0;
+      // Run 3: only definedIn-positive env vars reach this point.
       const isReferenced = envVar.referencedIn.length > 0;
-      const status = isDefined && isReferenced ? 'active'
-        : isDefined && !isReferenced ? 'unused'
-        : 'active'; // referenced but not in .env = runtime-injected
+      const status = isReferenced ? 'active' : 'unused';
 
       // Attempt to parse a connection URL from the env var's value
       const rawValue = envValues.get(envVar.name);
@@ -414,13 +436,13 @@ export async function scanEnvVars(
         },
         source: {
           detection_method: 'auto',
-          config_files: envVar.definedIn.length > 0 ? envVar.definedIn : ['runtime-injected'],
-          confidence: isDefined ? 1.0 : 0.8,
+          config_files: envVar.definedIn,
+          confidence: 1.0,
         },
         connects_to: [],
         connected_from: [],
         status,
-        tags: ['env', category, ...(envVar.definedIn.length === 0 ? ['runtime-only'] : [])],
+        tags: ['env', category],
         metadata: {
           category,
           definedIn: envVar.definedIn,

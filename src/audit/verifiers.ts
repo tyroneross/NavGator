@@ -89,6 +89,34 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Run 3: True when `s` is a pure JS identifier (the kind of token where `\b`
+ * word-boundary regex matching makes sense). Path-style symbols like
+ * `'./entity-analysis-service'` or scoped imports `'@scope/pkg'` contain
+ * non-word characters at their boundaries, where `\b` does NOT match.
+ *
+ * For non-identifier symbols we fall back to plain substring matching, which
+ * is correct for the WRONG_ENDPOINT verifier's intent ("does this token
+ * appear in the file?").
+ */
+function isIdentifierLike(s: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(s);
+}
+
+/**
+ * Run 3: Symbol-presence test that handles path-style and identifier symbols
+ * uniformly. Identifier-like → `\b<sym>\b` regex (false-positive resistant).
+ * Otherwise → plain `content.includes(sym)`. Empty/short tokens reject.
+ */
+function symbolAppearsIn(content: string, sym: string): boolean {
+  if (!sym || sym.length <= 1) return false;
+  if (isIdentifierLike(sym)) {
+    const re = new RegExp(`\\b${escapeRegex(sym)}\\b`);
+    return re.test(content);
+  }
+  return content.includes(sym);
+}
+
 async function fileExists(absPath: string): Promise<boolean> {
   try {
     await fs.promises.access(absPath, fs.constants.F_OK);
@@ -243,18 +271,20 @@ export async function verifyWrongEndpoint(
     // We need at least ONE positive signal. Try (in order):
     //   1. recorded symbol appears in the file
     //   2. target component name appears in the file
+    // Run 3 fix: use symbolAppearsIn() which handles both identifier-style and
+    // path-style symbols. The previous \b-only regex falsely failed on imports
+    // like './entity-analysis-service' because . and / are non-word chars and
+    // \b does not match around them.
     let found = false;
     const tried: string[] = [];
 
     if (symbol && symbol.length > 1) {
       tried.push(`symbol="${symbol}"`);
-      const re = new RegExp(`\\b${escapeRegex(symbol)}\\b`);
-      if (re.test(content)) found = true;
+      if (symbolAppearsIn(content, symbol)) found = true;
     }
     if (!found && targetName && targetName.length > 1) {
       tried.push(`name="${targetName}"`);
-      // Names can be paths like "@scope/pkg" — not always identifiers.
-      if (content.includes(targetName)) found = true;
+      if (symbolAppearsIn(content, targetName)) found = true;
     }
 
     if (!found && tried.length > 0) {

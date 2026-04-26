@@ -1,89 +1,97 @@
-# NavGator Run 2 — SQC Audit Layer Plan
+# Plan — NavGator Run 3 (Scanner Precision Fixes)
 
-Date: 2026-04-25
-Branch: salvage/audit-improvements
-Builds on: 4f0f06b (Run 1.7) → e0bab6e (v0.7.0 release tag)
+Date: 2026-04-24
+Branch: salvage/audit-improvements (continues Run 2)
+Builds on: 3fb8204
 
 ## Goal
-Add a self-measurement layer to NavGator: every scan samples its own output, runs deterministic verifiers, optionally requests an LLM-judge spot-check (only in MCP mode), and tracks defect-rate drift across runs via EWMA. Audit failure does NOT fail the scan; the next scan auto-promotes if EWMA breaches.
+Reduce atomize-ai audit defect rate from 4.21% (16/380) to ≤2% (≤8/380), achieving `verdict: accept`.
 
-## Deliverables (D1-D7)
+## Diagnosis (from defect_evidence on atomize-ai)
 
-### D1 — `src/audit/sampler.ts` (~150 LOC, zero deps)
-- `binomialCDF(n, p, c)` — log-gamma–stable CDF for OC-curve calc.
-- `chooseAQLPlan(lotSize)` → `{ n, c, plan: 'AQL' }`. Lookup table per MIL-STD-105E general inspection level II (single sampling, AQL=2.5%): N≤90→n=13/c=1, 91-150→n=20/c=1, 151-280→n=32/c=2, 281-500→n=50/c=3, 501-1200→n=80/c=5, 1201-3200→n=125/c=7, 3201-10000→n=200/c=10, 10001+→n=315/c=14.
-- `sprtNext(observations[], p0, p1, alpha, beta)` → `{verdict, logLR}`. A=(1-β)/α, B=β/(1-α).
-- `cochranSize(p, e, z, populationSize?)` with FPC `n_adj = n / (1 + (n-1)/N)`.
-- `neymanAllocate(n, strataSizes[], strataStdDevs[])` → per-stratum n[]; rounds up; preserves sum=n.
-- Constants: Z₀.₉₅=1.645, Z₀.₉₇₅=1.96, Z₀.₉₉₅=2.576.
+### D1 — HALLUCINATED_COMPONENT (8 defects)
+Root cause: `env-scanner.ts:417` emits `config_files: ['runtime-injected']` (a literal placeholder string) for env vars referenced only in source. The audit verifier checks file existence on disk and the placeholder isn't a real file → defect.
 
-### D2 — `src/audit/verifiers.ts` (~250 LOC)
-Six classes; first 5 deterministic (free), 6th LLM-dependent:
+Examples: QUERY_ARTICLE, GROQ_API_KEY_BACKUP, TREND_ANALYSIS_PROMPT, PRISMA_CONNECTION_TIMEOUT, KG_BACKFILL_SKIP_RECENT, BACKUP_GCS_BUCKET, OTEL_API_KEY_STAGING, TEST_RUN_ID.
 
-| Class | Verifier impl |
-|---|---|
-| HALLUCINATED_COMPONENT | `fs.access` on each `source.config_files[]`; for code components (api-endpoint, prompt, worker), grep symbol `code_reference.symbol` in file |
-| HALLUCINATED_EDGE | both `from.component_id` & `to.component_id` resolve in `index.components.by_*` |
-| WRONG_ENDPOINT | for connection's source file, grep target name; if no match, defect |
-| STALE_REFERENCE | hash file via SHA-256, compare with `hashes.json[relativePath].hash` |
-| DEDUP_COLLISION | scan finalComponents for dup `(type, name, primary-config-file)` triples |
-| MISSED_EDGE (LLM) | when in MCP mode, sample N source files and emit a "needs LLM verification" structured payload; `audit.llm_skipped: true` in CLI mode |
+**Fix (Option A)**: Don't emit components for source-only env vars. Keep the ScanWarning. Drop the env-dependency connections that target them. No downstream consumer depends on these phantom nodes (verified: dead.ts and status.ts only iterate `definedIn>0` cases).
 
-Each returns `{ class, sampledCount, defectCount, samples: SampleEvidence[] }` where `SampleEvidence = { id, ok, reason? }`.
+Why not Option B: source-only env vars carry no graph signal once their `env-dependency` connections are dropped. Option B (mark `confidence: low` + verifier change) adds code surface for visibility that the warning already provides.
 
-### D3 — Stratified sample selection
-`selectAuditSample(allFacts, planN, strataKey, priorDefectRates?)`:
-- Default strata: `package`, `infra`, `connection-imports`, `connection-services`, `connection-llm`, `connection-prisma`, `__other`.
-- StrataKey: function `(fact) => stratum`.
-- StdDev per stratum: `√(p(1-p))` from `priorDefectRates[stratum]`; default p=0.5 worst-case.
-- Neyman; sample without replacement.
+### D2 — WRONG_ENDPOINT (8 defects)
+Two root causes:
 
-### D4 — `src/audit/index.ts` — orchestrator
-- `runAudit(scanResult, config, root, opts)` returns `AuditReport`.
-- Plan: AQL default; SPRT once `index.audit_history?.length >= 3`; Cochran when prior breach detected (auto-promote signal).
-- Stratify, run all 6 verifiers in parallel (Promise.all), aggregate.
-- Wire into `scanner.ts` AFTER line 1324 `storeConnections`, BEFORE Phase 5 line 1330 timeline build. Stored on `timelineEntry.audit?: AuditReport` (new optional field).
-- New CLI flags: `--no-audit`, `--audit-plan=aql|sprt|cochran`.
-- New `ScanOptions` fields: `noAudit?: boolean`, `auditPlan?: 'aql'|'sprt'|'cochran'`.
+**(a) Verifier regex bug — `\b` fails on path-style symbols (6 defects).** All 6 import-stratum defects use path-style symbols (`./entity-analysis-service`, `./test-utilities`, `../fixtures/factories`, `./classify-model`, `./article-volume-chart`, `./ui`).
 
-### D5 — `src/audit/spc.ts` (~80 LOC)
-- `EwmaState { lambda, L, mean, variance, n, points: number[] }`.
-- `updateEwma(state, value)` returns `{ state, breach: boolean, ucl: number, lcl: number }`.
-- λ=0.2, L=2.7 (Hawkins-Wu small-shift defaults).
-- Per-stratum EWMA persisted in `index.json.ewma?: Record<stratum, EwmaState>`.
-- On breach: set `audit.drift_breach = true` on timeline entry; NEXT scan reads `index.ewma[*].breach_pending` and auto-promotes to `mode='full' + auditPlan='cochran'`.
+`verifiers.ts:251` builds `new RegExp('\\b' + escapeRegex(symbol) + '\\b')`. The `\b` token is a word-boundary; `.` and `/` are non-word characters, so `\b./entity-analysis-service\b` fails to match `'./entity-analysis-service'` even though `content.includes(symbol)` returns true.
 
-### D6 — Tests (4 new files)
-1. `audit-sampler.test.ts` — Cochran p=0.5,e=0.05,Z=1.96 → 384 unbounded; FPC N=2000 → **322** (textbook); AQL lookups; SPRT A=19, B=0.0526 within ±1e-3; binomialCDF(80,0.025,4) ≥ 0.99.
-2. `audit-verifiers.test.ts` — 6 verifiers each with positive + negative fixture.
-3. `audit-spc.test.ts` — EWMA recurrence: λ=0.2, after 10 stable obs z in band; shift breaches.
-4. `scanner-audit.test.ts` — integration on tiny fixture project; assert `timeline.audit` present.
+Verified empirically:
+```
+/\b\.\/entity-analysis-service\b/.test("from './entity-analysis-service'") → false
+"from './entity-analysis-service'".includes("./entity-analysis-service") → true
+```
 
-### D7 — Docs
-- README "Scan modes" → "Audit" subsection (≤80 lines).
-- `agents/architecture-planner.md` — note planner can read `timeline.audit.defect_rate`.
+**Fix at verifier (preferred, surgical):** when symbol contains non-identifier chars (`.`, `/`, `-`, `@`, `$`), drop the `\b` and use `content.includes(symbol)`. When symbol is a pure identifier, keep `\b` for false-positive resistance against keywords like `import`, `default`.
+
+**(b) Scanner symbol case-mismatch — prisma-calls (2 defects).** `prisma-calls.ts:169` stores `symbol: \`prisma.${modelKey}\`` where `modelKey = call.modelName.toLowerCase()`. So `prisma.articleEmbedding` from source becomes `prisma.articleembedding` in graph. The lowercased symbol can't be found in the source.
+
+Verified: source has `prisma.articleEmbedding`. Stored symbol `prisma.articleembedding` (lowercase). targetName `ArticleEmbedding` not in source either (camelCase model name in code is `articleEmbedding`).
+
+**Fix at scanner (preserve fidelity):** store the original case-preserved model name in `code_reference.symbol`. Track first-seen original casing per model. Keep lowercased lookups for `modelMap` (existing logic at line 138, line 128).
+
+## Deliverables
+
+### D1 — env-scanner.ts
+Modify `src/scanners/infrastructure/env-scanner.ts`:
+- When `envVar.definedIn.length === 0`: skip component creation entirely.
+- Skip `env-dependency` connections targeting that env var (they have no target component).
+- Keep the existing ScanWarning at line 487 (already surfaces these).
+- Add header comment block documenting the rationale.
+
+Test: `src/__tests__/env-scanner.test.ts` — add 1 test asserting source-only env vars produce no component, no env-dependency connection, but do produce a warning.
+
+### D2a — verifiers.ts WRONG_ENDPOINT regex
+Modify `src/audit/verifiers.ts:218-277`:
+- Add `isIdentifierLike(s)`: returns true if `s` matches `^[A-Za-z_$][\w$]*$`.
+- For symbol matching: if identifier-like, keep `\b...\b`. Else use `content.includes(symbol)`.
+- Same logic for targetName matching.
+
+Tests in `src/__tests__/audit-verifiers.test.ts`:
+- Path-style symbol `'./foo-bar'` passes when present in source.
+- Identifier symbol `foo` keeps `\b` guarding — `foobar` content does NOT match `foo` symbol.
+
+### D2b — prisma-calls.ts symbol fidelity
+Modify `src/scanners/connections/prisma-calls.ts`:
+- Track first-seen original casing per model in the loop at line 109-121: `originalCase = match[1]` (already captured from regex; just remember it).
+- At line 169, use the original case-preserved name for the symbol, not the lowercased key.
+
+Test: extend `src/__tests__/scanner-integration.test.ts` or add a focused test asserting `code_reference.symbol` for a `prisma.articleEmbedding` call preserves source casing.
+
+### D3 — atomize-ai re-scan
+After D1+D2 ship and tests pass, run full scan. Capture new audit block. Target: `defect_rate ≤ 0.02`, `verdict: 'accept'`.
+
+### D4 — All existing tests pass
+393 → 393+3-5 tests.
 
 ## Hard constraints
 1. Zero new runtime npm deps.
-2. No external LLM API (CLI mode → `llm_skipped: true`).
-3. Audit MUST NOT fail the scan or rewrite the graph; only updates EWMA + sets `drift_breach`.
-4. Bit-identical full-scan output (chars-snapshot intact).
-5. `atomicWriteJSON` for any audit file write.
-6. No regression on Run 1+1.5+1.6+1.7.
-7. Reject scope creep — defer to `.build-loop/issues/run2-deferred-<topic>.md`.
+2. No external LLM API.
+3. Audit infrastructure (sampler, spc, audit/index) untouched. Only verifiers (one regex fn) + scanners (env, prisma) change.
+4. Characterization test (bench-repo) may need a one-line update for env-scanner change. Document in commit.
+5. No regression on Run 1.x / Run 2.
+6. No scope creep.
 
-## Phase 3 EXECUTE — parallel subagent dispatch
+## Execution dependency graph
 
-- **Subagent A (sampler+spc):** `src/audit/sampler.ts`, `src/audit/spc.ts`, `audit-sampler.test.ts`, `audit-spc.test.ts`.
-- **Subagent B (verifiers):** `src/audit/verifiers.ts`, `audit-verifiers.test.ts`.
-- **Subagent D (docs):** README + planner agent.
+D1 (env-scanner), D2a (verifier), D2b (prisma-calls) are independent — different files, different tests. Phase 3 dispatches three subagents in parallel.
 
-A, B, D run in parallel.
+## Risks
+- Bench-repo characterization snapshot may need update for env-scanner change. If asserts on counts: update; if asserts on content shape only: no change.
+- D2a regex change could over-match if path-style symbols share substrings. Mitigation: negative-case tests.
+- D2b: deterministic first-seen-wins for casing. Acceptable.
 
-- **Subagent C (orchestrator + scanner wiring):** `src/audit/index.ts`, edit `src/scanner.ts`, `src/types.ts`, `src/cli/commands/scan.ts`. Writes `scanner-audit.test.ts`. Spawned AFTER A+B complete (consumes their exports).
-
-## Phase 4 REVIEW
-critic → validate (npm test, build, e2e atomize-ai) → fact-check → simplify → scorecard.
-
-## Out-of-scope (auto-defer)
-- Parallel verifier workers, model tiering, hook auto-invoke, Python AST, Phase 5/6 incremental opt.
+## Done criteria
+- [ ] All 393+ tests green.
+- [ ] `npm run build:cli` exit 0.
+- [ ] atomize-ai full-scan: `defect_rate ≤ 0.02`, `verdict: 'accept'`, HALLUCINATED_COMPONENT ≤ 2, WRONG_ENDPOINT ≤ 2.
+- [ ] No DEDUP_COLLISION or HALLUCINATED_EDGE regression.

@@ -142,6 +142,58 @@ describe('verifyWrongEndpoint', () => {
     const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
     expect(out.defectCount).toBe(0);
   });
+
+  // Run 3 D2a: path-style symbol regression — \b fails on non-word boundaries
+  it('Run 3 path-style symbol present in file → clean (no false defect)', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'caller.ts'),
+      "import { foo } from './entity-analysis-service';\n"
+    );
+    const target = makeComponent({ component_id: 'COMP_t', name: 'services/entity-analysis-service' });
+    const map = new Map<string, ArchitectureComponent>([['COMP_t', target]]);
+    const conn = makeConnection({
+      code_reference: { file: 'caller.ts', symbol: './entity-analysis-service' },
+    });
+    const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('Run 3 path-style symbol with hyphens (../fixtures/factories) → clean', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'test.ts'),
+      "import { make } from '../fixtures/factories';\n"
+    );
+    const map = new Map<string, ArchitectureComponent>();
+    const conn = makeConnection({
+      code_reference: { file: 'test.ts', symbol: '../fixtures/factories' },
+    });
+    const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('Run 3 scoped package symbol (@scope/pkg) present → clean', async () => {
+    fs.writeFileSync(
+      path.join(workDir, 'a.ts'),
+      "import x from '@radix-ui/react-dialog';\n"
+    );
+    const target = makeComponent({ component_id: 'COMP_pkg', name: '@radix-ui/react-dialog' });
+    const map = new Map<string, ArchitectureComponent>([['COMP_pkg', target]]);
+    const conn = makeConnection({
+      code_reference: { file: 'a.ts', symbol: '@radix-ui/react-dialog' },
+    });
+    const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('Run 3 identifier symbol still uses \\b — substring of larger word does NOT match', async () => {
+    // File contains `foobar` only; symbol `foo` should NOT match (false-positive
+    // resistance for plain identifiers — keeps the safety the original regex provided).
+    fs.writeFileSync(path.join(workDir, 'a.ts'), 'const x = foobar;\n');
+    const map = new Map<string, ArchitectureComponent>();
+    const conn = makeConnection({ code_reference: { file: 'a.ts', symbol: 'foo' } });
+    const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
+    expect(out.defectCount).toBe(1);
+  });
 });
 
 // ============================================================================

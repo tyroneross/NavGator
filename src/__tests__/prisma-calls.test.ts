@@ -100,4 +100,39 @@ const c = await prisma.article.create({ data: {} });
     const result = await scanPrismaCalls(fixtureDir, []);
     expect(result.connections.length).toBe(0);
   });
+
+  // Run 3 D2b: code_reference.symbol must preserve source casing so the audit
+  // WRONG_ENDPOINT verifier can find the token in the file.
+  it('Run 3 preserves source casing in code_reference.symbol (camelCase)', async () => {
+    const articleEmbeddingComp = createMockComponent({
+      name: 'ArticleEmbedding',
+      type: 'database',
+      component_id: 'COMP_database_article_embedding_test',
+      tags: ['prisma'],
+    });
+    writeFile('src/embeddings.ts', `
+const e = await prisma.articleEmbedding.findUnique({ where: { id: 1 } });
+`);
+    const result = await scanPrismaCalls(fixtureDir, [articleEmbeddingComp]);
+    expect(result.connections.length).toBe(1);
+    // The stored symbol must match the source casing, not the lowercased key.
+    expect(result.connections[0].code_reference.symbol).toBe('prisma.articleEmbedding');
+    expect(result.connections[0].code_reference.symbol).not.toBe('prisma.articleembedding');
+  });
+
+  it('Run 3 first-seen casing wins when same model appears multiple times', async () => {
+    const userComp2 = createMockComponent({
+      name: 'User',
+      type: 'database',
+      component_id: 'COMP_database_user_test',
+      tags: ['prisma'],
+    });
+    writeFile('src/users.ts', `
+await prisma.user.findMany();
+await prisma.user.count();
+`);
+    const result = await scanPrismaCalls(fixtureDir, [userComp2]);
+    expect(result.connections.length).toBe(1);
+    expect(result.connections[0].code_reference.symbol).toBe('prisma.user');
+  });
 });

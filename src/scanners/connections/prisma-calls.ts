@@ -122,12 +122,24 @@ export async function scanPrismaCalls(
 
       if (calls.length === 0) continue;
 
-      // Group by model name → deduplicate per file
-      const modelCalls = new Map<string, { operations: Set<string>; firstLine: number }>();
+      // Group by lowercased model name → deduplicate per file.
+      // Run 3 D2b: ALSO remember the first-seen original casing per model, so
+      // `code_reference.symbol` can faithfully reflect the source. Previously
+      // the symbol was always written lowercase (`prisma.articleembedding`)
+      // which the audit's WRONG_ENDPOINT verifier could not find in source
+      // because the actual code uses camelCase (`prisma.articleEmbedding`).
+      const modelCalls = new Map<
+        string,
+        { operations: Set<string>; firstLine: number; originalCase: string }
+      >();
       for (const call of calls) {
         const key = call.modelName.toLowerCase();
         if (!modelCalls.has(key)) {
-          modelCalls.set(key, { operations: new Set(), firstLine: call.line });
+          modelCalls.set(key, {
+            operations: new Set(),
+            firstLine: call.line,
+            originalCase: call.modelName, // preserve source casing
+          });
         }
         modelCalls.get(key)!.operations.add(call.operation);
       }
@@ -166,7 +178,9 @@ export async function scanPrismaCalls(
           connection_type: 'api-calls-db',
           code_reference: {
             file,
-            symbol: `prisma.${modelKey}`,
+            // Run 3 D2b: preserve original case so audit verifier can find this
+            // token in the source file.
+            symbol: `prisma.${info.originalCase}`,
             symbol_type: 'variable',
             line_start: info.firstLine,
           },
@@ -247,7 +261,12 @@ export async function scanPrismaCalls(
             connection_type: 'api-calls-db',
             code_reference: {
               file,
-              symbol: `$queryRaw(${tableName})`,
+              // Run 3 D2b: store the literal SQL table name (which is verbatim
+              // in the source) rather than the synthetic `$queryRaw(table)`
+              // wrapper. The audit's WRONG_ENDPOINT verifier needs to find the
+              // recorded symbol in the source file via plain substring or \b
+              // match, and the table name is what actually appears.
+              symbol: tableName,
               symbol_type: 'variable',
               line_start: info.firstLine,
             },

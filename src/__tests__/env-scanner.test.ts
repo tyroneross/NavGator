@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { categorizeEnvVar, parseConnectionUrl } from '../scanners/infrastructure/env-scanner.js';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { categorizeEnvVar, parseConnectionUrl, scanEnvVars } from '../scanners/infrastructure/env-scanner.js';
 
 describe('categorizeEnvVar', () => {
   it('categorizes STRIPE_API_KEY as api-key', () => {
@@ -152,5 +155,75 @@ describe('parseConnectionUrl', () => {
   it('returns null for unsupported protocols', () => {
     expect(parseConnectionUrl('ftp://example.com/file')).toBeNull();
     expect(parseConnectionUrl('ws://example.com/socket')).toBeNull();
+  });
+});
+
+// ============================================================================
+// Run 3 D1: source-only env vars must NOT produce phantom components
+// ============================================================================
+
+describe('scanEnvVars (Run 3 — Option A)', () => {
+  let workDir: string;
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-env-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it('emits component for env var defined in .env AND referenced in source', async () => {
+    fs.writeFileSync(path.join(workDir, '.env'), 'DEFINED_VAR=value\n');
+    fs.writeFileSync(path.join(workDir, 'app.ts'), 'const x = process.env.DEFINED_VAR;\n');
+    const result = await scanEnvVars(workDir);
+    const definedComp = result.components.find(c => c.name === 'DEFINED_VAR');
+    expect(definedComp).toBeDefined();
+    expect(definedComp!.source.config_files).toEqual(['.env']);
+    expect(definedComp!.source.config_files).not.toContain('runtime-injected');
+  });
+
+  it('does NOT emit component for env var referenced only in source', async () => {
+    fs.writeFileSync(path.join(workDir, 'app.ts'), 'const x = process.env.SOURCE_ONLY_VAR;\n');
+    const result = await scanEnvVars(workDir);
+    const sourceOnly = result.components.find(c => c.name === 'SOURCE_ONLY_VAR');
+    expect(sourceOnly).toBeUndefined();
+  });
+
+  it('does NOT emit env-dependency connection for source-only env var', async () => {
+    fs.writeFileSync(path.join(workDir, 'app.ts'), 'const x = process.env.SOURCE_ONLY_VAR;\n');
+    const result = await scanEnvVars(workDir);
+    const conn = result.connections.find(
+      c => c.code_reference.symbol === 'process.env.SOURCE_ONLY_VAR'
+    );
+    expect(conn).toBeUndefined();
+  });
+
+  it('still emits a warning for source-only env var (not silently dropped)', async () => {
+    fs.writeFileSync(path.join(workDir, 'app.ts'), 'const x = process.env.SOURCE_ONLY_VAR;\n');
+    const result = await scanEnvVars(workDir);
+    const warning = result.warnings.find(w =>
+      w.message.includes('SOURCE_ONLY_VAR') &&
+      w.message.includes('not defined in any .env file')
+    );
+    expect(warning).toBeDefined();
+  });
+
+  it('audit invariant: no emitted env component has placeholder config_files', async () => {
+    fs.writeFileSync(path.join(workDir, '.env'), 'A_VAR=v\nB_VAR=v\n');
+    fs.writeFileSync(
+      path.join(workDir, 'app.ts'),
+      'const a=process.env.A_VAR; const b=process.env.B_VAR; const c=process.env.RUNTIME_C;\n'
+    );
+    const result = await scanEnvVars(workDir);
+    for (const c of result.components) {
+      // No emitted component should ever carry the legacy placeholder.
+      expect(c.source.config_files).not.toContain('runtime-injected');
+      // And every config_file must be a real entry on disk (or the test catches it).
+      for (const f of c.source.config_files ?? []) {
+        const abs = path.join(workDir, f);
+        expect(fs.existsSync(abs)).toBe(true);
+      }
+    }
   });
 });
