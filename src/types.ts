@@ -382,6 +382,74 @@ export interface ArchitectureIndex {
     outdated_count: number;
     vulnerable_count: number;
   };
+  /**
+   * Run 2 — D5: per-stratum EWMA state for defect-rate drift detection.
+   * Updated after each scan that runs an audit. Optional for backward compat.
+   * If any stratum's EWMA breaches its control limits, the next scan
+   * auto-promotes to mode='full' + audit-plan='Cochran' for tighter inspection.
+   */
+  ewma?: Record<string, EwmaStateSnapshot>;
+  /**
+   * Run 2 — D4: rolling count of audits that have run on this index. Used
+   * to switch from AQL → SPRT once history ≥ 3.
+   */
+  audit_history_count?: number;
+  /**
+   * Run 2: when the previous run's audit detected an EWMA breach, this is
+   * set so the NEXT scan can read it and auto-promote.
+   */
+  pending_drift_breach?: boolean;
+}
+
+/**
+ * Run 2 — snapshot of EWMA state persisted on the index. Mirrors `EwmaState`
+ * from `src/audit/spc.ts`; duplicated here so types.ts has zero runtime imports
+ * from the audit module.
+ */
+export interface EwmaStateSnapshot {
+  lambda: number;
+  L: number;
+  mean: number;
+  variance: number;
+  n: number;
+  points: number[];
+  breach_pending?: boolean;
+}
+
+/**
+ * Run 2 — D2 defect taxonomy.
+ */
+export type AuditDefectClass =
+  | 'HALLUCINATED_COMPONENT'
+  | 'HALLUCINATED_EDGE'
+  | 'WRONG_ENDPOINT'
+  | 'STALE_REFERENCE'
+  | 'DEDUP_COLLISION'
+  | 'MISSED_EDGE';
+
+export interface AuditSampleEvidence {
+  id: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Run 2 — D4: audit report attached to a TimelineEntry.
+ */
+export interface AuditReport {
+  plan: 'AQL' | 'SPRT' | 'Cochran';
+  n: number;
+  c: number;
+  sampled: number;
+  defects: number;
+  defect_rate: number;
+  by_class: Partial<Record<AuditDefectClass, { sampled: number; defects: number }>>;
+  by_stratum: Record<string, { sampled: number; defects: number; defect_rate: number }>;
+  llm_skipped?: boolean;
+  verdict: 'accept' | 'reject' | 'continue';
+  drift_breach?: boolean;
+  timestamp: number;
+  defect_evidence?: AuditSampleEvidence[];
 }
 
 /**
@@ -761,6 +829,13 @@ export interface TimelineEntry {
    * scan_type and files_scanned.
    */
   files_scanned?: number;
+  /**
+   * Run 2 — D4: audit report from this scan's self-measurement pass.
+   * Absent when `--no-audit` was used or audit was internally skipped
+   * (e.g., empty population). Audit failures NEVER cause the scan itself
+   * to fail; only EWMA drift triggers the next scan to auto-promote.
+   */
+  audit?: AuditReport;
 }
 
 export interface Timeline {

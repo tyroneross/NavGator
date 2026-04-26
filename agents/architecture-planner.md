@@ -75,6 +75,7 @@ Before running any tool, check architecture freshness in this order. Stop at the
    ```
    - Inspect the JSON output. If the scanner promoted the run to `incremental→full` (look for `scan_type` in the timeline entry), the user should know — surface it in the report.
    - If `--incremental` ran but had `no-prior-state` (first-ever scan), abort the agent flow and recommend `/gator:scan`.
+   - **Audit signal (Run 2).** The most recent timeline entry may carry an `audit` block with `defect_rate`, `verdict`, and `drift_breach`. Treat it as a confidence signal on the freshness of the cached graph: if `verdict === 'reject'` or `drift_breach === true`, the incremental graph is no longer reliable for blast-radius reasoning — recommend a full scan to the user and prepend findings with a low-confidence warning. If `verdict === 'accept'`, the graph is good to consume as-is. Do NOT auto-promote a full scan yourself; the scanner already handles drift via `pending_drift_breach`.
 
 ## Investigation Process
 

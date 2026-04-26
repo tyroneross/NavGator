@@ -70,7 +70,22 @@ import {
   generateTimelineId,
 } from './diff.js';
 import { registerProject } from './projects.js';
-import { TimelineEntry, ScanType, ArchitectureIndex } from './types.js';
+import { TimelineEntry, ScanType, ArchitectureIndex, AuditReport } from './types.js';
+import { runAudit, updateEwmaForAudit, type AuditOptions } from './audit/index.js';
+
+/**
+ * Strip internal scratch fields (prefixed with `__`) before persisting
+ * an AuditReport on a TimelineEntry.
+ */
+function stripInternals(report: AuditReport): AuditReport {
+  const { ...clean } = report as AuditReport & Record<string, unknown>;
+  for (const k of Object.keys(clean)) {
+    if (k.startsWith('__')) {
+      delete (clean as Record<string, unknown>)[k];
+    }
+  }
+  return clean as AuditReport;
+}
 import { classifyAllConnections } from './classify.js';
 import { isSandboxMode } from './sandbox.js';
 import { ensureSafeGitignore } from './gitignore-safety.js';
@@ -112,6 +127,13 @@ export interface ScanOptions {
    * promotion. NEVER set this flag from outside scanner.ts.
    */
   _promotedFromIncremental?: boolean;
+  /** Run 2 — D4: skip the SQC audit pass entirely. */
+  noAudit?: boolean;
+  /** Run 2 — D4: override the audit's plan-selection auto-pick. */
+  auditPlan?: 'AQL' | 'SPRT' | 'Cochran' | 'aql' | 'sprt' | 'cochran';
+  /** Run 2 — D4: signal that NavGator is being invoked from an MCP session
+   *  (vs. CLI). Enables the LLM-judge MISSED_EDGE verifier. */
+  isMcpMode?: boolean;
 }
 
 // =============================================================================
@@ -161,7 +183,8 @@ export interface ScanModeDecision {
     | 'stale-full'
     | 'incremental-cap'
     | 'no-changes'
-    | 'fast-path';
+    | 'fast-path'
+    | 'audit-drift-breach';
 }
 
 /**
@@ -209,6 +232,12 @@ export function selectScanMode(
   const sv = index.schema_version ?? '1.0.0';
   if (sv !== '1.0.0' && sv !== SCHEMA_VERSION) {
     return { mode: 'full', reason: 'schema-mismatch' };
+  }
+
+  // Run 2 — D5: prior scan's audit detected EWMA drift breach.
+  // Force a full + Cochran audit pass on this run.
+  if (index.pending_drift_breach) {
+    return { mode: 'full', reason: 'audit-drift-breach' };
   }
 
   const changed = new Set<string>();
@@ -1324,6 +1353,63 @@ export async function scan(
   await storeConnections(finalConnections, config, root);
 
   // ==========================================================================
+  // Phase 4.5: SQC Audit (Run 2 — D4)
+  //
+  // Sample the just-stored output, run deterministic verifiers (+ structured
+  // LLM-judge payload in MCP mode), and update per-stratum EWMA state.
+  // Audit failure NEVER fails the scan — only updates the index's EWMA so the
+  // NEXT scan can auto-promote on detected drift.
+  // ==========================================================================
+  let auditReport: AuditReport | undefined;
+  if (!options.noAudit) {
+    try {
+      const planOpt = options.auditPlan
+        ? ((options.auditPlan.toUpperCase() === 'AQL'
+            ? 'AQL'
+            : options.auditPlan.toUpperCase() === 'SPRT'
+            ? 'SPRT'
+            : 'Cochran') as 'AQL' | 'SPRT' | 'Cochran')
+        : undefined;
+
+      const auditOpts: AuditOptions = {
+        plan: planOpt,
+        isMcpMode: !!options.isMcpMode,
+        priorEwma: priorIndex?.ewma as never,
+        priorAuditCount: priorIndex?.audit_history_count ?? 0,
+        forceCochran: !!priorIndex?.pending_drift_breach,
+      };
+
+      const r = await runAudit(
+        { components: finalComponents, connections: finalConnections },
+        config,
+        root,
+        auditOpts
+      );
+      if (r) {
+        // Update EWMA snapshot from prior index. We do not write the index here —
+        // the post-Phase-5 index annotation already runs (line ~1430) and we
+        // hijack `priorIndex` via the loadIndex/atomicWriteJSON cycle there.
+        const { ewma, anyBreach } = updateEwmaForAudit(
+          (priorIndex?.ewma as never) ?? undefined,
+          r
+        );
+        if (anyBreach) r.drift_breach = true;
+        auditReport = r;
+        // Stash on a local for the index-annotation block below to consume.
+        // (We re-read priorIndex after the freshIndex write to merge ewma.)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (auditReport as any).__ewma = ewma;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (auditReport as any).__anyBreach = anyBreach;
+      }
+    } catch (err) {
+      if (process.env['NAVGATOR_DEBUG']) {
+        console.error('[audit] skipped due to error:', (err as Error).message);
+      }
+    }
+  }
+
+  // ==========================================================================
   // Phase 5: Architecture Diff
   // ==========================================================================
 
@@ -1367,6 +1453,8 @@ export async function scan(
         decision.mode === 'incremental' && walkSet.size > 0
           ? walkSet.size
           : sourceFiles.length,
+      // Run 2 — D4: audit report (when produced).
+      ...(auditReport ? { audit: stripInternals(auditReport) } : {}),
     };
 
     // Only save timeline entry if there are changes (or first scan)
@@ -1436,6 +1524,30 @@ export async function scan(
       }
       // Always set schema_version to current build's version.
       freshIndex.schema_version = SCHEMA_VERSION;
+
+      // Run 2 — D5: persist EWMA + audit history bookkeeping.
+      if (auditReport) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const stash = auditReport as any;
+        if (stash.__ewma) {
+          freshIndex.ewma = stash.__ewma;
+        }
+        freshIndex.audit_history_count = (priorIndex?.audit_history_count ?? 0) + 1;
+        freshIndex.pending_drift_breach = !!stash.__anyBreach;
+      } else if (priorIndex) {
+        // No audit this run — preserve prior values.
+        if (priorIndex.ewma) freshIndex.ewma = priorIndex.ewma;
+        if (priorIndex.audit_history_count !== undefined) {
+          freshIndex.audit_history_count = priorIndex.audit_history_count;
+        }
+        // Clear pending breach if we just promoted on it.
+        if (priorIndex.pending_drift_breach && scanType !== 'incremental') {
+          freshIndex.pending_drift_breach = false;
+        } else if (priorIndex.pending_drift_breach !== undefined) {
+          freshIndex.pending_drift_breach = priorIndex.pending_drift_breach;
+        }
+      }
+
       await atomicWriteJSON(getIndexPath(config, root), freshIndex);
     }
   } catch {

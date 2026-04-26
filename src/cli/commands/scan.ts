@@ -20,6 +20,8 @@ export function registerScanCommand(program: Command): void {
     .option('--scip', 'Run SCIP indexer for compiler-accurate cross-file edges (requires tsconfig; ~500ms cold)')
     .option('--field-usage', 'Analyze DB field usage across codebase (requires Prisma schema)')
     .option('--typespec', 'Validate Prisma types against TypeScript interfaces')
+    .option('--no-audit', 'Skip the SQC audit pass (Run 2)')
+    .option('--audit-plan <plan>', 'Audit plan: aql | sprt | cochran (default: auto)')
     .option('--json', 'Output scan results as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
@@ -53,6 +55,10 @@ export function registerScanCommand(program: Command): void {
           typeSpec: options.typespec,
           commit: options.commit,
           scip: options.scip,
+          // Run 2 — D4: SQC audit. Commander's `--no-audit` sets
+          // `options.audit === false`; we map that to `noAudit: true`.
+          noAudit: options.audit === false,
+          auditPlan: options.auditPlan as 'aql' | 'sprt' | 'cochran' | undefined,
         });
 
         // Restore console for output
@@ -78,6 +84,9 @@ export function registerScanCommand(program: Command): void {
             jsonData.significance = result.timelineEntry.significance;
             jsonData.triggers = result.timelineEntry.triggers;
             jsonData.total_changes = result.timelineEntry.diff.stats.total_changes;
+            if (result.timelineEntry.audit) {
+              jsonData.audit = result.timelineEntry.audit;
+            }
           }
 
           if (isAgent) {

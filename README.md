@@ -268,6 +268,54 @@ If an incremental scan fails its integrity check, NavGator automatically promote
 
 The mode used for any given scan appears in `.navgator/architecture/timeline.json` under `scan_type`.
 
+#### Audit (Run 2 — SQC self-measurement)
+
+After every scan, NavGator runs a statistical-quality-control audit on its own output. The audit samples a fraction of the just-stored components and connections, runs five deterministic verifiers, optionally requests an LLM-judge spot-check, and tracks defect-rate drift across runs via an EWMA control chart. **Audit failures never fail the scan** — they only update per-stratum EWMA state. The next scan auto-promotes to a tighter inspection if any stratum breaches its control limits.
+
+| Plan | When picked | What it does |
+|------|-------------|--------------|
+| `AQL` (default) | first three audits, or via `--audit-plan=aql` | MIL-STD-105E single-sampling table at AQL=2.5%. Sample size scales with population (e.g. n=80 c=5 for ~1k facts). |
+| `SPRT` | history ≥ 3 audits | Wald 1945 sequential probability ratio test with α=β=0.05, p₀=1%, p₁=5%. Continues sampling until logLR escapes the bounds A=19 / B=0.0526. |
+| `Cochran` | prior run breached EWMA, or `--audit-plan=cochran` | Cochran's formula with FPC at 95% CI, ±5% margin. Tightest inspection. |
+
+Six defect classes:
+
+| Class | Verifier | LLM? |
+|-------|----------|------|
+| HALLUCINATED_COMPONENT | filesystem + symbol existence on `source.config_files` | no |
+| HALLUCINATED_EDGE | both endpoint component_ids resolve in graph | no |
+| WRONG_ENDPOINT | grep target name/symbol in connection's source file | no |
+| STALE_REFERENCE | re-hash file vs `hashes.json` | no |
+| DEDUP_COLLISION | scan all components for duplicate `(type, name, primary-config)` triples (regression check on Run 1.7 fix) | no |
+| MISSED_EDGE | "list all outgoing edges, set-diff against graph" — emits a structured payload an MCP-side LLM judge can consume | yes (CLI-mode skips) |
+
+In CLI mode the LLM-judge verifier is skipped and `audit.llm_skipped: true` is set. In MCP mode the audit emits a structured payload (`audit.defect_evidence` carries up to 20 sample failures) for the running model.
+
+Per-stratum strata: `package`, `infra`, `connection-imports`, `connection-services`, `connection-llm`, `connection-prisma`, `__other`. Stratified sample selection uses Neyman optimal allocation (more samples → higher-variance strata).
+
+EWMA control chart (Hawkins-Wu defaults λ=0.2, L=2.7) tracks defect-rate drift per stratum across runs. On breach, `pending_drift_breach` is set on the index, and the next `--auto` scan promotes to `mode='full' + audit-plan='cochran'`.
+
+Flags:
+
+| Flag | Purpose |
+|------|---------|
+| `--no-audit` | Skip the audit pass entirely |
+| `--audit-plan <plan>` | Override plan auto-pick: `aql` \| `sprt` \| `cochran` |
+
+Audit output appears on the timeline entry under `audit`:
+
+```json
+{
+  "plan": "AQL",
+  "n": 80, "c": 5, "sampled": 156, "defects": 0,
+  "defect_rate": 0,
+  "by_class": { "HALLUCINATED_COMPONENT": { "sampled": 40, "defects": 0 }, ... },
+  "by_stratum": { "package": { "sampled": 18, "defects": 0, "defect_rate": 0 }, ... },
+  "verdict": "accept",
+  "llm_skipped": true
+}
+```
+
 ### `navgator status`
 
 Show architecture summary.
