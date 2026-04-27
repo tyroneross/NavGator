@@ -1,0 +1,1 @@
+{"version":3,"file":"prisma-calls.d.ts","sourceRoot":"","sources":["../../../src/scanners/connections/prisma-calls.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAKH,OAAO,EACL,qBAAqB,EAErB,UAAU,EAGX,MAAM,gBAAgB,CAAC;AAiCxB;;GAEG;AACH,wBAAsB,eAAe,CACnC,WAAW,EAAE,MAAM,EACnB,eAAe,EAAE,qBAAqB,EAAE,EACxC,OAAO,CAAC,EAAE,GAAG,CAAC,MAAM,CAAC,GACpB,OAAO,CAAC,UAAU,CAAC,CAuOrB"}

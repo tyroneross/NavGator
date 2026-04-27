@@ -1,0 +1,1 @@
+{"version":3,"file":"gitignore-safety.d.ts","sourceRoot":"","sources":["../src/gitignore-safety.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;;;;;;;;;;;;;;GA4BG;AA8BH,MAAM,WAAW,oBAAoB;IACnC,MAAM,EAAE,OAAO,GAAG,iBAAiB,GAAG,cAAc,GAAG,SAAS,CAAC;IACjE,aAAa,EAAE,MAAM,CAAC;CACvB;AAED;;;;;GAKG;AACH,wBAAsB,mBAAmB,CAAC,WAAW,EAAE,MAAM,GAAG,OAAO,CAAC,oBAAoB,CAAC,CA6C5F"}

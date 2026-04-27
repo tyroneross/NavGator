@@ -2,7 +2,10 @@
 node_modules/
 
 # Build output
-dist/
+# NOTE: dist/ is committed per `feedback_plugin_dist_commit.md` — marketplace
+# installs clone the repo without building, so .mcp.json paths to dist/ break
+# unless dist/ ships in the repo.
+# dist/
 
 # Architecture data (generated per-project)
 .navgator/architecture/

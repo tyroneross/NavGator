@@ -1,0 +1,1 @@
+{"version":3,"file":"code-scanner.d.ts","sourceRoot":"","sources":["../../../src/scanners/swift/code-scanner.ts"],"names":[],"mappings":"AAAA;;;;;;;;GAQG;AAKH,OAAO,EAGL,UAAU,EAIV,eAAe,EAChB,MAAM,gBAAgB,CAAC;AAyHxB,wBAAsB,aAAa,CACjC,WAAW,EAAE,MAAM,EACnB,OAAO,CAAC,EAAE,GAAG,CAAC,MAAM,CAAC,GACpB,OAAO,CAAC,UAAU,GAAG;IAAE,WAAW,EAAE,OAAO,CAAC,eAAe,CAAC,CAAA;CAAE,CAAC,CA8ZjE"}

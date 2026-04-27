@@ -1,0 +1,1 @@
+{"version":3,"file":"storyboard-scanner.d.ts","sourceRoot":"","sources":["../../../src/scanners/xcode/storyboard-scanner.ts"],"names":[],"mappings":"AAAA;;;GAGG;AAKH,OAAO,EACL,qBAAqB,EACrB,sBAAsB,EAGvB,MAAM,gBAAgB,CAAC;AA4BxB;;GAEG;AACH,wBAAsB,eAAe,CAAC,WAAW,EAAE,MAAM,GAAG,OAAO,CAAC;IAClE,UAAU,EAAE,qBAAqB,EAAE,CAAC;IACpC,WAAW,EAAE,sBAAsB,EAAE,CAAC;CACvC,CAAC,CA2DD"}

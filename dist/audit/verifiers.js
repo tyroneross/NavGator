@@ -1,0 +1,366 @@
+/**
+ * NavGator audit verifiers — Run 2 / D2
+ *
+ * Six defect classes. First five are deterministic (free); MISSED_EDGE
+ * is the only LLM-dependent one (skipped in CLI mode).
+ *
+ *   HALLUCINATED_COMPONENT — claimed component does not exist on disk
+ *   HALLUCINATED_EDGE      — connection's endpoints not in component graph
+ *   WRONG_ENDPOINT         — symbol not actually present in source file
+ *   STALE_REFERENCE        — file hash doesn't match recorded hash
+ *   DEDUP_COLLISION        — same (type,name,primary-config) appears twice
+ *   MISSED_EDGE            — LLM-only; emits a needs-verification payload
+ */
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
+// Code-level component types whose `code_reference.symbol` should appear in
+// the recorded source file.
+const CODE_COMPONENT_TYPES = new Set([
+    'api-endpoint',
+    'prompt',
+    'worker',
+    'component',
+]);
+// ============================================================================
+// HELPERS
+// ============================================================================
+async function readFileSafe(absPath) {
+    try {
+        return await fs.promises.readFile(absPath, 'utf-8');
+    }
+    catch {
+        return null;
+    }
+}
+function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+/**
+ * Run 3: True when `s` is a pure JS identifier (the kind of token where `\b`
+ * word-boundary regex matching makes sense). Path-style symbols like
+ * `'./entity-analysis-service'` or scoped imports `'@scope/pkg'` contain
+ * non-word characters at their boundaries, where `\b` does NOT match.
+ *
+ * For non-identifier symbols we fall back to plain substring matching, which
+ * is correct for the WRONG_ENDPOINT verifier's intent ("does this token
+ * appear in the file?").
+ */
+function isIdentifierLike(s) {
+    return /^[A-Za-z_$][\w$]*$/.test(s);
+}
+/**
+ * Run 3: Symbol-presence test that handles path-style and identifier symbols
+ * uniformly. Identifier-like → `\b<sym>\b` regex (false-positive resistant).
+ * Otherwise → plain `content.includes(sym)`. Empty/short tokens reject.
+ */
+function symbolAppearsIn(content, sym) {
+    if (!sym || sym.length <= 1)
+        return false;
+    if (isIdentifierLike(sym)) {
+        const re = new RegExp(`\\b${escapeRegex(sym)}\\b`);
+        return re.test(content);
+    }
+    return content.includes(sym);
+}
+async function fileExists(absPath) {
+    try {
+        await fs.promises.access(absPath, fs.constants.F_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function sha256File(absPath) {
+    try {
+        const buf = await fs.promises.readFile(absPath);
+        return crypto.createHash('sha256').update(buf).digest('hex');
+    }
+    catch {
+        return null;
+    }
+}
+// ============================================================================
+// V1 — HALLUCINATED_COMPONENT
+// ============================================================================
+export async function verifyHallucinatedComponent(samples, ctx) {
+    const evidence = [];
+    for (const comp of samples) {
+        const configFiles = comp.source?.config_files ?? [];
+        if (configFiles.length === 0) {
+            // No config_files claim → can't verify, mark as ok.
+            evidence.push({ id: comp.component_id, ok: true });
+            continue;
+        }
+        // At least one config file must exist on disk.
+        let anyExists = false;
+        for (const rel of configFiles) {
+            const abs = path.isAbsolute(rel) ? rel : path.join(ctx.projectRoot, rel);
+            if (await fileExists(abs)) {
+                anyExists = true;
+                break;
+            }
+        }
+        if (!anyExists) {
+            evidence.push({
+                id: comp.component_id,
+                ok: false,
+                reason: `none of ${configFiles.length} config_files exist on disk`,
+            });
+            continue;
+        }
+        // For code-level component types, check the symbol appears in the file.
+        // Skip cleanly if symbol is missing or generic.
+        if (CODE_COMPONENT_TYPES.has(comp.type) && configFiles[0]) {
+            const sym = comp.code_reference?.symbol;
+            // ArchitectureComponent doesn't carry code_reference directly; this is a
+            // permissive check — only fail if we can confidently say "symbol absent".
+            if (sym && sym.length > 1 && /^[A-Za-z_][\w$]*$/.test(sym)) {
+                const abs = path.join(ctx.projectRoot, configFiles[0]);
+                const content = await readFileSafe(abs);
+                if (content !== null && !content.includes(sym)) {
+                    evidence.push({
+                        id: comp.component_id,
+                        ok: false,
+                        reason: `symbol "${sym}" not found in ${configFiles[0]}`,
+                    });
+                    continue;
+                }
+            }
+        }
+        evidence.push({ id: comp.component_id, ok: true });
+    }
+    return {
+        class: 'HALLUCINATED_COMPONENT',
+        sampledCount: samples.length,
+        defectCount: evidence.filter((e) => !e.ok).length,
+        samples: evidence,
+    };
+}
+// ============================================================================
+// V2 — HALLUCINATED_EDGE
+// ============================================================================
+export function verifyHallucinatedEdge(samples, ctx) {
+    const evidence = samples.map((conn) => {
+        const fromOk = ctx.componentById.has(conn.from?.component_id ?? '');
+        const toOk = ctx.componentById.has(conn.to?.component_id ?? '');
+        if (fromOk && toOk)
+            return { id: conn.connection_id, ok: true };
+        return {
+            id: conn.connection_id,
+            ok: false,
+            reason: !fromOk && !toOk
+                ? 'both endpoints unresolved'
+                : !fromOk
+                    ? `from.component_id "${conn.from?.component_id}" unresolved`
+                    : `to.component_id "${conn.to?.component_id}" unresolved`,
+        };
+    });
+    return {
+        class: 'HALLUCINATED_EDGE',
+        sampledCount: samples.length,
+        defectCount: evidence.filter((e) => !e.ok).length,
+        samples: evidence,
+    };
+}
+// ============================================================================
+// V3 — WRONG_ENDPOINT
+// ============================================================================
+/**
+ * Re-checks that the connection's recorded source file still contains a
+ * reference to the target component's name (or the symbol). Cheap grep —
+ * not a syntactic AST check.
+ */
+export async function verifyWrongEndpoint(samples, ctx) {
+    const evidence = [];
+    for (const conn of samples) {
+        const filePath = conn.code_reference?.file;
+        if (!filePath) {
+            evidence.push({ id: conn.connection_id, ok: true });
+            continue;
+        }
+        const abs = path.join(ctx.projectRoot, filePath);
+        const content = await readFileSafe(abs);
+        if (content === null) {
+            // File missing → covered by stale-ref or hallucinated-component;
+            // not a wrong-endpoint defect by our definition.
+            evidence.push({ id: conn.connection_id, ok: true });
+            continue;
+        }
+        const target = ctx.componentById.get(conn.to?.component_id ?? '');
+        const symbol = conn.code_reference?.symbol;
+        const targetName = target?.name;
+        // We need at least ONE positive signal. Try (in order):
+        //   1. recorded symbol appears in the file
+        //   2. target component name appears in the file
+        // Run 3 fix: use symbolAppearsIn() which handles both identifier-style and
+        // path-style symbols. The previous \b-only regex falsely failed on imports
+        // like './entity-analysis-service' because . and / are non-word chars and
+        // \b does not match around them.
+        let found = false;
+        const tried = [];
+        if (symbol && symbol.length > 1) {
+            tried.push(`symbol="${symbol}"`);
+            if (symbolAppearsIn(content, symbol))
+                found = true;
+        }
+        if (!found && targetName && targetName.length > 1) {
+            tried.push(`name="${targetName}"`);
+            if (symbolAppearsIn(content, targetName))
+                found = true;
+        }
+        if (!found && tried.length > 0) {
+            evidence.push({
+                id: conn.connection_id,
+                ok: false,
+                reason: `no reference to ${tried.join(' or ')} in ${filePath}`,
+            });
+        }
+        else {
+            evidence.push({ id: conn.connection_id, ok: true });
+        }
+    }
+    return {
+        class: 'WRONG_ENDPOINT',
+        sampledCount: samples.length,
+        defectCount: evidence.filter((e) => !e.ok).length,
+        samples: evidence,
+    };
+}
+// ============================================================================
+// V4 — STALE_REFERENCE
+// ============================================================================
+export async function verifyStaleReference(
+/** Sampled FILES (relative paths), not components. */
+sampledFiles, ctx) {
+    const evidence = [];
+    if (!ctx.hashes || !ctx.hashes.files) {
+        return {
+            class: 'STALE_REFERENCE',
+            sampledCount: sampledFiles.length,
+            defectCount: 0,
+            samples: sampledFiles.map((f) => ({ id: f, ok: true })),
+        };
+    }
+    for (const rel of sampledFiles) {
+        const recorded = ctx.hashes.files[rel];
+        if (!recorded) {
+            // Not in hashes.json → can't compare; not stale by definition.
+            evidence.push({ id: rel, ok: true });
+            continue;
+        }
+        const abs = path.join(ctx.projectRoot, rel);
+        const current = await sha256File(abs);
+        if (current === null) {
+            // File deleted since scan → stale ref
+            evidence.push({ id: rel, ok: false, reason: 'file no longer exists on disk' });
+            continue;
+        }
+        if (current !== recorded.hash) {
+            evidence.push({
+                id: rel,
+                ok: false,
+                reason: `hash mismatch (recorded ${recorded.hash.slice(0, 8)}…, now ${current.slice(0, 8)}…)`,
+            });
+        }
+        else {
+            evidence.push({ id: rel, ok: true });
+        }
+    }
+    return {
+        class: 'STALE_REFERENCE',
+        sampledCount: sampledFiles.length,
+        defectCount: evidence.filter((e) => !e.ok).length,
+        samples: evidence,
+    };
+}
+// ============================================================================
+// V5 — DEDUP_COLLISION (regression check on Run 1.7 fix)
+// ============================================================================
+/**
+ * Scans ALL components (not a sample — this is a graph-wide invariant) for
+ * duplicate (type, name, primary-config-file) triples. Returns one evidence
+ * row per collision pair.
+ */
+export function verifyDedupCollision(allComponents) {
+    const seen = new Map();
+    const evidence = [];
+    for (const c of allComponents) {
+        const primary = c.source?.config_files?.[0] ?? '__none';
+        const key = `${c.type}|${c.name}|${primary}`;
+        const prior = seen.get(key);
+        if (prior) {
+            evidence.push({
+                id: c.component_id,
+                ok: false,
+                reason: `dedup-key collision with ${prior.component_id} on (${c.type}, ${c.name}, ${primary})`,
+            });
+        }
+        else {
+            seen.set(key, c);
+        }
+    }
+    // Don't generate ok-evidence for every component — only collisions.
+    return {
+        class: 'DEDUP_COLLISION',
+        sampledCount: allComponents.length,
+        defectCount: evidence.length,
+        samples: evidence,
+    };
+}
+/**
+ * Build a structured payload describing each sampled file's recorded outgoing
+ * edges, for an MCP-side LLM judge to set-diff against the file contents.
+ *
+ * In CLI mode we set `llm_skipped: true` and return zero defects; the audit
+ * report flags the skip but doesn't fail.
+ */
+export function verifyMissedEdge(sampledFiles, allConnections, ctx) {
+    if (!ctx.isMcpMode) {
+        return {
+            class: 'MISSED_EDGE',
+            sampledCount: sampledFiles.length,
+            defectCount: 0,
+            samples: sampledFiles.map((f) => ({ id: f, ok: true, reason: 'llm-skipped' })),
+            llm_skipped: true,
+        };
+    }
+    // Build per-file edge map.
+    const byFile = new Map();
+    for (const conn of allConnections) {
+        const f = conn.code_reference?.file;
+        if (!f)
+            continue;
+        let arr = byFile.get(f);
+        if (!arr) {
+            arr = [];
+            byFile.set(f, arr);
+        }
+        arr.push(conn);
+    }
+    const payload = {
+        instruction: 'For each file, list all outgoing dependencies (imports, API calls, db queries, queue producers, LLM calls). ' +
+            'Set-diff against `recorded_outgoing_edges`. Return any dependency in the file that is NOT in the recorded list.',
+        files: sampledFiles.map((rel) => ({
+            path: rel,
+            recorded_outgoing_edges: (byFile.get(rel) ?? []).map((c) => ({
+                connection_id: c.connection_id,
+                target_component_id: c.to?.component_id ?? '',
+                target_name: ctx.componentById.get(c.to?.component_id ?? '')?.name,
+                symbol: c.code_reference?.symbol,
+            })),
+        })),
+    };
+    // The LLM judge runs out-of-band; we mark all samples ok pending its reply.
+    // The MCP transport is responsible for re-injecting the verdict into the
+    // audit report on a follow-up tool call.
+    return {
+        class: 'MISSED_EDGE',
+        sampledCount: sampledFiles.length,
+        defectCount: 0,
+        samples: sampledFiles.map((f) => ({ id: f, ok: true, reason: 'awaiting-llm-verdict' })),
+        llm_payload: payload,
+    };
+}
+//# sourceMappingURL=verifiers.js.map
