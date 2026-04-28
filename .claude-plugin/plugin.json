@@ -1,7 +1,7 @@
 {
   "name": "navgator",
   "version": "0.6.2",
-  "description": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
+  "description": "Map dependencies and analyze blast radius before changing code",
   "author": {
     "name": "Tyrone Ross"
   },

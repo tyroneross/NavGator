@@ -1,6 +1,6 @@
 ---
 name: navgator-setup
-description: Install, update, or launch NavGator tools. Use when the user asks to "install navgator", "update navgator", "launch dashboard", "navgator ui", "set up navgator", or needs maintenance operations.
+description: Use when user asks to install navgator, update navgator, set up navgator, launch the dashboard, or run navgator ui maintenance.
 version: 0.4.0
 user-invocable: true
 argument-hint: [install|update|ui]
