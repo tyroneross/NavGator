@@ -35,7 +35,7 @@ function sendError(id, code, message) {
 // --- MCP Protocol ---
 const SERVER_INFO = {
     name: "navgator",
-    version: "0.6.1",
+    version: "0.8.1",
 };
 const CAPABILITIES = {
     tools: {},

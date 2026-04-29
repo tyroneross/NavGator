@@ -3,8 +3,42 @@
  * Orchestrates all component and connection scanners
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
+
+const DEFAULT_IGNORE_PATTERNS = [
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.next/**',
+  '**/__pycache__/**',
+  '**/venv/**',
+  '**/.venv/**',
+  '**/.git/**',
+  '**/.build/**',
+  '**/DerivedData/**',
+  '**/.swiftpm/**',
+  '**/Pods/**',
+  '**/coverage/**',
+  // Saved-webpage asset directories (Mediasite/Confluence/MHTML exports etc.)
+  // contain inert JS that has no runtime role in the project.
+  '**/*_files/**',
+];
+
+function getIgnorePatterns(root: string): string[] {
+  const userFile = path.join(root, '.navgatorignore');
+  if (!fs.existsSync(userFile)) return DEFAULT_IGNORE_PATTERNS;
+  try {
+    const userPatterns = fs.readFileSync(userFile, 'utf-8')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line && !line.startsWith('#'));
+    return [...DEFAULT_IGNORE_PATTERNS, ...userPatterns];
+  } catch {
+    return DEFAULT_IGNORE_PATTERNS;
+  }
+}
 import {
   ArchitectureComponent,
   ArchitectureConnection,
@@ -371,7 +405,7 @@ export async function scan(
 
   const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py,swift,h,m}', {
     cwd: root,
-    ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/__pycache__/**', '**/venv/**', '**/.git/**', '**/.build/**', '**/DerivedData/**', '**/.swiftpm/**', '**/Pods/**', '**/coverage/**'],
+    ignore: getIgnorePatterns(root),
   });
 
   // For change detection, also include manifest files at the project root
