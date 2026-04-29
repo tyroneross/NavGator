@@ -80,6 +80,106 @@ import { classifyAllConnections } from './classify.js';
 import { isSandboxMode } from './sandbox.js';
 import { ensureSafeGitignore } from './gitignore-safety.js';
 // =============================================================================
+// MULTI-STACK ROOT DISCOVERY
+// =============================================================================
+/**
+ * Manifest filenames that mark a directory as the root of a discrete stack.
+ * Order matters: when we walk one level deep we stop at the first match per
+ * subdir, so place the language-canonical manifests first.
+ */
+const STACK_MANIFESTS = [
+    'package.json',
+    'pyproject.toml',
+    'Cargo.toml',
+    'go.mod',
+    'pom.xml',
+    'Gemfile',
+    // Catch-all for .NET — we glob the subdir for `*.csproj` separately
+    // because there's no fixed filename. Handled via discoverStackRoots.
+];
+/**
+ * Walk one level under `root`, return roots to scan. Behavior:
+ *
+ *  - If `root` has any stack manifest, return `[{ path: root, origin: '.' }]`.
+ *    No further walking — single-stack repos behave exactly as before.
+ *  - Else, look at every direct child directory (depth 1). Any child that
+ *    carries a stack manifest is included.
+ *  - When more than one child stack is found, all of them are scanned and
+ *    components get an `origin_root` metadata tag so consumers can group.
+ *
+ * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
+ * and anything starting with `.` to avoid scanning vendored or generated dirs.
+ */
+export function discoverStackRoots(root, verbose) {
+    // Uses the module-level `fs`/`path` namespace imports at the top of
+    // the file. ESM-only — no `require()` here.
+    const hasManifest = (dir) => {
+        for (const m of STACK_MANIFESTS) {
+            if (fs.existsSync(path.join(dir, m)))
+                return true;
+        }
+        // .NET — any *.csproj
+        try {
+            const entries = fs.readdirSync(dir);
+            if (entries.some(e => e.endsWith('.csproj')))
+                return true;
+        }
+        catch {
+            // unreadable dir → not a stack root
+        }
+        return false;
+    };
+    if (hasManifest(root)) {
+        return [{ path: root, origin: '.' }];
+    }
+    const skipDirs = new Set([
+        'node_modules', 'dist', 'build', '.git', '.next', '.cache',
+        '__pycache__', '.venv', 'venv', '.tox', 'target', 'vendor',
+        'coverage', '.pytest_cache', '.navgator', '.ibr', '.bookmark',
+        '.claude',
+    ]);
+    let entries;
+    try {
+        entries = fs.readdirSync(root);
+    }
+    catch {
+        return [{ path: root, origin: '.' }];
+    }
+    const found = [];
+    for (const name of entries) {
+        if (name.startsWith('.'))
+            continue;
+        if (skipDirs.has(name))
+            continue;
+        const child = path.join(root, name);
+        let isDir = false;
+        try {
+            isDir = fs.statSync(child).isDirectory();
+        }
+        catch {
+            continue;
+        }
+        if (!isDir)
+            continue;
+        if (hasManifest(child)) {
+            found.push({ path: child, origin: name });
+        }
+    }
+    if (found.length === 0) {
+        // Nothing one level down either — keep legacy behavior so older
+        // projects don't silently turn into no-ops.
+        if (verbose) {
+            console.log('  - No stack manifest at root or any direct child; scanning root anyway');
+        }
+        return [{ path: root, origin: '.' }];
+    }
+    if (verbose) {
+        console.log(`  - Multi-stack project: ${found.length} subroot(s): ` +
+            found.map(f => f.origin).join(', '));
+    }
+    return found;
+}
+// =============================================================================
 // MODE SELECTION (Run 1 — D2)
 // =============================================================================
 /**
@@ -415,32 +515,63 @@ export async function scan(projectRoot, options = {}) {
         if (options.verbose) {
             console.log('Phase 1: Scanning packages...');
         }
-        // Package scanners run in parallel (independent of each other)
+        // Package scanners run in parallel (independent of each other).
+        //
+        // Multi-stack auto-discovery: if the project root has no stack manifest
+        // of its own, walk one level deep and scan each subdir that does. This
+        // catches the common monorepo-lite shape — a top-level `frontend/` with
+        // package.json + a top-level `backend/` with pyproject.toml — that the
+        // legacy single-root behavior silently missed (it would only scan
+        // whichever side was at the root).
+        //
+        // Pass `singleStack: true` (CLI: --single-stack) to force the legacy
+        // behavior. Each component scanned from a subroot gets its origin tagged
+        // via `metadata.origin_root` so downstream layers can group by stack.
         {
+            const stackRoots = options.singleStack
+                ? [{ path: root, origin: '.' }]
+                : discoverStackRoots(root, options.verbose === true);
             const packageTasks = [];
-            if (detectNpm(root)) {
-                if (options.verbose)
-                    console.log('  - Detected npm/yarn/pnpm project');
-                packageTasks.push(scanNpmPackages(root).then(result => {
-                    allComponents.push(...result.components);
-                    allWarnings.push(...result.warnings);
-                }));
-            }
-            if (detectPip(root)) {
-                if (options.verbose)
-                    console.log('  - Detected Python project');
-                packageTasks.push(scanPipPackages(root).then(result => {
-                    allComponents.push(...result.components);
-                    allWarnings.push(...result.warnings);
-                }));
-            }
-            if (detectSpm(root)) {
-                if (options.verbose)
-                    console.log('  - Detected Swift/Xcode project');
-                packageTasks.push(scanSpmPackages(root).then(result => {
-                    allComponents.push(...result.components);
-                    allWarnings.push(...result.warnings);
-                }));
+            for (const sr of stackRoots) {
+                const tagOrigin = (result) => {
+                    // Skip when origin is the root — keeps single-stack output identical.
+                    if (sr.origin === '.')
+                        return;
+                    for (const c of result.components) {
+                        const md = c.metadata ?? {};
+                        c.metadata = { ...md, origin_root: sr.origin };
+                    }
+                };
+                if (detectNpm(sr.path)) {
+                    if (options.verbose) {
+                        console.log(`  - Detected npm/yarn/pnpm project (${sr.origin})`);
+                    }
+                    packageTasks.push(scanNpmPackages(sr.path).then(result => {
+                        tagOrigin(result);
+                        allComponents.push(...result.components);
+                        allWarnings.push(...result.warnings);
+                    }));
+                }
+                if (detectPip(sr.path)) {
+                    if (options.verbose) {
+                        console.log(`  - Detected Python project (${sr.origin})`);
+                    }
+                    packageTasks.push(scanPipPackages(sr.path).then(result => {
+                        tagOrigin(result);
+                        allComponents.push(...result.components);
+                        allWarnings.push(...result.warnings);
+                    }));
+                }
+                if (detectSpm(sr.path)) {
+                    if (options.verbose) {
+                        console.log(`  - Detected Swift/Xcode project (${sr.origin})`);
+                    }
+                    packageTasks.push(scanSpmPackages(sr.path).then(result => {
+                        tagOrigin(result);
+                        allComponents.push(...result.components);
+                        allWarnings.push(...result.warnings);
+                    }));
+                }
             }
             await Promise.all(packageTasks);
         }

@@ -46,7 +46,30 @@ export interface ScanOptions {
     /** Run 2 — D4: signal that NavGator is being invoked from an MCP session
      *  (vs. CLI). Enables the LLM-judge MISSED_EDGE verifier. */
     isMcpMode?: boolean;
+    /** Multi-stack auto-discovery: when the project root carries no stack
+     *  manifest (no package.json/pyproject.toml/etc), walk one level down
+     *  and scan each subdirectory that does. Defaults to ON. Pass
+     *  `singleStack: true` to force the legacy behavior — scan only the
+     *  given root regardless of subdirs. */
+    singleStack?: boolean;
 }
+/**
+ * Walk one level under `root`, return roots to scan. Behavior:
+ *
+ *  - If `root` has any stack manifest, return `[{ path: root, origin: '.' }]`.
+ *    No further walking — single-stack repos behave exactly as before.
+ *  - Else, look at every direct child directory (depth 1). Any child that
+ *    carries a stack manifest is included.
+ *  - When more than one child stack is found, all of them are scanned and
+ *    components get an `origin_root` metadata tag so consumers can group.
+ *
+ * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
+ * and anything starting with `.` to avoid scanning vendored or generated dirs.
+ */
+export declare function discoverStackRoots(root: string, verbose: boolean): Array<{
+    path: string;
+    origin: string;
+}>;
 export interface ScanModeDecision {
     mode: 'full' | 'incremental';
     reason: 'flag-full' | 'flag-incremental' | 'no-prior-state' | 'schema-mismatch' | 'manifest-changed' | 'new-files' | 'stale-full' | 'incremental-cap' | 'no-changes' | 'fast-path' | 'audit-drift-breach';

@@ -22,6 +22,7 @@ export function registerScanCommand(program: Command): void {
     .option('--typespec', 'Validate Prisma types against TypeScript interfaces')
     .option('--no-audit', 'Skip the SQC audit pass (Run 2)')
     .option('--audit-plan <plan>', 'Audit plan: aql | sprt | cochran (default: auto)')
+    .option('--single-stack', 'Disable multi-stack auto-discovery — scan only the project root')
     .option('--json', 'Output scan results as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
@@ -59,6 +60,7 @@ export function registerScanCommand(program: Command): void {
           // `options.audit === false`; we map that to `noAudit: true`.
           noAudit: options.audit === false,
           auditPlan: options.auditPlan as 'aql' | 'sprt' | 'cochran' | undefined,
+          singleStack: options.singleStack === true,
         });
 
         // Restore console for output
