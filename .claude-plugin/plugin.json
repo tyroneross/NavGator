@@ -1,6 +1,6 @@
 {
   "name": "navgator",
-  "version": "0.6.2",
+  "version": "0.8.0",
   "description": "Map dependencies and analyze blast radius before changing code",
   "author": {
     "name": "Tyrone Ross"
