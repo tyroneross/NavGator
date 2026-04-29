@@ -77,7 +77,7 @@ const READ_PATTERNS = [
  * Read all source files eligible for scanning
  */
 async function collectSourceFiles(projectRoot, walkSet) {
-    const all = await glob('**/*.{ts,tsx,js,jsx}', {
+    const all = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
         cwd: projectRoot,
         ignore: [
             '**/node_modules/**',

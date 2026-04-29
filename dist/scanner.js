@@ -347,7 +347,7 @@ export async function scan(projectRoot, options = {}) {
         // ==========================================================================
         // Phase 0: File Discovery & Change Detection
         // ==========================================================================
-        const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py,swift,h,m}', {
+        const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,h,m}', {
             cwd: root,
             ignore: getIgnorePatterns(root),
         });

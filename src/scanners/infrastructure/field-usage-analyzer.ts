@@ -157,7 +157,7 @@ async function collectSourceFiles(
   projectRoot: string,
   walkSet?: Set<string>
 ): Promise<string[]> {
-  const all = await glob('**/*.{ts,tsx,js,jsx}', {
+  const all = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**',

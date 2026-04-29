@@ -15,7 +15,7 @@ import {
 } from '../../types.js';
 
 // Extensions to try when resolving bare imports (order matters)
-const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'];
+const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 
 // Regex patterns — match relative imports AND path alias imports
@@ -329,14 +329,15 @@ export async function scanImports(
   if (sourceFiles) {
     files = sourceFiles.filter(f =>
       f.endsWith('.ts') || f.endsWith('.tsx') ||
-      f.endsWith('.js') || f.endsWith('.jsx')
+      f.endsWith('.js') || f.endsWith('.jsx') ||
+      f.endsWith('.mjs') || f.endsWith('.cjs')
     );
     // Exclude .d.ts files
     files = files.filter(f => !f.endsWith('.d.ts'));
   } else {
     // Fallback: use glob (shouldn't happen in normal flow)
     const { glob } = await import('glob');
-    files = await glob('**/*.{ts,tsx,js,jsx}', {
+    files = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
       cwd: projectRoot,
       ignore: [
         '**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**',
@@ -491,8 +492,16 @@ export async function scanImports(
       if (!result) continue;
       const { file, content } = result;
 
-      // Only scan frontend files (pages, components, app/ routes)
-      if (!file.includes('/app/') && !file.includes('/pages/') && !file.includes('/components/') && !file.includes('hooks/')) continue;
+      // Only scan frontend files (pages, components, app/ routes).
+      // Anchor on segment boundaries OR project-root start so top-level
+      // `app/page.js`, `app/canvas/page.js`, `pages/index.js`, `components/Foo.js`,
+      // `hooks/useX.js` (no leading slash) match the same as nested `src/app/...`.
+      const isFrontend =
+        file.startsWith('app/') || file.includes('/app/') ||
+        file.startsWith('pages/') || file.includes('/pages/') ||
+        file.startsWith('components/') || file.includes('/components/') ||
+        file.startsWith('hooks/') || file.includes('/hooks/');
+      if (!isFrontend) continue;
 
       // Run all fetch patterns
       const fetchPatterns = [FETCH_API_RE, FETCH_TEMPLATE_RE, FETCH_WRAPPER_RE];
@@ -563,8 +572,14 @@ function resolveApiRoute(apiPath: string, knownFiles: Set<string>): string | nul
     `app${apiPath}/route.ts`,
     `app${apiPath}/route.tsx`,
     `app${apiPath}/route.js`,
+    `app${apiPath}/route.jsx`,
+    `app${apiPath}/route.mjs`,
+    `app${apiPath}/route.cjs`,
     `src/app${apiPath}/route.ts`,
     `src/app${apiPath}/route.tsx`,
+    `src/app${apiPath}/route.js`,
+    `src/app${apiPath}/route.mjs`,
+    `src/app${apiPath}/route.cjs`,
   ];
   for (const candidate of appRouterCandidates) {
     if (knownFiles.has(candidate)) return candidate;
@@ -575,7 +590,11 @@ function resolveApiRoute(apiPath: string, knownFiles: Set<string>): string | nul
     `pages${apiPath}.ts`,
     `pages${apiPath}.tsx`,
     `pages${apiPath}.js`,
+    `pages${apiPath}.jsx`,
+    `pages${apiPath}.mjs`,
+    `pages${apiPath}.cjs`,
     `src/pages${apiPath}.ts`,
+    `src/pages${apiPath}.js`,
   ];
   for (const candidate of pagesRouterCandidates) {
     if (knownFiles.has(candidate)) return candidate;

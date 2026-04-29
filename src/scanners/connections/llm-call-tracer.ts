@@ -713,7 +713,7 @@ export async function traceLLMCalls(
   projectRoot: string,
   walkSet?: Set<string>
 ): Promise<LLMTraceResult> {
-  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py}', {
     cwd: projectRoot,
     ignore: [
       'node_modules/**', 'dist/**', 'build/**', '.next/**',

@@ -494,7 +494,7 @@ function extractConfig(context) {
     return config;
 }
 export async function traceLLMCalls(projectRoot, walkSet) {
-    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py}', {
         cwd: projectRoot,
         ignore: [
             'node_modules/**', 'dist/**', 'build/**', '.next/**',

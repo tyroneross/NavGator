@@ -171,7 +171,7 @@ export class PromptDetector {
         const prompts = [];
         const warnings = [];
         // Find source files
-        const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+        const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py}', {
             cwd: projectRoot,
             ignore: [
                 'node_modules/**',

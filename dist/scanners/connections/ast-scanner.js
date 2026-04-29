@@ -119,7 +119,7 @@ export async function scanWithAST(projectRoot, walkSet) {
     }
     const { Project, Node } = tsMorphModule;
     // Find all TypeScript/JavaScript files
-    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
+    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
         cwd: projectRoot,
         ignore: ['node_modules/**', 'dist/**', 'build/**', '.next/**', '*.d.ts'],
         absolute: true,

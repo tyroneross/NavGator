@@ -172,6 +172,29 @@ const SERVICE_PATTERNS: ServicePattern[] = [
     layer: 'external',
     purpose: 'HuggingFace Inference API',
   },
+  {
+    serviceName: 'Ollama',
+    patterns: [
+      // Official SDK
+      /from\s+['"]ollama['"]/,
+      /import\s+ollama\b/,
+      /\bnew\s+Ollama\(/,
+      /\bollama\.chat\(/,
+      /\bollama\.generate\(/,
+      // Plain-fetch usage — agent-studio style. These are Ollama-specific
+      // env var names and the default port; safer signals than bare /api/chat
+      // (which collides with Next.js app routes named /api/chat).
+      /OLLAMA_BASE_URL/,
+      /OLLAMA_MODEL/,
+      /OLLAMA_HOST/,
+      /:11434\b/,
+      /localhost:11434/,
+      /127\.0\.0\.1:11434/,
+    ],
+    componentType: 'llm',
+    layer: 'external',
+    purpose: 'Ollama local LLM API',
+  },
 
   // Payment Services
   {
@@ -468,7 +491,7 @@ export async function scanServiceCalls(
   const timestamp = Date.now();
 
   // Find all source files
-  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+  const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py}', {
     cwd: projectRoot,
     ignore: [
       'node_modules/**',
@@ -666,7 +689,7 @@ export async function scanPromptLocations(projectRoot: string): Promise<ScanResu
     /content:\s*[`'"][^`'"]{50,}/,
   ];
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,py}', {
+  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py}', {
     cwd: projectRoot,
     ignore: [
       'node_modules/**',

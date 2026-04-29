@@ -52,7 +52,7 @@ export async function scanPrismaCalls(projectRoot, modelComponents, walkSet) {
     }
     if (modelMap.size === 0)
         return { components: [], connections, warnings };
-    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx}', {
+    const allSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
         cwd: projectRoot,
         ignore: [
             '**/node_modules/**', '**/dist/**', '**/build/**',
