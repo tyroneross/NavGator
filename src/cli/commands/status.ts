@@ -216,8 +216,11 @@ export function registerStatusCommand(program: Command): void {
             connectedIds.add(conn.from.component_id);
             connectedIds.add(conn.to.component_id);
           }
-          // Only flag non-code components (packages, queues, services, infra) — code components are too numerous
-          const orphanTypes = new Set(['npm', 'pip', 'spm', 'queue', 'service', 'llm', 'infra', 'database', 'framework']);
+          // Only flag non-code components (packages, queues, services, infra) — code components are too numerous.
+          // 'pip' is excluded: NavGator has no Python import scanner, so pip components can never accumulate
+          // connections, which makes orphan-flagging them a guaranteed false positive. Re-include when a
+          // Python import scanner ships. Aligned with rules.ts:366 (transitive dead-code already excludes pip).
+          const orphanTypes = new Set(['npm', 'spm', 'queue', 'service', 'llm', 'infra', 'database', 'framework']);
           const orphans = allComps.filter(c =>
             orphanTypes.has(c.type) &&
             !connectedIds.has(c.component_id) &&

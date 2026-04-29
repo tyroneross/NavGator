@@ -29,8 +29,11 @@ export function registerDeadCommand(program: Command): void {
           connectedIds.add(conn.to.component_id);
         }
 
-        // Orphaned = non-code components with 0 connections
-        const orphanTypes = new Set(['npm', 'pip', 'spm', 'queue', 'service', 'llm', 'infra', 'database', 'framework', 'cron', 'config']);
+        // Orphaned = non-code components with 0 connections.
+        // 'pip' is excluded: NavGator has no Python import scanner, so pip components can never accumulate
+        // connections, which makes orphan-flagging them a guaranteed false positive. Re-include when a
+        // Python import scanner ships. Aligned with rules.ts:366 (transitive dead-code already excludes pip).
+        const orphanTypes = new Set(['npm', 'spm', 'queue', 'service', 'llm', 'infra', 'database', 'framework', 'cron', 'config']);
         const orphans = components.filter(c =>
           orphanTypes.has(c.type) &&
           !connectedIds.has(c.component_id) &&
