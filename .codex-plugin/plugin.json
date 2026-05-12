@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/tyroneross/navgator",
   "repository": "https://github.com/tyroneross/navgator",
-  "license": "FSL-1.1-MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "architecture",
     "connections",

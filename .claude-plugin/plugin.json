@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/tyroneross/NavGator",
   "repository": "https://github.com/tyroneross/NavGator",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "architecture",
     "connections",
