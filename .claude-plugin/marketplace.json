@@ -1,23 +1,37 @@
 {
   "name": "navgator",
-  "owner": { "name": "Tyrone Ross", "url": "https://github.com/tyroneross" },
+  "owner": {
+    "name": "Tyrone Ross",
+    "url": "https://github.com/tyroneross"
+  },
   "metadata": {
     "description": "Architecture connection tracker — know your stack before you change it",
-    "version": "0.6.1"
+    "version": "0.9.0"
   },
   "plugins": [
     {
       "name": "gator",
       "source": "./",
       "description": "Architecture connection tracker for Claude Code — know your stack before you change it",
-      "version": "0.6.1",
-      "author": { "name": "Tyrone Ross" },
+      "version": "0.9.0",
+      "author": {
+        "name": "Tyrone Ross"
+      },
       "homepage": "https://github.com/tyroneross/navgator#readme",
       "repository": "https://github.com/tyroneross/navgator",
       "license": "Apache-2.0",
-      "keywords": ["architecture", "connections", "dependencies", "impact-analysis"],
+      "keywords": [
+        "architecture",
+        "connections",
+        "dependencies",
+        "impact-analysis"
+      ],
       "category": "development",
-      "tags": ["architecture", "dependency-tracking", "impact-analysis"]
+      "tags": [
+        "architecture",
+        "dependency-tracking",
+        "impact-analysis"
+      ]
     }
   ]
 }
