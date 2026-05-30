@@ -8,7 +8,7 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude Code and Codex. It maps dependencies, analyzes impact, and visualizes your stack before you make changes. It ships as an npm package plus explicit host surfaces for Claude and Codex.
 
-- **npm package:** `@tyroneross/navgator` (v0.6.1)
+- **npm package:** `@tyroneross/navgator` (v0.9.0)
 - **Plugin name:** `navgator`
 - **Runtime:** Node.js >= 20.0.0, TypeScript (ES2022, NodeNext modules)
 - **License:** MIT
@@ -50,14 +50,16 @@ NavGator/
 │   ├── impact-analysis/        # Impact query guidance
 │   ├── code-review/            # Architecture-aware review
 │   └── infrastructure-scanning.md  # Infrastructure detection skill
-├── commands/                   # 9 slash command definitions
-│   ├── dead.md, impact.md, llm-map.md, map.md, review.md
+├── commands/                   # 13 slash command definitions
+│   ├── dead.md, gator.md, impact.md, lessons.md, llm-map.md
+│   ├── map.md, plan.md, promote-lesson.md, review.md
 │   ├── scan.md, schema.md, test.md, trace.md
 ├── hooks/
 │   └── hooks.json              # Hook definitions (4 hook types)
 ├── agents/
 │   ├── architecture-advisor.md     # Stack decisions + migration planning
-│   └── architecture-investigator.md  # SRE-style read-only investigation
+│   ├── architecture-investigator.md  # SRE-style read-only investigation
+│   └── architecture-planner.md     # Graph freshness + MCP-tool orchestration
 ├── .claude-plugin/
 │   └── plugin.json             # Claude plugin manifest (name: navgator)
 ├── .codex-plugin/
@@ -124,9 +126,23 @@ JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 | `explore` | Full detail on a specific component (type, layer, files, metadata) |
 | `rules` | Rule checks: orphans, layer violations, cycles, hotspots |
 
-### Slash Commands (10)
+### Slash Commands (13)
 
-`/navgator:dead`, `/navgator:impact`, `/navgator:llm-map`, `/navgator:map`, `/navgator:review`, `/navgator:scan`, `/navgator:schema`, `/navgator:test`, `/navgator:trace`
+| Command | Purpose |
+|---------|---------|
+| `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
+| `/navgator:gator` | Main router — dispatches to the right subcommand based on intent |
+| `/navgator:impact` | Blast-radius analysis before modifying a component |
+| `/navgator:lessons` | List, search, promote, and manage architecture lessons |
+| `/navgator:llm-map` | Map all LLM use cases by purpose, provider, and connection |
+| `/navgator:map` | Map full architecture — components, connections, topology, LLM use cases |
+| `/navgator:plan` | Plan an architecture change or investigation (delegates to architecture-planner agent) |
+| `/navgator:promote-lesson` | Scan per-project lessons and propose cross-project patterns for global promotion |
+| `/navgator:review` | Architectural integrity review — connections, drift, lessons |
+| `/navgator:scan` | Quick scan — refresh component and connection tracking |
+| `/navgator:schema` | Show readers vs writers per database model |
+| `/navgator:test` | End-to-end architecture test — verify components, connections, no orphans |
+| `/navgator:trace` | Trace data flow forward and backward through the architecture |
 
 ### Skills (6)
 
@@ -146,11 +162,13 @@ Defined in `hooks/hooks.json`:
 | `PostToolUse` (Write/Edit) | After 3+ file edits or API/schema changes | Triggers `scan` to update architecture tracking |
 | `Stop` | Session ends | Prompts `scan` if significant architectural changes were made |
 
-### Agents (2)
+### Agents (3)
 
 **`architecture-advisor`** — Stack decisions, migration planning, dependency compatibility. Tools: Bash, Read, Glob, Grep, WebSearch. Uses NavGator data to produce: Current State, Impact Analysis, Recommendation, Change Sequence, Verification.
 
 **`architecture-investigator`** — SRE-style read-only investigation across 5 phases: Overview, Identify, Trace, Rules, Synthesize. Read-only during phases 1–4. Every finding cites specific tool output. Tools: Bash, Read, Glob, Grep.
+
+**`architecture-planner`** — Graph freshness check + MCP-tool orchestration for architecture-aware questions. Reads `index.json` + `hashes.json`, runs an incremental scan if stale (`navgator scan --incremental` only write), then dispatches `impact`, `trace`, `connections`, `review`, `dead`, `rules` and returns a structured report. Triggers on phrasings like "review architecture for X", "blast radius of Y", "how does A connect to B".
 
 ---
 
