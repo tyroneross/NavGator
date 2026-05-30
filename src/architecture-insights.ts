@@ -166,10 +166,17 @@ export function detectImportCycles(
       if (!seenCycles.has(canonical)) {
         seenCycles.add(canonical);
         cycles.push([...cycleNames, cycleNames[0]]);
-        if (cycles.length >= limit) return;
+        if (cycles.length >= limit) return; // early-exit: see safety note below
       }
     }
   };
+  // Safety: the early-exit above leaves `visiting` and `stack` dirty (nodes
+  // still marked as in-flight). This is harmless because:
+  //   1. All in-flight nodes are also in `visited`, so the outer loop's
+  //      `!visited.has(node)` guard prevents re-entry for those nodes.
+  //   2. The outer loop also breaks immediately on `cycles.length >= limit`,
+  //      so no further `visitIterative` call is made after the early return.
+  // Result: dirty `visiting`/`stack` state is abandoned without being read.
 
   for (const node of graph.keys()) {
     if (!visited.has(node)) {
