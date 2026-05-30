@@ -106,4 +106,15 @@ describe('ensureSafeGitignore', () => {
     // should not be glued onto the last content line
     expect(after).toMatch(/node_modules\/\n+# >>> NavGator safety guard/);
   });
+
+  // f1: components.full.jsonl and connections.full.jsonl carry the same
+  // env-hostname data as COMP_config_*.json but were absent from GUARDED_PATTERNS.
+  it('guards components.full.jsonl and connections.full.jsonl in the managed block', async () => {
+    fs.writeFileSync(gitignore, 'node_modules/\n');
+    const result = await ensureSafeGitignore(tmp);
+    expect(result.action).toBe('added');
+    const after = fs.readFileSync(gitignore, 'utf-8');
+    expect(after).toContain('.navgator/architecture/components.full.jsonl');
+    expect(after).toContain('.navgator/architecture/connections.full.jsonl');
+  });
 });
