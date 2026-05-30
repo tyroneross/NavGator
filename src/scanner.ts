@@ -1997,6 +1997,105 @@ export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
 export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 
 /**
+ * R6 auto-refresh: run an incremental scan when the on-disk graph is stale.
+ *
+ * Cheap by design — checks only `index.last_scan` age. If older than
+ * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'incremental' })`
+ * which internally fast-paths to "no-changes" when nothing actually moved.
+ * Per-entity files stay off (the default); auto-refresh is footprint-safe.
+ *
+ * Returns a one-line description that callers can surface to the user. Never
+ * throws — auto-refresh is best-effort and must never block a read tool.
+ *
+ * Opt-out: pass `enabled: false` (CLI `--no-refresh`) or set env
+ * `NAVGATOR_AUTO_REFRESH=false`.
+ */
+export interface AutoRefreshOptions {
+  /** Default true. Programmatic override beats the env var. */
+  enabled?: boolean;
+  /** Default 5 minutes. Older than this → trigger incremental. */
+  staleAfterMinutes?: number;
+  /**
+   * Test-seam: swap the scan implementation. Defaults to the real `scan`
+   * exported above. Tests use this to spy without dispatching real work.
+   */
+  scanImpl?: typeof scan;
+}
+
+export interface AutoRefreshResult {
+  refreshed: boolean;
+  /** "stale", "fresh", "no-index", "disabled", "error" */
+  reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'error';
+  /** Files updated by the refresh (only set on `refreshed: true`). */
+  filesChanged?: number;
+  /** Human-readable summary suitable for one-line stderr / status emit. */
+  message: string;
+}
+
+export async function autoRefreshIfStale(
+  projectRoot?: string,
+  options: AutoRefreshOptions = {}
+): Promise<AutoRefreshResult> {
+  // Resolve opt-in / opt-out. Programmatic > env > default(true).
+  const envOptOut = process.env['NAVGATOR_AUTO_REFRESH'] === 'false';
+  const enabled = options.enabled ?? !envOptOut;
+  if (!enabled) {
+    return { refreshed: false, reason: 'disabled', message: 'auto-refresh disabled' };
+  }
+
+  const staleAfterMs = (options.staleAfterMinutes ?? 5) * 60 * 1000;
+  const root = projectRoot || process.cwd();
+
+  try {
+    const { loadIndex } = await import('./storage.js');
+    const config = getConfig();
+    const index = await loadIndex(config, root);
+
+    if (!index || !index.last_scan) {
+      return {
+        refreshed: false,
+        reason: 'no-index',
+        message: 'no prior scan — run `navgator scan` first',
+      };
+    }
+
+    const ageMs = Date.now() - index.last_scan;
+    if (ageMs < staleAfterMs) {
+      return {
+        refreshed: false,
+        reason: 'fresh',
+        message: `graph fresh (${Math.round(ageMs / 1000)}s old)`,
+      };
+    }
+
+    // Stale → run incremental. selectScanMode will pick the right mode
+    // internally; on a "no changes" hit it returns almost immediately.
+    const scanFn = options.scanImpl ?? scan;
+    const result = await scanFn(root, { mode: 'incremental' });
+
+    const changed = (result.fileChanges?.added.length ?? 0) +
+      (result.fileChanges?.modified.length ?? 0) +
+      (result.fileChanges?.removed.length ?? 0);
+
+    return {
+      refreshed: true,
+      reason: 'stale',
+      filesChanged: changed,
+      message:
+        changed > 0
+          ? `↻ refreshed ${changed} changed file(s)`
+          : '↻ refreshed (no file changes)',
+    };
+  } catch (err) {
+    return {
+      refreshed: false,
+      reason: 'error',
+      message: `auto-refresh failed: ${err instanceof Error ? err.message : 'unknown'}`,
+    };
+  }
+}
+
+/**
  * Get scan status/summary without running a full scan
  */
 export async function getScanStatus(

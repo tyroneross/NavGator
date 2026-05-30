@@ -5,7 +5,7 @@
  * Responses are formatted as concise text for LLM consumption.
  */
 
-import { scan, getScanStatus } from "../scanner.js";
+import { scan, getScanStatus, autoRefreshIfStale } from "../scanner.js";
 import {
   loadAllComponents,
   loadAllConnections,
@@ -376,6 +376,12 @@ async function handleStatus(): Promise<{
   content: Array<{ type: string; text: string }>;
 }> {
   const projectRoot = getProjectRoot();
+
+  // R6 auto-refresh: cheapest read entrypoint — kick an incremental scan
+  // when the index is stale so callers never operate on a graph that is
+  // hours/days behind reality. Best-effort: failures don't block status.
+  const refresh = await autoRefreshIfStale(projectRoot);
+
   const status = await getScanStatus(projectRoot);
 
   if (!status.initialized) {
@@ -392,12 +398,16 @@ async function handleStatus(): Promise<{
     ? new Date(status.last_scan).toISOString()
     : "unknown";
 
-  const lines = [
+  const lines: string[] = [];
+  if (refresh.refreshed) {
+    lines.push(refresh.message);
+  }
+  lines.push(
     `Architecture data: ${staleness}`,
     `Last scan: ${lastScanStr}`,
     `Components: ${status.component_count}`,
-    `Connections: ${status.connection_count}`,
-  ];
+    `Connections: ${status.connection_count}`
+  );
 
   if (index) {
     if (index.stats.components_by_type) {

@@ -137,6 +137,41 @@ export type { PromptScanResult, DetectedPrompt } from './scanners/prompts/index.
 export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
 export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 /**
+ * R6 auto-refresh: run an incremental scan when the on-disk graph is stale.
+ *
+ * Cheap by design — checks only `index.last_scan` age. If older than
+ * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'incremental' })`
+ * which internally fast-paths to "no-changes" when nothing actually moved.
+ * Per-entity files stay off (the default); auto-refresh is footprint-safe.
+ *
+ * Returns a one-line description that callers can surface to the user. Never
+ * throws — auto-refresh is best-effort and must never block a read tool.
+ *
+ * Opt-out: pass `enabled: false` (CLI `--no-refresh`) or set env
+ * `NAVGATOR_AUTO_REFRESH=false`.
+ */
+export interface AutoRefreshOptions {
+    /** Default true. Programmatic override beats the env var. */
+    enabled?: boolean;
+    /** Default 5 minutes. Older than this → trigger incremental. */
+    staleAfterMinutes?: number;
+    /**
+     * Test-seam: swap the scan implementation. Defaults to the real `scan`
+     * exported above. Tests use this to spy without dispatching real work.
+     */
+    scanImpl?: typeof scan;
+}
+export interface AutoRefreshResult {
+    refreshed: boolean;
+    /** "stale", "fresh", "no-index", "disabled", "error" */
+    reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'error';
+    /** Files updated by the refresh (only set on `refreshed: true`). */
+    filesChanged?: number;
+    /** Human-readable summary suitable for one-line stderr / status emit. */
+    message: string;
+}
+export declare function autoRefreshIfStale(projectRoot?: string, options?: AutoRefreshOptions): Promise<AutoRefreshResult>;
+/**
  * Get scan status/summary without running a full scan
  */
 export declare function getScanStatus(projectRoot?: string): Promise<{

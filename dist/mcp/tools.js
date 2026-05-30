@@ -4,7 +4,7 @@
  * Each tool maps to existing NavGator programmatic APIs.
  * Responses are formatted as concise text for LLM consumption.
  */
-import { scan, getScanStatus } from "../scanner.js";
+import { scan, getScanStatus, autoRefreshIfStale } from "../scanner.js";
 import { loadAllComponents, loadAllConnections, loadIndex, loadGraph, } from "../storage.js";
 import { computeImpact } from "../impact.js";
 import { resolveComponent, findCandidates } from "../resolve.js";
@@ -321,6 +321,10 @@ async function handleScan(args) {
 }
 async function handleStatus() {
     const projectRoot = getProjectRoot();
+    // R6 auto-refresh: cheapest read entrypoint — kick an incremental scan
+    // when the index is stale so callers never operate on a graph that is
+    // hours/days behind reality. Best-effort: failures don't block status.
+    const refresh = await autoRefreshIfStale(projectRoot);
     const status = await getScanStatus(projectRoot);
     if (!status.initialized) {
         return textResponse("No architecture data found. Run the scan tool first to map the project.");
@@ -331,12 +335,11 @@ async function handleStatus() {
     const lastScanStr = status.last_scan
         ? new Date(status.last_scan).toISOString()
         : "unknown";
-    const lines = [
-        `Architecture data: ${staleness}`,
-        `Last scan: ${lastScanStr}`,
-        `Components: ${status.component_count}`,
-        `Connections: ${status.connection_count}`,
-    ];
+    const lines = [];
+    if (refresh.refreshed) {
+        lines.push(refresh.message);
+    }
+    lines.push(`Architecture data: ${staleness}`, `Last scan: ${lastScanStr}`, `Components: ${status.component_count}`, `Connections: ${status.connection_count}`);
     if (index) {
         if (index.stats.components_by_type) {
             const types = Object.entries(index.stats.components_by_type)

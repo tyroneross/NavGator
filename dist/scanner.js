@@ -1732,6 +1732,58 @@ export async function scanPromptsOnly(projectRoot, options = {}) {
 export { formatPromptsOutput, formatPromptDetail } from './scanners/prompts/index.js';
 // Re-export tracer types
 export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
+export async function autoRefreshIfStale(projectRoot, options = {}) {
+    // Resolve opt-in / opt-out. Programmatic > env > default(true).
+    const envOptOut = process.env['NAVGATOR_AUTO_REFRESH'] === 'false';
+    const enabled = options.enabled ?? !envOptOut;
+    if (!enabled) {
+        return { refreshed: false, reason: 'disabled', message: 'auto-refresh disabled' };
+    }
+    const staleAfterMs = (options.staleAfterMinutes ?? 5) * 60 * 1000;
+    const root = projectRoot || process.cwd();
+    try {
+        const { loadIndex } = await import('./storage.js');
+        const config = getConfig();
+        const index = await loadIndex(config, root);
+        if (!index || !index.last_scan) {
+            return {
+                refreshed: false,
+                reason: 'no-index',
+                message: 'no prior scan — run `navgator scan` first',
+            };
+        }
+        const ageMs = Date.now() - index.last_scan;
+        if (ageMs < staleAfterMs) {
+            return {
+                refreshed: false,
+                reason: 'fresh',
+                message: `graph fresh (${Math.round(ageMs / 1000)}s old)`,
+            };
+        }
+        // Stale → run incremental. selectScanMode will pick the right mode
+        // internally; on a "no changes" hit it returns almost immediately.
+        const scanFn = options.scanImpl ?? scan;
+        const result = await scanFn(root, { mode: 'incremental' });
+        const changed = (result.fileChanges?.added.length ?? 0) +
+            (result.fileChanges?.modified.length ?? 0) +
+            (result.fileChanges?.removed.length ?? 0);
+        return {
+            refreshed: true,
+            reason: 'stale',
+            filesChanged: changed,
+            message: changed > 0
+                ? `↻ refreshed ${changed} changed file(s)`
+                : '↻ refreshed (no file changes)',
+        };
+    }
+    catch (err) {
+        return {
+            refreshed: false,
+            reason: 'error',
+            message: `auto-refresh failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        };
+    }
+}
 /**
  * Get scan status/summary without running a full scan
  */

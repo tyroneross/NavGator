@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { loadIndex, loadAllComponents, loadAllConnections } from '../../storage.js';
 import { getConfig } from '../../config.js';
+import { autoRefreshIfStale } from '../../scanner.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { checkDataAvailability } from './helpers.js';
 
@@ -12,6 +13,7 @@ export function registerStatusCommand(program: Command): void {
     .description('Show architecture summary and health status')
     .option('--json', 'Output as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+    .option('--no-refresh', 'Skip the R6 auto-refresh that would otherwise run an incremental scan when the on-disk graph is stale (>5 minutes old)')
     .action(async (options) => {
       try {
         const dataWarning = checkDataAvailability();
@@ -19,6 +21,16 @@ export function registerStatusCommand(program: Command): void {
           console.log(dataWarning);
           return;
         }
+
+        // R6 auto-refresh — commander's `--no-refresh` sets options.refresh === false.
+        // Suppress the one-line notice in JSON/agent mode so output stays parseable.
+        const refresh = await autoRefreshIfStale(process.cwd(), {
+          enabled: options.refresh !== false,
+        });
+        if (refresh.refreshed && !options.json && !options.agent) {
+          console.log(refresh.message);
+        }
+
         const config = getConfig();
         const index = await loadIndex(config);
 
