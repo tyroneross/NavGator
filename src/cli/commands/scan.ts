@@ -23,6 +23,7 @@ export function registerScanCommand(program: Command): void {
     .option('--no-audit', 'Skip the SQC audit pass (Run 2)')
     .option('--audit-plan <plan>', 'Audit plan: aql | sprt | cochran (default: auto)')
     .option('--single-stack', 'Disable multi-stack auto-discovery — scan only the project root')
+    .option('--per-entity-files', 'Write one JSON per component + per connection alongside the consolidated graph (R6 footprint fix: off by default; consolidated graph.json/index.json/connections.jsonl/reverse-deps.json are the source of truth)')
     .option('--json', 'Output scan results as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
@@ -61,6 +62,7 @@ export function registerScanCommand(program: Command): void {
           noAudit: options.audit === false,
           auditPlan: options.auditPlan as 'aql' | 'sprt' | 'cochran' | undefined,
           singleStack: options.singleStack === true,
+          perEntityFiles: options.perEntityFiles === true,
         });
 
         // Restore console for output

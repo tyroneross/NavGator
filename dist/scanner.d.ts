@@ -52,6 +52,10 @@ export interface ScanOptions {
      *  `singleStack: true` to force the legacy behavior — scan only the
      *  given root regardless of subdirs. */
     singleStack?: boolean;
+    /** R6 footprint fix: when true, write per-component and per-connection JSON
+     *  files alongside the consolidated graph. Default false (off). Overrides
+     *  config.perEntityFiles / NAVGATOR_PER_ENTITY_FILES when set. */
+    perEntityFiles?: boolean;
 }
 /**
  * Walk one level under `root`, return roots to scan. Behavior:

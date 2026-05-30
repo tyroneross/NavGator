@@ -118,13 +118,43 @@ export declare function createSnapshot(reason?: string, config?: NavGatorConfig,
     file_path: string;
 }>;
 /**
- * Store multiple components at once (parallelized for efficiency)
+ * Store multiple components at once (parallelized for efficiency).
+ *
+ * R6 footprint fix: writes are gated on `config.perEntityFiles` (default
+ * false). When disabled, the consolidated `graph.json`, `index.json`,
+ * `file_map.json`, and `connections.jsonl` are the source of truth and we
+ * skip the per-entity file explosion (~2,475 files × ~3KB each on
+ * atomize-ai). Component IDs are still stamped onto the in-memory objects
+ * so callers (graph builder, index writer) get stable IDs.
  */
 export declare function storeComponents(components: ArchitectureComponent[], config?: NavGatorConfig, projectRoot?: string): Promise<void>;
 /**
- * Store multiple connections at once (parallelized for efficiency)
+ * Store multiple connections at once (parallelized for efficiency).
+ *
+ * R6 footprint fix: writes are gated on `config.perEntityFiles` (default
+ * false). When disabled, `connections.jsonl` + `reverse-deps.json` are the
+ * source of truth and we skip the per-edge file explosion (~6,737 files
+ * on atomize-ai).
  */
 export declare function storeConnections(connections: ArchitectureConnection[], config?: NavGatorConfig, projectRoot?: string): Promise<void>;
+/**
+ * R6 footprint fix: idempotent migration that removes legacy per-entity
+ * JSON files when `perEntityFiles` is disabled (the default).
+ *
+ * Safety: this NEVER deletes the consolidated files (graph.json, index.json,
+ * file_map.json, connections.jsonl, reverse-deps.json, NAVSUMMARY*.md,
+ * hashes.json, timeline.json, etc.). It only touches the contents of the
+ * `components/` and `connections/` subdirectories and removes those
+ * directories themselves once empty. If `perEntityFiles` is true, this is
+ * a no-op.
+ *
+ * Returns a count summary for caller logging.
+ */
+export declare function migratePerEntityFiles(config: NavGatorConfig | undefined, projectRoot: string | undefined): Promise<{
+    componentsRemoved: number;
+    connectionsRemoved: number;
+    dirsRemoved: number;
+}>;
 /**
  * Clear all stored data (parallelized for efficiency)
  */

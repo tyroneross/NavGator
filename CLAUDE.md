@@ -1,4 +1,4 @@
-<!-- Plugin: navgator · Version: 0.6.1 · Source of truth: local (~/Desktop/git-folder/NavGator) -->
+<!-- Plugin: navgator · Version: 0.6.1 · Source of truth: local (~/dev/git-folder/NavGator) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # NavGator — Architecture Context for Claude
@@ -26,8 +26,8 @@ Use for programmatic lookups:
 - `file_map.json` — maps file paths to component IDs (O(1) lookup)
 - `prompts.json` — full prompt content with LLM provider associations (scan with `--prompts`)
 
-**Tier 3 — Detail Files** (`components/COMP_*.json`, `connections/CONN_*.json`)
-Load on demand when you need full detail about a specific component or connection. Each entry in NAVSUMMARY.md points to its detail file.
+**Tier 3 — Detail Files** (`components/COMP_*.json`, `connections/CONN_*.json`) *(opt-in since v0.9.0)*
+Off by default to keep the on-disk footprint small (~70MB → ~1MB on atomize-ai-scale projects). The consolidated `graph.json`, `index.json`, `file_map.json`, `connections.jsonl`, and `reverse-deps.json` carry the same information. Enable per-entity files when you need stable per-record paths (Obsidian linking, external indexers): run `navgator scan --per-entity-files` or set `NAVGATOR_PER_ENTITY_FILES=true`. When disabled, each scan idempotently removes any legacy per-entity files left over from earlier versions.
 
 ## When to Read Architecture Context
 
@@ -76,8 +76,8 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `file_map.json` | File path → component ID mapping | "What component owns this file?" |
 | `graph.json` | Full connection graph | Impact analysis, traversal |
 | `prompts.json` | AI prompt content + provider associations | LLM debugging, prompt review |
-| `components/COMP_*.json` | Full detail for one component | Deep dive on specific component |
-| `connections/CONN_*.json` | Full detail for one connection | Understanding a specific relationship |
+| `components/COMP_*.json` | Full detail for one component *(opt-in: `--per-entity-files`)* | Deep dive on specific component |
+| `connections/CONN_*.json` | Full detail for one connection *(opt-in: `--per-entity-files`)* | Understanding a specific relationship |
 
 **For agents building on NavGator:** Use the MCP tools (`scan`, `status`, `explore`, `review`, `trace`, `rules`) rather than reading JSON files directly. The tools return pre-analyzed, compact text output optimized for LLM consumption.
 
@@ -168,7 +168,9 @@ repo while transferable patterns become shareable across projects.
 
 **Tier 1 — Per-project architecture** (`<project>/.navgator/architecture/`)
 Full scan output: `index.json`, `graph.json`, `file_map.json`, `prompts.json`,
-`components/`, `connections/`, `NAVSUMMARY.md`. Project-specific. Never shared.
+`connections.jsonl`, `reverse-deps.json`, `NAVSUMMARY.md`. With
+`--per-entity-files`, also `components/` and `connections/`. Project-specific.
+Never shared.
 
 **Tier 2 — Per-project lessons** (`<project>/.navgator/lessons/lessons.json`)
 Patterns discovered in *this* project. Recorded via `/navgator:review learn` or
@@ -233,8 +235,10 @@ All data lives in `<project-root>/.navgator/architecture/`:
 ├── prompts.json        ← Full prompt content + LLM associations
 ├── hashes.json         ← File change detection
 ├── timeline.json       ← Architecture change history (diffs between scans)
-├── components/         ← One JSON per component
-└── connections/        ← One JSON per connection
+├── connections.jsonl   ← All connections (one JSON object per line)
+├── reverse-deps.json   ← Derived: file → importers index (fast incremental walk)
+├── components/         ← One JSON per component (opt-in: --per-entity-files)
+└── connections/        ← One JSON per connection (opt-in: --per-entity-files)
 ```
 
 ## Key Principle

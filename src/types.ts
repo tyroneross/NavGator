@@ -569,6 +569,21 @@ export interface NavGatorConfig {
   defaultConfidenceThreshold: number;
   maxResultsPerQuery: number;
   sandbox?: boolean;
+  /**
+   * When true, scan writes one JSON file per component and per connection
+   * under `<storage>/components/` and `<storage>/connections/`. Default is
+   * `false` — the consolidated `graph.json`, `index.json`, `connections.jsonl`,
+   * and `reverse-deps.json` files are the source of truth and the per-entity
+   * files duplicate ~70MB of data on large projects (R6 fix).
+   *
+   * Override via env: `NAVGATOR_PER_ENTITY_FILES=true` or CLI:
+   * `navgator scan --per-entity-files`.
+   *
+   * When `false` (default), the scanner also performs an idempotent migration
+   * that deletes the contents of `components/` and `connections/` on each
+   * scan. It NEVER deletes the consolidated files.
+   */
+  perEntityFiles?: boolean;
 }
 
 // =============================================================================

@@ -297,7 +297,8 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
 
   it('scenario 5: integrity-auto-promote → corrupt connection target → incremental→full', async () => {
     // Baseline
-    const baseline = await scan(projectRoot, { mode: 'full' });
+    // R6: integrity-promote corrupts a per-entity connection file → opt in.
+    const baseline = await scan(projectRoot, { mode: 'full', perEntityFiles: true });
     expect(baseline.timelineEntry?.scan_type).toBe('full');
 
     // Corrupt: pick a connection whose code_reference.file is NOT the file
@@ -334,7 +335,7 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
     fs.writeFileSync(path.join(projectRoot, 'src', 'd.ts'), `export const d = 1;\n`);
 
     // Incremental scan: integrity check should fail and promote to full
-    const inc = await scan(projectRoot, { mode: 'incremental' });
+    const inc = await scan(projectRoot, { mode: 'incremental', perEntityFiles: true });
     expect(inc.timelineEntry?.scan_type).toBe('incremental→full');
     // Run 1.6 — item #3: incremental→full must still report walk-set size
     // (NOT total source file count) so we don't lose evidence the incremental
@@ -599,7 +600,9 @@ describe("aliased imports resolve to project paths (Run 1.6 — item #7)", () =>
       "import { x } from \"@/utils/foo\";\nexport const y = x + 1;\n"
     );
 
-    await scan(root, { mode: "full" });
+    // R6: per-entity files are opt-in. This test reads them directly so
+    // it must enable the legacy layout.
+    await scan(root, { mode: "full", perEntityFiles: true });
 
     // Read connection JSONs and find the imports edge from src/index.ts → src/utils/foo.ts
     const cfgArg = {
@@ -668,7 +671,8 @@ describe('reverse-deps.json index (Run 1.6 — item #8)', () => {
 
   it('loadReverseDeps via index returns same result as legacy walk', async () => {
     const root = makeTmpProject();
-    await scan(root, { mode: 'full' });
+    // R6: legacy walk reads per-entity files — must opt in for this comparison.
+    await scan(root, { mode: 'full', perEntityFiles: true });
 
     const { loadReverseDepsLegacy } = await import('../storage.js');
 
@@ -684,7 +688,8 @@ describe('reverse-deps.json index (Run 1.6 — item #8)', () => {
 
   it('loadReverseDeps falls back to legacy when index is missing', async () => {
     const root = makeTmpProject();
-    await scan(root, { mode: 'full' });
+    // R6: legacy fallback needs per-entity files to walk.
+    await scan(root, { mode: 'full', perEntityFiles: true });
 
     const cfgArg = {
       storageMode: 'local',
@@ -750,7 +755,9 @@ describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
     const root = makeTmpProject();
 
     // 1. Baseline: full scan, capture component/connection counts on disk.
-    const baseline = await scan(root, { mode: 'full' });
+    // R6: this test corrupts a per-entity connection file to trigger the
+    // integrity-promote path → must opt into the legacy per-entity layout.
+    const baseline = await scan(root, { mode: 'full', perEntityFiles: true });
     expect(baseline.timelineEntry?.scan_type).toBe('full');
     const cfgArg = {
       storageMode: 'local',
@@ -791,7 +798,9 @@ describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
     fs.appendFileSync(path.join(root, 'src', 'a.ts'), '\n// touched\n');
 
     // 4. Incremental scan: integrity fails → recursive promote.
-    const inc = await scan(root, { mode: 'auto' });
+    // R6: stay opted-in so per-entity files remain available for the disk
+    // assertion below.
+    const inc = await scan(root, { mode: 'auto', perEntityFiles: true });
     expect(inc.timelineEntry?.scan_type).toBe('incremental→full');
 
     // 5. CORE ASSERTIONS — Run 1.7 — Problem A. Pre-fix, these counts dropped
@@ -891,7 +900,8 @@ describe('dedup-by-name cross-type collision (Run 1.7 — Problem B)', () => {
     // one. Verifying via index lookup: the file-level component for
     // src/a.ts must appear exactly once across the components/ directory.
     const root = makeTmpProject();
-    await scan(root, { mode: 'full' });
+    // R6: this test reads per-entity component files — opt in.
+    await scan(root, { mode: 'full', perEntityFiles: true });
     const cfgArg = {
       storageMode: 'local',
       storagePath: '.navgator/architecture',

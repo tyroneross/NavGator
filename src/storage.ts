@@ -1291,7 +1291,14 @@ export async function createSnapshot(
 // =============================================================================
 
 /**
- * Store multiple components at once (parallelized for efficiency)
+ * Store multiple components at once (parallelized for efficiency).
+ *
+ * R6 footprint fix: writes are gated on `config.perEntityFiles` (default
+ * false). When disabled, the consolidated `graph.json`, `index.json`,
+ * `file_map.json`, and `connections.jsonl` are the source of truth and we
+ * skip the per-entity file explosion (~2,475 files × ~3KB each on
+ * atomize-ai). Component IDs are still stamped onto the in-memory objects
+ * so callers (graph builder, index writer) get stable IDs.
  */
 export async function storeComponents(
   components: ArchitectureComponent[],
@@ -1299,6 +1306,15 @@ export async function storeComponents(
   projectRoot?: string
 ): Promise<void> {
   const cfg = config || getConfig();
+
+  // Stamp stable IDs regardless of write mode — downstream consumers
+  // (graph.json, index.json, file_map.json) depend on these.
+  for (const component of components) {
+    ensureStableId(component);
+  }
+
+  if (!cfg.perEntityFiles) return;
+
   ensureStorageDirectories(cfg, projectRoot);
   const componentsPath = getComponentsPath(cfg, projectRoot);
 
@@ -1308,7 +1324,6 @@ export async function storeComponents(
     const batch = components.slice(i, i + batchSize);
     await Promise.all(
       batch.map(async (component) => {
-        ensureStableId(component);
         const filePath = path.join(componentsPath, `${component.component_id}.json`);
         await atomicWriteJSON(filePath, component);
       })
@@ -1317,7 +1332,12 @@ export async function storeComponents(
 }
 
 /**
- * Store multiple connections at once (parallelized for efficiency)
+ * Store multiple connections at once (parallelized for efficiency).
+ *
+ * R6 footprint fix: writes are gated on `config.perEntityFiles` (default
+ * false). When disabled, `connections.jsonl` + `reverse-deps.json` are the
+ * source of truth and we skip the per-edge file explosion (~6,737 files
+ * on atomize-ai).
  */
 export async function storeConnections(
   connections: ArchitectureConnection[],
@@ -1325,6 +1345,9 @@ export async function storeConnections(
   projectRoot?: string
 ): Promise<void> {
   const cfg = config || getConfig();
+
+  if (!cfg.perEntityFiles) return;
+
   ensureStorageDirectories(cfg, projectRoot);
   const connectionsPath = getConnectionsPath(cfg, projectRoot);
 
@@ -1339,6 +1362,63 @@ export async function storeConnections(
       })
     );
   }
+}
+
+/**
+ * R6 footprint fix: idempotent migration that removes legacy per-entity
+ * JSON files when `perEntityFiles` is disabled (the default).
+ *
+ * Safety: this NEVER deletes the consolidated files (graph.json, index.json,
+ * file_map.json, connections.jsonl, reverse-deps.json, NAVSUMMARY*.md,
+ * hashes.json, timeline.json, etc.). It only touches the contents of the
+ * `components/` and `connections/` subdirectories and removes those
+ * directories themselves once empty. If `perEntityFiles` is true, this is
+ * a no-op.
+ *
+ * Returns a count summary for caller logging.
+ */
+export async function migratePerEntityFiles(
+  config: NavGatorConfig | undefined,
+  projectRoot: string | undefined
+): Promise<{ componentsRemoved: number; connectionsRemoved: number; dirsRemoved: number }> {
+  const cfg = config || getConfig();
+  const summary = { componentsRemoved: 0, connectionsRemoved: 0, dirsRemoved: 0 };
+
+  // Per-entity mode is on — nothing to migrate; let the writer manage these
+  // dirs as before.
+  if (cfg.perEntityFiles) return summary;
+
+  for (const dir of [getComponentsPath(cfg, projectRoot), getConnectionsPath(cfg, projectRoot)]) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      const entries = await fs.promises.readdir(dir);
+      const jsonFiles = entries.filter((f) => f.endsWith('.json'));
+      const isComponentsDir = dir.endsWith(`${path.sep}components`) || dir.endsWith('/components');
+
+      // Delete only `.json` files (legacy per-entity payload). Any other
+      // files (e.g. README, future schema markers) are left untouched.
+      await Promise.all(
+        jsonFiles.map((file) =>
+          fs.promises.unlink(path.join(dir, file)).catch(() => {})
+        )
+      );
+      if (isComponentsDir) summary.componentsRemoved += jsonFiles.length;
+      else summary.connectionsRemoved += jsonFiles.length;
+
+      // If the dir is now empty, remove it. Best-effort — leave it if other
+      // files exist (the *.json filter above means non-json siblings survive).
+      const remaining = await fs.promises.readdir(dir);
+      if (remaining.length === 0) {
+        await fs.promises.rmdir(dir).catch(() => {});
+        summary.dirsRemoved += 1;
+      }
+    } catch {
+      // Best-effort migration: failures (permissions, races) are swallowed
+      // so they never block a scan. Next scan retries automatically.
+    }
+  }
+
+  return summary;
 }
 
 /**

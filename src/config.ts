@@ -24,6 +24,7 @@ const DEFAULT_CONFIG: NavGatorConfig = {
   scanDepth: 'shallow',
   defaultConfidenceThreshold: 0.6,
   maxResultsPerQuery: 20,
+  perEntityFiles: false,
 };
 
 // =============================================================================
@@ -40,6 +41,9 @@ const DEFAULT_CONFIG: NavGatorConfig = {
  * NAVGATOR_SCAN_DEPTH: 'shallow' | 'deep' - Include transitive deps
  * NAVGATOR_CONFIDENCE: number - Default confidence threshold (0-1)
  * NAVGATOR_MAX_RESULTS: number - Max results per query
+ * NAVGATOR_PER_ENTITY_FILES: 'true' | 'false' - Write per-component/connection
+ *   JSON files (off by default; consolidated graph.json/index.json/
+ *   connections.jsonl/reverse-deps.json are the source of truth).
  */
 
 function getEnvBoolean(key: string, defaultValue: boolean): boolean {
@@ -95,6 +99,7 @@ export function loadConfig(): NavGatorConfig {
     defaultConfidenceThreshold: getEnvNumber('NAVGATOR_CONFIDENCE', DEFAULT_CONFIG.defaultConfidenceThreshold),
     maxResultsPerQuery: getEnvNumber('NAVGATOR_MAX_RESULTS', DEFAULT_CONFIG.maxResultsPerQuery),
     sandbox: getEnvBoolean('NAVGATOR_SANDBOX', false),
+    perEntityFiles: getEnvBoolean('NAVGATOR_PER_ENTITY_FILES', DEFAULT_CONFIG.perEntityFiles ?? false),
   };
 }
 

@@ -70,6 +70,7 @@ import { scanImports } from './scanners/connections/import-scanner.js';
 import {
   storeComponents,
   storeConnections,
+  migratePerEntityFiles,
   buildIndex,
   buildGraph,
   buildFileMap,
@@ -174,6 +175,10 @@ export interface ScanOptions {
    *  `singleStack: true` to force the legacy behavior — scan only the
    *  given root regardless of subdirs. */
   singleStack?: boolean;
+  /** R6 footprint fix: when true, write per-component and per-connection JSON
+   *  files alongside the consolidated graph. Default false (off). Overrides
+   *  config.perEntityFiles / NAVGATOR_PER_ENTITY_FILES when set. */
+  perEntityFiles?: boolean;
 }
 
 // =============================================================================
@@ -459,6 +464,11 @@ export async function scan(
   const startTime = Date.now();
   const root = projectRoot || process.cwd();
   const config = getConfig();
+
+  // R6 footprint fix: CLI/programmatic option overrides config flag.
+  if (options.perEntityFiles !== undefined) {
+    config.perEntityFiles = options.perEntityFiles;
+  }
 
   // Sandbox mode: restrict scan behavior
   if (isSandboxMode()) {
@@ -1536,6 +1546,25 @@ export async function scan(
   // Store final state (atomic per-file writes — see storage.ts).
   await storeComponents(finalComponents, config, root);
   await storeConnections(finalConnections, config, root);
+
+  // R6 footprint fix: clean up legacy per-entity files when the feature is
+  // disabled (default). Idempotent and best-effort — never blocks the scan.
+  // Surfaces a one-line notice when something actually got cleaned.
+  try {
+    const migrated = await migratePerEntityFiles(config, root);
+    if (
+      options.verbose &&
+      (migrated.componentsRemoved > 0 ||
+        migrated.connectionsRemoved > 0 ||
+        migrated.dirsRemoved > 0)
+    ) {
+      console.log(
+        `  R6 migration: removed ${migrated.componentsRemoved} legacy component file(s), ${migrated.connectionsRemoved} legacy connection file(s), ${migrated.dirsRemoved} now-empty dir(s)`
+      );
+    }
+  } catch {
+    // Best-effort.
+  }
 
   // ==========================================================================
   // Phase 4.5: SQC Audit (Run 2 — D4)
