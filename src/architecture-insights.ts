@@ -107,19 +107,57 @@ export function detectImportCycles(
   const seenCycles = new Set<string>();
   const cycles: string[][] = [];
 
-  function visit(node: string) {
-    visiting.add(node);
-    visited.add(node);
-    stack.push(node);
+  // Iterative DFS — converted from recursion to fix R6 stack-overflow on
+  // graphs with deep import chains (10k+ frames blew V8's default stack on
+  // atomize-ai). Each frame mirrors the recursive call: it remembers the
+  // node being visited and an iterator over its neighbours so we can resume
+  // exactly where the recursive version would have returned. The
+  // visiting/visited/stack invariants are preserved 1:1 with the recursive
+  // version, so cycle detection (back-edge → slice of `stack`) is identical.
+  type Frame = { node: string; iter: Iterator<string> };
 
-    for (const next of graph.get(node) || []) {
-      if (!visited.has(next)) {
-        visit(next);
-        if (cycles.length >= limit) return;
+  const visitIterative = (start: string): void => {
+    if (visited.has(start)) return;
+    const frames: Frame[] = [
+      { node: start, iter: (graph.get(start) || new Set<string>()).values() },
+    ];
+    visiting.add(start);
+    visited.add(start);
+    stack.push(start);
+
+    while (frames.length > 0) {
+      // We never index `frames[frames.length - 1]` redundantly inside the loop
+      // body — `current` is rebound at the top of each iteration so that any
+      // push (recurse) or pop (return) takes effect on the next pass.
+      const current = frames[frames.length - 1];
+      const step = current.iter.next();
+
+      if (step.done) {
+        // Equivalent to the post-loop cleanup in the recursive version:
+        // `visiting.delete(node); stack.pop();` then return to caller.
+        visiting.delete(current.node);
+        stack.pop();
+        frames.pop();
         continue;
       }
-      if (!visiting.has(next)) continue;
 
+      const next = step.value;
+
+      if (!visited.has(next)) {
+        // Recurse: push a new frame and let the next loop iteration drive it.
+        visiting.add(next);
+        visited.add(next);
+        stack.push(next);
+        frames.push({
+          node: next,
+          iter: (graph.get(next) || new Set<string>()).values(),
+        });
+        continue;
+      }
+
+      if (!visiting.has(next)) continue; // already fully processed branch
+
+      // Back-edge into the current DFS path — record the cycle.
       const startIndex = stack.indexOf(next);
       if (startIndex === -1) continue;
       const cycleIds = stack.slice(startIndex);
@@ -131,14 +169,11 @@ export function detectImportCycles(
         if (cycles.length >= limit) return;
       }
     }
-
-    visiting.delete(node);
-    stack.pop();
-  }
+  };
 
   for (const node of graph.keys()) {
     if (!visited.has(node)) {
-      visit(node);
+      visitIterative(node);
       if (cycles.length >= limit) break;
     }
   }

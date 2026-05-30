@@ -69,19 +69,44 @@ export function detectImportCycles(components, connections, limit = 5) {
     const stack = [];
     const seenCycles = new Set();
     const cycles = [];
-    function visit(node) {
-        visiting.add(node);
-        visited.add(node);
-        stack.push(node);
-        for (const next of graph.get(node) || []) {
+    const visitIterative = (start) => {
+        if (visited.has(start))
+            return;
+        const frames = [
+            { node: start, iter: (graph.get(start) || new Set()).values() },
+        ];
+        visiting.add(start);
+        visited.add(start);
+        stack.push(start);
+        while (frames.length > 0) {
+            // We never index `frames[frames.length - 1]` redundantly inside the loop
+            // body — `current` is rebound at the top of each iteration so that any
+            // push (recurse) or pop (return) takes effect on the next pass.
+            const current = frames[frames.length - 1];
+            const step = current.iter.next();
+            if (step.done) {
+                // Equivalent to the post-loop cleanup in the recursive version:
+                // `visiting.delete(node); stack.pop();` then return to caller.
+                visiting.delete(current.node);
+                stack.pop();
+                frames.pop();
+                continue;
+            }
+            const next = step.value;
             if (!visited.has(next)) {
-                visit(next);
-                if (cycles.length >= limit)
-                    return;
+                // Recurse: push a new frame and let the next loop iteration drive it.
+                visiting.add(next);
+                visited.add(next);
+                stack.push(next);
+                frames.push({
+                    node: next,
+                    iter: (graph.get(next) || new Set()).values(),
+                });
                 continue;
             }
             if (!visiting.has(next))
-                continue;
+                continue; // already fully processed branch
+            // Back-edge into the current DFS path — record the cycle.
             const startIndex = stack.indexOf(next);
             if (startIndex === -1)
                 continue;
@@ -95,12 +120,10 @@ export function detectImportCycles(components, connections, limit = 5) {
                     return;
             }
         }
-        visiting.delete(node);
-        stack.pop();
-    }
+    };
     for (const node of graph.keys()) {
         if (!visited.has(node)) {
-            visit(node);
+            visitIterative(node);
             if (cycles.length >= limit)
                 break;
         }
