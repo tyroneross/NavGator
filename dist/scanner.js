@@ -1453,10 +1453,13 @@ export async function scan(projectRoot, options = {}) {
                 console.log('  Diff computation skipped (non-critical error)');
             }
         }
-        // Build index, graph, file map, and summary
-        await buildIndex(config, root, projectMetadata);
-        await buildGraph(config, root);
-        await buildFileMap(config, root);
+        // Build index, graph, file map, and summary.
+        // R6: pass the in-memory final state so derived files don't depend on
+        // per-entity disk reads (which are now opt-in and empty by default).
+        const derivedData = { components: finalComponents, connections: finalConnections };
+        await buildIndex(config, root, projectMetadata, derivedData);
+        await buildGraph(config, root, derivedData);
+        await buildFileMap(config, root, derivedData);
         // ==========================================================================
         // Phase 5.4: Derived reverse-deps index + manifest (Run 1.6 — items #8 + #9)
         // ==========================================================================
@@ -1549,7 +1552,24 @@ export async function scan(projectRoot, options = {}) {
                 console.error('[metrics] PageRank/Louvain skipped:', err.message);
             }
         }
-        await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo);
+        await buildSummary(config, root, promptScanResultHolder, projectMetadata, timelineEntry, gitInfo, derivedData);
+        // R6: full-shape JSONL writers — the consolidated source of truth when
+        // per-entity files are disabled (the default). These carry the complete
+        // ArchitectureComponent / ArchitectureConnection objects so downstream
+        // loaders never need per-entity files. Always written; cheap (~2MB for
+        // atomize-ai-scale projects vs the 70MB per-entity sprawl).
+        try {
+            const { writeFullComponentsJsonl, writeFullConnectionsJsonl, } = await import('./storage/markdown-view.js');
+            const { getStoragePath: getStoragePathFn } = await import('./config.js');
+            const storeDir = getStoragePathFn(config, root);
+            await writeFullComponentsJsonl(storeDir, finalComponents);
+            await writeFullConnectionsJsonl(storeDir, finalConnections);
+        }
+        catch (err) {
+            if (process.env['NAVGATOR_DEBUG']) {
+                console.error('[full-jsonl] skipped:', err.message);
+            }
+        }
         // Markdown views + connections.jsonl (T3, trimmed scope).
         // Derived from in-memory components/connections — JSON remains canonical.
         // Emits .navgator/architecture/components-md/<type>/<slug>.md (Obsidian-readable,

@@ -107,28 +107,60 @@ export async function loadComponent(componentId, config, projectRoot) {
     }
 }
 /**
- * Load all components (parallelized for efficiency)
+ * Load all components.
+ *
+ * R6: per-entity files are opt-in (default off). When they're absent or
+ * empty, falls back to the consolidated `components.full.jsonl` written
+ * by the scanner. This keeps every existing reader (MCP tools, CLI
+ * commands, audit, summary) working unchanged.
+ *
+ * Read priority: components/ dir → components.full.jsonl → [].
  */
 export async function loadAllComponents(config, projectRoot) {
     const cfg = config || getConfig();
     const componentsPath = getComponentsPath(cfg, projectRoot);
-    if (!fs.existsSync(componentsPath)) {
+    // Primary path: per-entity dir (legacy + opt-in mode).
+    if (fs.existsSync(componentsPath)) {
+        const files = await fs.promises.readdir(componentsPath);
+        const jsonFiles = files.filter((f) => f.endsWith('.json'));
+        if (jsonFiles.length > 0) {
+            const results = await Promise.all(jsonFiles.map(async (file) => {
+                try {
+                    const filePath = path.join(componentsPath, file);
+                    const content = await fs.promises.readFile(filePath, 'utf-8');
+                    return ensureStableId(JSON.parse(content));
+                }
+                catch {
+                    return null;
+                }
+            }));
+            return results.filter((c) => c !== null);
+        }
+    }
+    // R6 fallback: consolidated full-shape JSONL.
+    const storeDir = getStoragePath(cfg, projectRoot);
+    const fullJsonlPath = path.join(storeDir, 'components.full.jsonl');
+    if (!fs.existsSync(fullJsonlPath))
+        return [];
+    try {
+        const raw = await fs.promises.readFile(fullJsonlPath, 'utf-8');
+        const out = [];
+        for (const line of raw.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed)
+                continue;
+            try {
+                out.push(ensureStableId(JSON.parse(trimmed)));
+            }
+            catch {
+                // Skip malformed lines — best-effort read.
+            }
+        }
+        return out;
+    }
+    catch {
         return [];
     }
-    const files = await fs.promises.readdir(componentsPath);
-    const jsonFiles = files.filter((f) => f.endsWith('.json'));
-    // Parallelize reads
-    const results = await Promise.all(jsonFiles.map(async (file) => {
-        try {
-            const filePath = path.join(componentsPath, file);
-            const content = await fs.promises.readFile(filePath, 'utf-8');
-            return ensureStableId(JSON.parse(content));
-        }
-        catch {
-            return null;
-        }
-    }));
-    return results.filter((c) => c !== null);
 }
 /**
  * Delete a component by ID
@@ -185,28 +217,57 @@ export async function loadConnection(connectionId, config, projectRoot) {
     }
 }
 /**
- * Load all connections (parallelized for efficiency)
+ * Load all connections.
+ *
+ * R6: per-entity files are opt-in (default off). When they're absent or
+ * empty, falls back to the consolidated `connections.full.jsonl` written
+ * by the scanner. Same read-priority as loadAllComponents.
  */
 export async function loadAllConnections(config, projectRoot) {
     const cfg = config || getConfig();
     const connectionsPath = getConnectionsPath(cfg, projectRoot);
-    if (!fs.existsSync(connectionsPath)) {
+    // Primary path: per-entity dir (legacy + opt-in mode).
+    if (fs.existsSync(connectionsPath)) {
+        const files = await fs.promises.readdir(connectionsPath);
+        const jsonFiles = files.filter((f) => f.endsWith('.json'));
+        if (jsonFiles.length > 0) {
+            const results = await Promise.all(jsonFiles.map(async (file) => {
+                try {
+                    const filePath = path.join(connectionsPath, file);
+                    const content = await fs.promises.readFile(filePath, 'utf-8');
+                    return JSON.parse(content);
+                }
+                catch {
+                    return null;
+                }
+            }));
+            return results.filter((c) => c !== null);
+        }
+    }
+    // R6 fallback: consolidated full-shape JSONL.
+    const storeDir = getStoragePath(cfg, projectRoot);
+    const fullJsonlPath = path.join(storeDir, 'connections.full.jsonl');
+    if (!fs.existsSync(fullJsonlPath))
+        return [];
+    try {
+        const raw = await fs.promises.readFile(fullJsonlPath, 'utf-8');
+        const out = [];
+        for (const line of raw.split('\n')) {
+            const trimmed = line.trim();
+            if (!trimmed)
+                continue;
+            try {
+                out.push(JSON.parse(trimmed));
+            }
+            catch {
+                // Skip malformed lines.
+            }
+        }
+        return out;
+    }
+    catch {
         return [];
     }
-    const files = await fs.promises.readdir(connectionsPath);
-    const jsonFiles = files.filter((f) => f.endsWith('.json'));
-    // Parallelize reads
-    const results = await Promise.all(jsonFiles.map(async (file) => {
-        try {
-            const filePath = path.join(connectionsPath, file);
-            const content = await fs.promises.readFile(filePath, 'utf-8');
-            return JSON.parse(content);
-        }
-        catch {
-            return null;
-        }
-    }));
-    return results.filter((c) => c !== null);
 }
 /**
  * Delete a connection by ID
@@ -230,10 +291,13 @@ export async function deleteConnection(connectionId, config, projectRoot) {
 /**
  * Build and save the index from current components and connections
  */
-export async function buildIndex(config, projectRoot, projectMetadata) {
+export async function buildIndex(config, projectRoot, projectMetadata, data) {
     const cfg = config || getConfig();
-    const components = await loadAllComponents(cfg, projectRoot);
-    const connections = await loadAllConnections(cfg, projectRoot);
+    // R6: when the caller hands us the in-memory final state (the scanner does
+    // this), use it directly — required since per-entity files are now opt-in
+    // (default off) and loadAllComponents/Connections would otherwise return [].
+    const components = data?.components ?? (await loadAllComponents(cfg, projectRoot));
+    const connections = data?.connections ?? (await loadAllConnections(cfg, projectRoot));
     const index = {
         schema_version: SCHEMA_VERSION,
         version: '1.0.0',
@@ -356,10 +420,11 @@ export async function loadIndex(config, projectRoot) {
 /**
  * Build the connection graph
  */
-export async function buildGraph(config, projectRoot) {
+export async function buildGraph(config, projectRoot, data) {
     const cfg = config || getConfig();
-    const components = await loadAllComponents(cfg, projectRoot);
-    const connections = await loadAllConnections(cfg, projectRoot);
+    // R6: prefer in-memory data when provided (scanner path). See buildIndex.
+    const components = data?.components ?? (await loadAllComponents(cfg, projectRoot));
+    const connections = data?.connections ?? (await loadAllConnections(cfg, projectRoot));
     const nodes = components.map((c) => ({
         id: c.component_id,
         stable_id: c.stable_id ?? ensureStableId(c).stable_id,
@@ -396,11 +461,12 @@ export async function buildGraph(config, projectRoot) {
  * Build a map of file paths → component IDs for fast lookup in hooks.
  * Sources: component config_files + connection code_reference files + connection locations.
  */
-export async function buildFileMap(config, projectRoot) {
+export async function buildFileMap(config, projectRoot, data) {
     const cfg = config || getConfig();
     const root = projectRoot || process.cwd();
-    const components = await loadAllComponents(cfg, root);
-    const connections = await loadAllConnections(cfg, root);
+    // R6: prefer in-memory data when provided (scanner path). See buildIndex.
+    const components = data?.components ?? (await loadAllComponents(cfg, root));
+    const connections = data?.connections ?? (await loadAllConnections(cfg, root));
     const fileMap = {};
     // Index config files from components
     for (const c of components) {
@@ -479,11 +545,12 @@ const AI_PROVIDER_NAMES = new Set([
  * Build a concise markdown summary with pointers to detail files.
  * This is the "hot context" an LLM reads first on cold start.
  */
-export async function buildSummary(config, projectRoot, promptScan, projectMetadata, latestDiff, gitInfo) {
+export async function buildSummary(config, projectRoot, promptScan, projectMetadata, latestDiff, gitInfo, data) {
     const cfg = config || getConfig();
     const root = projectRoot || process.cwd();
-    const components = await loadAllComponents(cfg, root);
-    const connections = await loadAllConnections(cfg, root);
+    // R6: prefer in-memory data when provided (scanner path). See buildIndex.
+    const components = data?.components ?? (await loadAllComponents(cfg, root));
+    const connections = data?.connections ?? (await loadAllConnections(cfg, root));
     const now = new Date().toISOString();
     const aiComponents = components.filter((c) => AI_PROVIDER_NAMES.has(c.name) || c.type === 'llm' || c.type === 'service');
     // Group components by layer

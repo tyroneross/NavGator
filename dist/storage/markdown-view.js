@@ -23,6 +23,10 @@ import * as path from 'node:path';
 import { generateStableId } from '../types.js';
 const MD_DIR = 'components-md';
 const CONNECTIONS_JSONL = 'connections.jsonl';
+// R6: full-shape JSONL files are the source of truth when per-entity files
+// are disabled (the default). Loaders fall back to these.
+const COMPONENTS_FULL_JSONL = 'components.full.jsonl';
+const CONNECTIONS_FULL_JSONL = 'connections.full.jsonl';
 function escapeYaml(value) {
     // Quote any value that could be misparsed; keep simple inline strings unquoted only when safe.
     if (/^[\w./:_-]+$/.test(value) && value.length < 80)
@@ -198,5 +202,32 @@ export async function writeConnectionsJsonl(storeDir, components, connections) {
     }
     await fs.promises.writeFile(filePath, lines.join('\n') + (lines.length ? '\n' : ''), 'utf-8');
     return filePath;
+}
+/**
+ * R6: full-shape JSONL writers. Unlike the compact `connections.jsonl`
+ * above (which is a projection for downstream UIs), these store the
+ * complete `ArchitectureComponent` / `ArchitectureConnection` objects
+ * so `loadAllComponents` / `loadAllConnections` can reconstruct the
+ * graph without per-entity files.
+ *
+ * One record per line, terminated by `\n`. Parses cheaply on demand.
+ */
+export async function writeFullComponentsJsonl(storeDir, components) {
+    const filePath = path.join(storeDir, COMPONENTS_FULL_JSONL);
+    const lines = components.map((c) => JSON.stringify(c));
+    await fs.promises.writeFile(filePath, lines.join('\n') + (lines.length ? '\n' : ''), 'utf-8');
+    return filePath;
+}
+export async function writeFullConnectionsJsonl(storeDir, connections) {
+    const filePath = path.join(storeDir, CONNECTIONS_FULL_JSONL);
+    const lines = connections.map((c) => JSON.stringify(c));
+    await fs.promises.writeFile(filePath, lines.join('\n') + (lines.length ? '\n' : ''), 'utf-8');
+    return filePath;
+}
+export function getFullComponentsJsonlPath(storeDir) {
+    return path.join(storeDir, COMPONENTS_FULL_JSONL);
+}
+export function getFullConnectionsJsonlPath(storeDir) {
+    return path.join(storeDir, CONNECTIONS_FULL_JSONL);
 }
 //# sourceMappingURL=markdown-view.js.map

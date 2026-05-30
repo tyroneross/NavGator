@@ -33,4 +33,17 @@ export declare function writeComponentMarkdownViews(storeDir: string, components
  * untouched for backward compatibility.
  */
 export declare function writeConnectionsJsonl(storeDir: string, components: ArchitectureComponent[], connections: ArchitectureConnection[]): Promise<string>;
+/**
+ * R6: full-shape JSONL writers. Unlike the compact `connections.jsonl`
+ * above (which is a projection for downstream UIs), these store the
+ * complete `ArchitectureComponent` / `ArchitectureConnection` objects
+ * so `loadAllComponents` / `loadAllConnections` can reconstruct the
+ * graph without per-entity files.
+ *
+ * One record per line, terminated by `\n`. Parses cheaply on demand.
+ */
+export declare function writeFullComponentsJsonl(storeDir: string, components: ArchitectureComponent[]): Promise<string>;
+export declare function writeFullConnectionsJsonl(storeDir: string, connections: ArchitectureConnection[]): Promise<string>;
+export declare function getFullComponentsJsonlPath(storeDir: string): string;
+export declare function getFullConnectionsJsonlPath(storeDir: string): string;
 //# sourceMappingURL=markdown-view.d.ts.map

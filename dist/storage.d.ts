@@ -30,7 +30,14 @@ export declare function storeComponent(component: ArchitectureComponent, config?
  */
 export declare function loadComponent(componentId: string, config?: NavGatorConfig, projectRoot?: string): Promise<ArchitectureComponent | null>;
 /**
- * Load all components (parallelized for efficiency)
+ * Load all components.
+ *
+ * R6: per-entity files are opt-in (default off). When they're absent or
+ * empty, falls back to the consolidated `components.full.jsonl` written
+ * by the scanner. This keeps every existing reader (MCP tools, CLI
+ * commands, audit, summary) working unchanged.
+ *
+ * Read priority: components/ dir → components.full.jsonl → [].
  */
 export declare function loadAllComponents(config?: NavGatorConfig, projectRoot?: string): Promise<ArchitectureComponent[]>;
 /**
@@ -49,7 +56,11 @@ export declare function storeConnection(connection: ArchitectureConnection, conf
  */
 export declare function loadConnection(connectionId: string, config?: NavGatorConfig, projectRoot?: string): Promise<ArchitectureConnection | null>;
 /**
- * Load all connections (parallelized for efficiency)
+ * Load all connections.
+ *
+ * R6: per-entity files are opt-in (default off). When they're absent or
+ * empty, falls back to the consolidated `connections.full.jsonl` written
+ * by the scanner. Same read-priority as loadAllComponents.
  */
 export declare function loadAllConnections(config?: NavGatorConfig, projectRoot?: string): Promise<ArchitectureConnection[]>;
 /**
@@ -59,7 +70,10 @@ export declare function deleteConnection(connectionId: string, config?: NavGator
 /**
  * Build and save the index from current components and connections
  */
-export declare function buildIndex(config?: NavGatorConfig, projectRoot?: string, projectMetadata?: Partial<import('./types.js').ProjectMetadata>): Promise<ArchitectureIndex>;
+export declare function buildIndex(config?: NavGatorConfig, projectRoot?: string, projectMetadata?: Partial<import('./types.js').ProjectMetadata>, data?: {
+    components: ArchitectureComponent[];
+    connections: ArchitectureConnection[];
+}): Promise<ArchitectureIndex>;
 /**
  * Load the index
  */
@@ -67,12 +81,18 @@ export declare function loadIndex(config?: NavGatorConfig, projectRoot?: string)
 /**
  * Build the connection graph
  */
-export declare function buildGraph(config?: NavGatorConfig, projectRoot?: string): Promise<ConnectionGraph>;
+export declare function buildGraph(config?: NavGatorConfig, projectRoot?: string, data?: {
+    components: ArchitectureComponent[];
+    connections: ArchitectureConnection[];
+}): Promise<ConnectionGraph>;
 /**
  * Build a map of file paths → component IDs for fast lookup in hooks.
  * Sources: component config_files + connection code_reference files + connection locations.
  */
-export declare function buildFileMap(config?: NavGatorConfig, projectRoot?: string): Promise<Record<string, string>>;
+export declare function buildFileMap(config?: NavGatorConfig, projectRoot?: string, data?: {
+    components: ArchitectureComponent[];
+    connections: ArchitectureConnection[];
+}): Promise<Record<string, string>>;
 /**
  * Load the file map (file path → component ID)
  */
@@ -105,7 +125,10 @@ export declare function buildSummary(config?: NavGatorConfig, projectRoot?: stri
     summary: {
         totalPrompts: number;
     };
-}, projectMetadata?: Partial<import('./types.js').ProjectMetadata>, latestDiff?: TimelineEntry, gitInfo?: GitInfo): Promise<string>;
+}, projectMetadata?: Partial<import('./types.js').ProjectMetadata>, latestDiff?: TimelineEntry, gitInfo?: GitInfo, data?: {
+    components: ArchitectureComponent[];
+    connections: ArchitectureConnection[];
+}): Promise<string>;
 /**
  * Load the graph
  */

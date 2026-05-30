@@ -250,12 +250,15 @@ export function ensureStorageDirectories(config, projectRoot) {
     // Migrate legacy data before creating directories
     migrateLegacyStorage(config, projectRoot);
     const basePath = getStoragePath(config, projectRoot);
-    const directories = [
-        basePath,
-        getComponentsPath(config, projectRoot),
-        getConnectionsPath(config, projectRoot),
-        getSnapshotsPath(config, projectRoot),
-    ];
+    // R6 footprint fix: only pre-create the per-entity dirs when the feature
+    // is opted in. Otherwise the scanner's migratePerEntityFiles helper will
+    // remove them at the end of the scan; recreating them here would defeat
+    // that. Writers that actually need the dirs (storeComponent,
+    // storeConnection) still create them on demand.
+    const directories = [basePath, getSnapshotsPath(config, projectRoot)];
+    if (config.perEntityFiles) {
+        directories.push(getComponentsPath(config, projectRoot), getConnectionsPath(config, projectRoot));
+    }
     for (const dir of directories) {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
