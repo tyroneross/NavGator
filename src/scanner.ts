@@ -2055,6 +2055,18 @@ export interface AutoRefreshResult {
   message: string;
 }
 
+/**
+ * In-process debounce: tracks the timestamp of the last refresh ATTEMPT
+ * per resolved project root. If a second call arrives while a first is still
+ * in-flight (or was attempted within staleAfterMs), the second call returns
+ * {refreshed:false, reason:'fresh'} without dispatching a second scan.
+ *
+ * This prevents a polling loop on MCP `status` from fanning out N concurrent
+ * incremental scans. The map is module-scoped so it persists across calls
+ * within the same Node.js process lifetime.
+ */
+const _lastRefreshAttemptMs = new Map<string, number>();
+
 export async function autoRefreshIfStale(
   projectRoot?: string,
   options: AutoRefreshOptions = {}
@@ -2068,6 +2080,16 @@ export async function autoRefreshIfStale(
 
   const staleAfterMs = (options.staleAfterMinutes ?? 5) * 60 * 1000;
   const root = projectRoot || process.cwd();
+
+  // Debounce: if a refresh was attempted for this root within staleAfterMs,
+  // return 'fresh' immediately rather than piling on a second scan.
+  // Stamp BEFORE any async work to close the race window — concurrent callers
+  // see the guard the moment the first call passes it.
+  const lastAttempt = _lastRefreshAttemptMs.get(root) ?? 0;
+  if (Date.now() - lastAttempt < staleAfterMs) {
+    return { refreshed: false, reason: 'fresh', message: 'refresh already in-flight or recently attempted' };
+  }
+  _lastRefreshAttemptMs.set(root, Date.now());
 
   try {
     const { loadIndex } = await import('./storage.js');
