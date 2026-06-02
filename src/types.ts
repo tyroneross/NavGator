@@ -3,6 +3,11 @@
  * Architecture connection tracking for Claude Code
  */
 
+// External enrichment block (live boundary layer). Additive + optional —
+// see src/enrich/external-enrichment.types.ts and
+// docs/external-enrichment-fold.md.
+import type { ExternalEnrichment } from './enrich/external-enrichment.types.js';
+
 // =============================================================================
 // COMPONENT TYPES
 // =============================================================================
@@ -117,6 +122,11 @@ export interface ArchitectureComponent {
 
   // Runtime identity (maps code component to runtime service/resource)
   runtime?: RuntimeIdentity;
+
+  // External enrichment: canonical identity, latest version, docs, freshness.
+  // Populated by the external-resolver for boundary nodes (npm/service/llm/
+  // infra/spm/...). Absent on internal code components. Additive + optional.
+  external?: ExternalEnrichment;
 
   // Timestamps
   timestamp: number;            // When first detected
