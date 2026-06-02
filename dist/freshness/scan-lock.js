@@ -1,0 +1,68 @@
+/**
+ * Single-writer scan lock. Under the parallel rally fleet many hooks fire at
+ * once; only one drainer may scan at a time or the graph/ledger corrupts. The
+ * lock is a JSON file holding the owner PID + a heartbeat. A lock is considered
+ * stealable when its heartbeat is older than LOCK_TTL_MS OR its PID is dead, so
+ * a crashed drainer never wedges the system.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+import { scanLockPath } from './paths.js';
+export const LOCK_TTL_MS = 60_000;
+function pidAlive(pid) {
+    try {
+        process.kill(pid, 0); // signal 0 = existence check, doesn't kill
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function readLock(p) {
+    try {
+        const l = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (typeof l?.pid === 'number' && typeof l?.heartbeat_at === 'number')
+            return l;
+    }
+    catch {
+        /* missing/corrupt -> treat as free */
+    }
+    return null;
+}
+/** Try to take the lock. Returns true on success, false if a live lock exists. */
+export function acquireLock(root) {
+    const p = scanLockPath(root);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const existing = readLock(p);
+    if (existing) {
+        const fresh = Date.now() - existing.heartbeat_at < LOCK_TTL_MS;
+        if (fresh && pidAlive(existing.pid))
+            return false; // genuinely held
+        // else: stale or dead owner -> steal
+    }
+    fs.writeFileSync(p, JSON.stringify({ pid: process.pid, heartbeat_at: Date.now() }));
+    return true;
+}
+/** Refresh the heartbeat mid-scan (call periodically for long scans). */
+export function touchLock(root) {
+    try {
+        fs.writeFileSync(scanLockPath(root), JSON.stringify({ pid: process.pid, heartbeat_at: Date.now() }));
+    }
+    catch {
+        /* best effort */
+    }
+}
+/** Release the lock if we own it. */
+export function releaseLock(root) {
+    const p = scanLockPath(root);
+    const existing = readLock(p);
+    if (existing && existing.pid === process.pid) {
+        try {
+            fs.rmSync(p, { force: true });
+        }
+        catch {
+            /* best effort */
+        }
+    }
+}
+//# sourceMappingURL=scan-lock.js.map

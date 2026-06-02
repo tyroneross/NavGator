@@ -204,5 +204,33 @@ describe('R6 — autoRefreshIfStale', () => {
         expect(result.reason).toBe('error');
         expect(result.message).toContain('disk full');
     });
+    // f3: in-process debounce — a second call within staleAfterMs of the FIRST
+    // ATTEMPT must not dispatch a second scan even if the index age still reads
+    // as stale (the first scan hasn't completed / written a new index yet).
+    it('f3 debounce: second immediate call with stale index invokes scanImpl exactly once', async () => {
+        writeStubIndex(root, Date.now() - 10 * 60 * 1000); // 10 min stale
+        let resolveScan;
+        const scanStarted = new Promise((r) => { resolveScan = r; });
+        const spy = vi.fn().mockImplementation(async () => {
+            resolveScan();
+            // Simulate scan taking a while — but we won't await completion in this test.
+            return {
+                components: [], connections: [], warnings: [],
+                stats: { scan_duration_ms: 1, files_scanned: 0, components_found: 0, connections_found: 0, warnings_count: 0 },
+            };
+        });
+        // Fire both calls without waiting; both see the stale index.
+        const [r1, r2] = await Promise.all([
+            autoRefreshIfStale(root, { staleAfterMinutes: 5, scanImpl: spy }),
+            autoRefreshIfStale(root, { staleAfterMinutes: 5, scanImpl: spy }),
+        ]);
+        // One call scans; the other sees the debounce and returns 'fresh' (in-flight guard).
+        const scanCount = spy.mock.calls.length;
+        expect(scanCount).toBe(1);
+        // The debounced call must not claim it refreshed.
+        const debounced = [r1, r2].find((r) => !r.refreshed);
+        expect(debounced).toBeDefined();
+        expect(debounced.reason).toBe('fresh');
+    });
 });
 //# sourceMappingURL=auto-refresh.test.js.map

@@ -1,0 +1,1 @@
+{"version":3,"file":"scan-lock.d.ts","sourceRoot":"","sources":["../../src/freshness/scan-lock.ts"],"names":[],"mappings":"AAWA,eAAO,MAAM,WAAW,QAAS,CAAC;AA0BlC,kFAAkF;AAClF,wBAAgB,WAAW,CAAC,IAAI,EAAE,MAAM,GAAG,OAAO,CAWjD;AAED,yEAAyE;AACzE,wBAAgB,SAAS,CAAC,IAAI,EAAE,MAAM,GAAG,IAAI,CAS5C;AAED,qCAAqC;AACrC,wBAAgB,WAAW,CAAC,IAAI,EAAE,MAAM,GAAG,IAAI,CAU9C"}

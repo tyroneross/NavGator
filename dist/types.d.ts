@@ -2,6 +2,7 @@
  * NavGator Type Definitions
  * Architecture connection tracking for Claude Code
  */
+import type { ExternalEnrichment } from './enrich/external-enrichment.types.js';
 /**
  * Types of architecture components that NavGator tracks
  */
@@ -56,6 +57,7 @@ export interface ArchitectureComponent {
     repository_url?: string;
     metadata?: Record<string, unknown>;
     runtime?: RuntimeIdentity;
+    external?: ExternalEnrichment;
     timestamp: number;
     last_updated: number;
 }

@@ -49,6 +49,8 @@ import {
   GitInfo,
 } from './types.js';
 import { getGitInfo } from './git.js';
+import { enrichFromCache } from './enrich/external-resolver.js';
+import { loadCache, makeLookup } from './enrich/cache.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
 import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
@@ -1543,6 +1545,18 @@ export async function scan(
     }
   }
 
+  // External enrichment (structural axis): stamp boundary nodes (npm/service/
+  // llm/infra/spm/...) with cached canonical identity, latest version, docs, and
+  // a freshness verdict. Offline + sync — reads NavGator's own JSON cache, never
+  // the network, so it cannot slow or fail the scan. The freshness axis (network
+  // re-checks) runs separately via refreshExternal / the external-resolver agent.
+  try {
+    const cache = loadCache();
+    enrichFromCache(finalComponents, makeLookup(cache), Date.now());
+  } catch {
+    /* enrichment is best-effort — never block persistence on it */
+  }
+
   // Store final state (atomic per-file writes — see storage.ts).
   await storeComponents(finalComponents, config, root);
   await storeConnections(finalConnections, config, root);
@@ -2121,6 +2135,16 @@ export async function autoRefreshIfStale(
     const changed = (result.fileChanges?.added.length ?? 0) +
       (result.fileChanges?.modified.length ?? 0) +
       (result.fileChanges?.removed.length ?? 0);
+
+    // Stamp coherence: this incremental scan covered every changed file via
+    // hashes, so the freshness ledger/stamp must be reconciled or the stamp
+    // would lie. Best-effort — never fail the refresh on freshness bookkeeping.
+    try {
+      const { reconcileClean } = await import('./freshness/drainer.js');
+      await reconcileClean(root);
+    } catch {
+      /* freshness subsystem is optional; ignore */
+    }
 
     return {
       refreshed: true,

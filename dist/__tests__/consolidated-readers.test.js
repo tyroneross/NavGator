@@ -23,7 +23,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { buildIndex, buildGraph, buildFileMap, loadAllComponents, loadAllConnections, loadIndex, } from '../storage.js';
+import { buildIndex, buildGraph, buildFileMap, loadAllComponents, loadAllConnections, loadIndex, clearStorage, } from '../storage.js';
 import { writeFullComponentsJsonl, writeFullConnectionsJsonl, } from '../storage/markdown-view.js';
 import { getStoragePath, getComponentsPath, ensureStorageDirectories, } from '../config.js';
 import { createComponent, createConnection } from './helpers.js';
@@ -150,6 +150,51 @@ describe('R6 — end-to-end: index.json reflects in-memory data when per-entity 
         expect(loaded).not.toBeNull();
         expect(loaded?.stats.total_components).toBe(3);
         expect(loaded?.stats.total_connections).toBe(2);
+    });
+});
+// f2 / f5: clearStorage must remove *.full.jsonl so loadAllComponents never
+// serves stale data after a clear (e.g. crash between clear and re-scan).
+describe('f2 — clearStorage removes components.full.jsonl and connections.full.jsonl', () => {
+    let root;
+    beforeEach(() => { root = tmpRoot(); });
+    afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+    it('clearStorage followed by loadAllComponents returns [] (not stale jsonl)', async () => {
+        const config = cfg(false);
+        const storeDir = getStoragePath(config, root);
+        fs.mkdirSync(storeDir, { recursive: true });
+        const { components, connections } = fixture();
+        // Write full jsonl as a scanner would after a scan.
+        await writeFullComponentsJsonl(storeDir, components);
+        await writeFullConnectionsJsonl(storeDir, connections);
+        // Sanity: data is readable before clear.
+        expect(await loadAllComponents(config, root)).toHaveLength(3);
+        expect(await loadAllConnections(config, root)).toHaveLength(2);
+        // Clear should wipe the jsonl files too.
+        await clearStorage(config, root);
+        // After clear, no stale data should be returned.
+        expect(await loadAllComponents(config, root)).toEqual([]);
+        expect(await loadAllConnections(config, root)).toEqual([]);
+    });
+    // f5: explicit scenario — write stub full.jsonl, clear, then loadAll returns [].
+    it('f5 stub scenario: loadAllComponents returns [] after clearStorage removes full.jsonl', async () => {
+        const config = cfg(false);
+        const storeDir = getStoragePath(config, root);
+        fs.mkdirSync(storeDir, { recursive: true });
+        // Write a stub components.full.jsonl directly (simulates interrupted scan).
+        const stub = JSON.stringify({ component_id: 'COMP_stale', name: 'stale', type: 'component',
+            version: '', connects_to: [], connected_from: [], status: 'active', tags: [],
+            timestamp: 1, last_updated: 1,
+            role: { purpose: 'stale', layer: 'backend', critical: false },
+            source: { detection_method: 'auto', config_files: [], confidence: 0.9 } });
+        fs.writeFileSync(path.join(storeDir, 'components.full.jsonl'), stub + '\n');
+        // Without clear, the stub is served.
+        const before = await loadAllComponents(config, root);
+        expect(before).toHaveLength(1);
+        expect(before[0].name).toBe('stale');
+        // clearStorage removes it.
+        await clearStorage(config, root);
+        // Now loadAllComponents must return [].
+        expect(await loadAllComponents(config, root)).toEqual([]);
     });
 });
 //# sourceMappingURL=consolidated-readers.test.js.map

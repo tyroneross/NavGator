@@ -39,6 +39,8 @@ function getIgnorePatterns(root) {
     }
 }
 import { getGitInfo } from './git.js';
+import { enrichFromCache } from './enrich/external-resolver.js';
+import { loadCache, makeLookup } from './enrich/cache.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
 import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
@@ -1327,6 +1329,18 @@ export async function scan(projectRoot, options = {}) {
                 await purgeOrphans(getConnectionsPath(config, root), finalConnectionIds);
             }
         }
+        // External enrichment (structural axis): stamp boundary nodes (npm/service/
+        // llm/infra/spm/...) with cached canonical identity, latest version, docs, and
+        // a freshness verdict. Offline + sync — reads NavGator's own JSON cache, never
+        // the network, so it cannot slow or fail the scan. The freshness axis (network
+        // re-checks) runs separately via refreshExternal / the external-resolver agent.
+        try {
+            const cache = loadCache();
+            enrichFromCache(finalComponents, makeLookup(cache), Date.now());
+        }
+        catch {
+            /* enrichment is best-effort — never block persistence on it */
+        }
         // Store final state (atomic per-file writes — see storage.ts).
         await storeComponents(finalComponents, config, root);
         await storeConnections(finalConnections, config, root);
@@ -1752,6 +1766,17 @@ export async function scanPromptsOnly(projectRoot, options = {}) {
 export { formatPromptsOutput, formatPromptDetail } from './scanners/prompts/index.js';
 // Re-export tracer types
 export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
+/**
+ * In-process debounce: tracks the timestamp of the last refresh ATTEMPT
+ * per resolved project root. If a second call arrives while a first is still
+ * in-flight (or was attempted within staleAfterMs), the second call returns
+ * {refreshed:false, reason:'fresh'} without dispatching a second scan.
+ *
+ * This prevents a polling loop on MCP `status` from fanning out N concurrent
+ * incremental scans. The map is module-scoped so it persists across calls
+ * within the same Node.js process lifetime.
+ */
+const _lastRefreshAttemptMs = new Map();
 export async function autoRefreshIfStale(projectRoot, options = {}) {
     // Resolve opt-in / opt-out. Programmatic > env > default(true).
     const envOptOut = process.env['NAVGATOR_AUTO_REFRESH'] === 'false';
@@ -1761,6 +1786,15 @@ export async function autoRefreshIfStale(projectRoot, options = {}) {
     }
     const staleAfterMs = (options.staleAfterMinutes ?? 5) * 60 * 1000;
     const root = projectRoot || process.cwd();
+    // Debounce: if a refresh was attempted for this root within staleAfterMs,
+    // return 'fresh' immediately rather than piling on a second scan.
+    // Stamp BEFORE any async work to close the race window — concurrent callers
+    // see the guard the moment the first call passes it.
+    const lastAttempt = _lastRefreshAttemptMs.get(root) ?? 0;
+    if (Date.now() - lastAttempt < staleAfterMs) {
+        return { refreshed: false, reason: 'fresh', message: 'refresh already in-flight or recently attempted' };
+    }
+    _lastRefreshAttemptMs.set(root, Date.now());
     try {
         const { loadIndex } = await import('./storage.js');
         const config = getConfig();
@@ -1787,6 +1821,16 @@ export async function autoRefreshIfStale(projectRoot, options = {}) {
         const changed = (result.fileChanges?.added.length ?? 0) +
             (result.fileChanges?.modified.length ?? 0) +
             (result.fileChanges?.removed.length ?? 0);
+        // Stamp coherence: this incremental scan covered every changed file via
+        // hashes, so the freshness ledger/stamp must be reconciled or the stamp
+        // would lie. Best-effort — never fail the refresh on freshness bookkeeping.
+        try {
+            const { reconcileClean } = await import('./freshness/drainer.js');
+            await reconcileClean(root);
+        }
+        catch {
+            /* freshness subsystem is optional; ignore */
+        }
         return {
             refreshed: true,
             reason: 'stale',

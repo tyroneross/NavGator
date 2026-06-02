@@ -21,6 +21,7 @@ import { registerLLMMapCommand } from './commands/llm-map.js';
 import { registerSchemaCommand } from './commands/schema.js';
 import { registerDeadCommand } from './commands/dead.js';
 import { registerLessonsCommand } from './commands/lessons.js';
+import { registerFreshnessCommands } from './commands/freshness.js';
 import { registerSetupCommand, registerUICommand, registerHistoryCommand, registerDiffCommand, registerProjectsCommand, registerSummaryCommand, showWelcomeMenu, } from './commands/misc.js';
 const NAVGATOR_LOGO = `
   _   _             ____       _
@@ -49,6 +50,7 @@ program.hook('preAction', () => {
 registerSetupCommand(program);
 registerScanCommand(program);
 registerStatusCommand(program);
+registerFreshnessCommands(program);
 registerImpactCommand(program);
 registerConnectionsCommand(program);
 registerListCommand(program);

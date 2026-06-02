@@ -1260,6 +1260,14 @@ export async function clearStorage(config, projectRoot) {
     if (fs.existsSync(graphPath)) {
         deletePromises.push(fs.promises.unlink(graphPath).catch(() => { }));
     }
+    // R6: delete consolidated full-shape JSONL files. These are always written
+    // by the scanner (even when per-entity files are off) and are the primary
+    // source for loadAllComponents / loadAllConnections. Leaving them behind
+    // after clearStorage causes loadAll* to return stale data if a subsequent
+    // scan crashes before rewriting them.
+    const storeDir = getStoragePath(cfg, projectRoot);
+    deletePromises.push(fs.promises.unlink(path.join(storeDir, 'components.full.jsonl')).catch(() => { }));
+    deletePromises.push(fs.promises.unlink(path.join(storeDir, 'connections.full.jsonl')).catch(() => { }));
     await Promise.all(deletePromises);
 }
 // =============================================================================

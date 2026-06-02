@@ -67,3 +67,52 @@ export async function drain(root: string, opts: DrainOptions): Promise<DrainResu
     releaseLock(root);
   }
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+export interface DrainUntilCleanOptions extends DrainOptions {
+  /** Max drain attempts before giving up (default 12). Bounds worst-case time. */
+  maxAttempts?: number;
+  /** Override the post-attempt wait; defaults to minIntervalMs (busy waits less). */
+  waitMs?: number;
+}
+
+/**
+ * Trailing-edge guarantee. A single `drain()` can leave the *final* edits of a
+ * burst undrained (debounced) or skipped (busy). This loops past those states —
+ * sleeping out the debounce window between tries — until the ledger is actually
+ * empty, so the view self-heals within ~minIntervalMs of edits stopping instead
+ * of waiting for the 5-minute autoRefresh backstop. The hook spawns this
+ * detached, so the sleeps never block an edit. Returns every attempt's result.
+ */
+export async function drainUntilClean(
+  root: string,
+  opts: DrainUntilCleanOptions,
+): Promise<DrainResult[]> {
+  const maxAttempts = opts.maxAttempts ?? 12;
+  const baseWait = opts.waitMs ?? opts.minIntervalMs ?? 3000;
+  const results: DrainResult[] = [];
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await drain(root, { scanFn: opts.scanFn, minIntervalMs: opts.minIntervalMs });
+    results.push(res);
+    const settled = res.status === 'drained' || res.status === 'clean';
+    if (settled && readDirty(root).length === 0) break; // ledger truly empty → done
+    if (res.status === 'error') break; // a scan that throws won't fix itself by retrying
+    await sleep(res.status === 'busy' ? Math.min(1000, baseWait) : baseWait);
+  }
+  return results;
+}
+
+/**
+ * Stamp coherence for out-of-band scans. NavGator's existing `autoRefreshIfStale`
+ * backstop runs an incremental scan WITHOUT going through the drainer, which
+ * would leave the dirty ledger and stamp stale — making the stamp lie (report
+ * dirty when the graph is actually current). Call this after any such scan to
+ * reconcile: the incremental scan already covered every changed file via hashes,
+ * so the whole ledger is safely cleared and a clean stamp written. Best-effort.
+ */
+export async function reconcileClean(root: string): Promise<void> {
+  const all = readDirty(root);
+  if (all.length > 0) clearDirty(all, root);
+  writeStamp(root, await computeStamp(root, { inFlight: false }));
+}

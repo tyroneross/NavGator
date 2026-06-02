@@ -33,6 +33,13 @@ const MARKER_START = '# >>> NavGator safety guard (auto-managed)';
 const MARKER_END = '# <<< NavGator safety guard';
 const GUARDED_PATTERNS = [
     '.navgator/architecture/components/COMP_config_*.json',
+    // R6 consolidated full-shape JSONL files carry the same env-hostname data as
+    // the per-entity COMP_config_*.json files (they inline every component the
+    // scanner produced, including env-parsed hostnames). Guard them so the
+    // previous COMP_config_* rule isn't rendered inert when per-entity files are
+    // off (the R6 default).
+    '.navgator/architecture/components.full.jsonl',
+    '.navgator/architecture/connections.full.jsonl',
     '.navgator/architecture/NAVSUMMARY.md',
     '.navgator/architecture/NAVSUMMARY_FULL.md',
     // Legacy filenames from pre-rename NavGator versions — harmless if not written.
