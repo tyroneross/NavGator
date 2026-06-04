@@ -6,9 +6,30 @@
 # source dirs within the last 24h.
 set -u
 
+emit_empty() {
+  printf '{}\n'
+}
+
+emit_context() {
+  python3 - "$1" <<'PY' || emit_empty
+import json
+import sys
+
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "Stop",
+        "additionalContext": sys.argv[1],
+    }
+}))
+PY
+}
+
 project="${CLAUDE_PROJECT_DIR:-$PWD}"
 index="$project/.navgator/architecture/index.json"
-[ -f "$index" ] || exit 0
+[ -f "$index" ] || {
+  emit_empty
+  exit 0
+}
 
 # If anything under typical source dirs is newer than index.json, suggest refresh.
 # find -newer is POSIX; errors silenced for dirs that don't exist.
@@ -20,7 +41,9 @@ newer=$(find \
   -print -quit 2>/dev/null)
 
 if [ -n "$newer" ]; then
-  echo "Source files have changed since the last navgator scan — consider running the navgator \`scan\` MCP tool before ending the session."
+  emit_context "Source files have changed since the last navgator scan — consider running the navgator \`scan\` MCP tool before ending the session."
+else
+  emit_empty
 fi
 
 exit 0
