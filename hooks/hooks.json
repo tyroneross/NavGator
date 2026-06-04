@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/session-start.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 5000
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/pre-edit-warn.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/pre-edit-warn.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 5000
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-bash-suggest.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/post-bash-suggest.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 5000
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-edit-suggest.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/post-edit-suggest.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 5000
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/mark-dirty.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/mark-dirty.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 10
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/stop-suggest.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/stop-suggest.sh\"; if [ -f \"$hook\" ]; then bash \"$hook\"; else printf '{}'; fi",
             "timeout": 5000
           }
         ]
