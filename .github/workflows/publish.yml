@@ -51,6 +51,27 @@ jobs:
           VERSION=$(node -e "const fs = require('fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Setup Node.js for npmjs
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PUBLISH_NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check npmjs version
+        id: npmjs
+        run: |
+          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npmjs (with provenance)
+        if: steps.npmjs.outputs.exists != 'true'
+        run: npm publish --registry https://registry.npmjs.org --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Setup Node.js for GitHub Packages
         uses: actions/setup-node@v4
         with:
@@ -74,24 +95,3 @@ jobs:
         run: npm publish --registry https://npm.pkg.github.com --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js for npmjs Trusted Publisher
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.PUBLISH_NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Check npmjs version
-        id: npmjs
-        run: |
-          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish to npmjs (with provenance)
-        if: steps.npmjs.outputs.exists != 'true'
-        run: npm publish --registry https://registry.npmjs.org --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
