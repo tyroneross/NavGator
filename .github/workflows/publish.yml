@@ -92,4 +92,6 @@ jobs:
 
       - name: Publish to npmjs (with provenance)
         if: steps.npmjs.outputs.exists != 'true'
-        run: npm publish --registry https://registry.npmjs.org --access public
+        run: npm publish --registry https://registry.npmjs.org --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
