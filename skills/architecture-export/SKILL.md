@@ -1,57 +1,79 @@
 ---
 name: architecture-export
-description: Use when user asks to show or generate an architecture diagram, visualize dependencies, export architecture docs, or create a mermaid diagram of their project.
+description: Use when user asks to show or generate an architecture diagram, visualize dependencies, export architecture docs, create architecture documentation, save architecture output, or create a mermaid diagram of their project.
 version: 0.4.0
 user-invocable: true
-argument-hint: [diagram|export] [options]
+argument-hint: "[diagram|export] [options]"
 ---
 
 # Architecture Diagrams & Export
 
-Generate visual diagrams and export architecture documentation using NavGator MCP tools.
+Generate architecture diagrams and export architecture summaries using the real NavGator MCP and CLI surfaces.
+
+## Prerequisites
+
+Before generating output, check whether architecture data exists. If the MCP tool or CLI reports missing data, run or recommend `navgator scan` first. Do not fabricate architecture from raw source when scan data is unavailable.
 
 ## Diagrams
 
-Use the `navgator diagram` MCP tool to generate Mermaid diagrams.
+For in-chat diagrams, use the `navgator diagram` MCP tool.
 
-**Modes:**
-- `summary`: Top connected components only (default)
-- `focus`: Center on a specific component — pass `focus: "<component-name>"`
-- `layer`: Show only a specific layer — pass `focus: "<layer-name>"` (frontend, backend, database, queue, infra, external)
+**MCP modes:**
+- `summary`: top connected components only (default)
+- `focus`: center on a specific component; pass `focus: "<component-name>"`
+- `layer`: show one layer; pass `focus: "<layer-name>"` such as `frontend`, `backend`, `database`, `queue`, `infra`, or `external`
 
-Returns Mermaid markdown that can be rendered in any Mermaid-compatible viewer.
+The MCP tool returns Mermaid markdown that can be rendered in any Mermaid-compatible viewer.
 
-### Tips
-- Run a scan first if no architecture data exists
-- Use `focus` for complex projects with many nodes
-- Combine with impact analysis to visualize affected components
-
-## Export
-
-For structured export, use the `navgator summary` MCP tool to get an executive summary of the architecture.
-
-For full export to files, use CLI commands (these are npm operations, not MCP):
+For file output, use the CLI `diagram` command. NavGator does not have an `export` command.
 
 ```bash
-# Markdown export
-npx @tyroneross/navgator export md ARCHITECTURE.md
+# Raw Mermaid
+npx @tyroneross/navgator diagram --summary --output architecture.mmd
 
-# JSON export
-npx @tyroneross/navgator export json architecture.json
+# Markdown-wrapped Mermaid
+npx @tyroneross/navgator diagram --summary --markdown --output ARCHITECTURE.md
 
-# With options
-npx @tyroneross/navgator export md ARCHITECTURE.md --components-only
-npx @tyroneross/navgator export json architecture.json --graph
+# Focused component diagram
+npx @tyroneross/navgator diagram --focus "component-name" --markdown --output component-architecture.md
+
+# Layer diagram
+npx @tyroneross/navgator diagram --layer backend --markdown --output backend-architecture.md
 ```
+
+## Summary Export
+
+For an in-chat executive summary, use the `navgator summary` MCP tool.
+
+For a JSON file, use the CLI `summary` command and shell redirection:
+
+```bash
+npx @tyroneross/navgator summary > architecture-summary.json
+```
+
+If the user asks for machine-readable graph data, point them to the generated scan artifacts rather than inventing an export command:
+
+- `.navgator/architecture/index.json`
+- `.navgator/architecture/graph.json`
+- `.navgator/architecture/file_map.json`
 
 ## Decision Tree
 
 | User Intent | Tool | Notes |
 |-------------|------|-------|
-| "Show architecture diagram" | `navgator diagram` | Summary mode |
-| "Diagram of X component" | `navgator diagram` (focus) | Component-focused |
-| "Show backend layer" | `navgator diagram` (layer) | Layer-filtered |
-| "Export architecture docs" | CLI: `npx navgator export md` | File output |
-| "Architecture summary" | `navgator summary` | Executive summary |
+| "Show architecture diagram" | MCP `navgator diagram` | Summary mode |
+| "Diagram of X component" | MCP `navgator diagram` with `mode: "focus"` | Component-focused |
+| "Show backend layer" | MCP `navgator diagram` with `mode: "layer"` | Pass layer name as `focus` |
+| "Save a Mermaid diagram" | CLI `npx @tyroneross/navgator diagram --output <file>` | Add `--markdown` for Markdown docs |
+| "Export architecture summary" | CLI `npx @tyroneross/navgator summary > <file>.json` | JSON file output |
+| "Architecture summary in chat" | MCP `navgator summary` | Executive summary |
+| "Export full graph JSON" | Existing `.navgator/architecture/*.json` files | No CLI export command exists |
 
-*navgator — architecture tracker*
+## Guardrails
+
+- Do not use `navgator export`; that command is not registered.
+- Do not run npm or write files unless the user asked for file output.
+- Use `focus` for complex diagrams so the output stays readable.
+- Prefer Markdown-wrapped Mermaid for documentation files and raw Mermaid for diagram-only artifacts.
+
+*navgator - architecture tracker*

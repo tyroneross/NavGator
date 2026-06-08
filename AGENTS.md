@@ -55,7 +55,7 @@ NavGator/
 │   ├── map.md, plan.md, promote-lesson.md, review.md
 │   ├── scan.md, schema.md, test.md, trace.md
 ├── hooks/
-│   └── hooks.json              # Hook definitions (4 hook types)
+│   └── hooks.json              # Empty by default; no automatic hooks enabled
 ├── agents/
 │   ├── architecture-advisor.md     # Stack decisions + migration planning
 │   ├── architecture-investigator.md  # SRE-style read-only investigation
@@ -97,7 +97,7 @@ Build output goes to `dist/`. The MCP server entry point after build is `dist/mc
 Claude remains authoritative for host-specific behavior. The repo also ships an additive Codex surface.
 
 Claude surface (`.claude-plugin/plugin.json`) points to:
-- Hooks: `./hooks/hooks.json`
+- Hooks: `./hooks/hooks.json` (empty by default)
 - Skills: `./skills/`
 - Commands: `./commands/`
 - MCP servers: `./.mcp.json`
@@ -150,17 +150,9 @@ JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 
 Skills have different auto-trigger patterns — check each `SKILL.md` before modifying trigger conditions.
 
-### Hooks (4 types)
+### Hooks
 
-Defined in `hooks/hooks.json`:
-
-| Hook | Trigger | What it does |
-|------|---------|-------------|
-| `SessionStart` | Session begins | Checks if architecture data exists and is fresh; runs `status` if so |
-| `PreToolUse` | Before `Edit` or `Write` | Runs `explore` on architecture-critical files before edits |
-| `PostToolUse` (Bash) | After Bash tool | Triggers `scan` after package installs or DB migrations |
-| `PostToolUse` (Write/Edit) | After 3+ file edits or API/schema changes | Triggers `scan` to update architecture tracking |
-| `Stop` | Session ends | Prompts `scan` if significant architectural changes were made |
+`hooks/hooks.json` is intentionally empty. NavGator should be invoked explicitly through slash commands, MCP tools, or the CLI instead of adding automatic scan reminders to every session.
 
 ### Agents (3)
 
@@ -250,7 +242,7 @@ NavGator annotates components with runtime identity: service names, connection e
 | MCP tools | `src/mcp/tools.ts` | Add new tools here; server.ts handles transport |
 | Skills | `skills/*/SKILL.md` | 6 skills with different auto-trigger patterns |
 | Commands | `commands/*.md` | Slash command prompt definitions |
-| Hooks | `hooks/hooks.json` | 4 hook types; changes affect all plugin consumers |
+| Hooks | `hooks/hooks.json` | Empty by default; changes affect all plugin consumers |
 | Rule checks | `src/rules.ts` | Orphan, cycle, layer violation, hotspot detection |
 
 ---

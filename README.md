@@ -65,7 +65,7 @@ This repo now includes native Codex metadata in:
 - `.codex-plugin/plugin.json`
 - `.agents/plugins/marketplace.json`
 
-Claude remains the authoritative host for hooks, slash commands, and agent wiring. Codex uses the additive plugin surface for skills and MCP tools.
+Claude remains the authoritative host for slash commands and agent wiring. Hooks are disabled by default. Codex uses the additive plugin surface for skills and MCP tools.
 
 ## Quick Start
 
@@ -221,15 +221,7 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 
 ### Hooks
 
-NavGator includes hooks that integrate with Claude Code:
-
-**SessionStart**: Checks if architecture data is stale (>24h) and suggests running `/navgator:scan`.
-
-**PreToolUse (Edit/Write)**: Before modifying architecture-critical files, reminds to check impact with `/navgator:impact`.
-
-**PostToolUse (Bash)**: Detects package manager commands (`npm install`, `pip install`, etc.) and reminds to update architecture with `/navgator:scan`.
-
-**Stop**: After significant changes, reminds to rescan.
+NavGator does not enable automatic Claude Code hooks by default. Run `/navgator:scan` or the MCP scan tool explicitly when architecture data needs to be refreshed.
 
 ## CLI Reference
 
@@ -632,7 +624,7 @@ Contributions welcome! Please read the contributing guidelines first.
 
 ## Codex
 
-This package now ships an additive Codex plugin surface alongside the existing Claude Code package. Claude remains the authoritative runtime for hooks, slash commands, and agents. Codex support is explicit and parallel rather than inferred from the Claude surface.
+This package now ships an additive Codex plugin surface alongside the existing Claude Code package. Claude remains the authoritative runtime for slash commands and agents. Hooks are disabled by default. Codex support is explicit and parallel rather than inferred from the Claude surface.
 
 Package root for Codex installs:
 - the repository root (`.`)
@@ -653,4 +645,4 @@ bash scripts/install-codex-plugin.sh --user
 bash scripts/install-codex-plugin.sh --workspace
 ```
 
-The Codex package is additive only: Claude-specific hooks, slash commands, and agent wiring remain unchanged for Claude Code.
+The Codex package is additive only: Claude-specific slash commands and agent wiring remain unchanged for Claude Code.
