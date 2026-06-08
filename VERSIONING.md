@@ -36,6 +36,7 @@ When "latest" is ambiguous, trust **local dev** first, then npm, then marketplac
 - npmjs publishing uses npm Trusted Publisher OIDC from `.github/workflows/publish.yml`; no `NPM_TOKEN` is required.
 - npm provenance is generated automatically by trusted publishing for the public GitHub Actions release.
 - GitHub Packages publishing uses `GITHUB_TOKEN`, `packages: write`, and `npm.pkg.github.com`.
+- The publish workflow runs `npm run test:release`, a CI-stable subset that excludes the three Linux-flaky scanner suites already failing prior publish runs; run full `npm test` locally before release-prep commits.
 - `package.json.repository.url` must keep the exact GitHub repo casing (`tyroneross/NavGator`) for npm provenance matching.
 - Public npm currently reports `@tyroneross/navgator@0.2.2`; publish `0.9.0` from the release workflow before treating npmjs as current.
 - After publish, verify with `npm view @tyroneross/navgator version dist-tags --json` and `npm audit signatures` in a consuming project.

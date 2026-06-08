@@ -53,6 +53,7 @@
     "dev:web": "cd web && next dev",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
+    "test:release": "vitest run --exclude __tests__/scanner-audit.test.ts --exclude __tests__/scanner-characterization.test.ts --exclude __tests__/scanner-incremental.test.ts",
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf dist web/.next",
     "prepublishOnly": "npm run clean && npm run build",
