@@ -96,11 +96,13 @@ Build output goes to `dist/`. The MCP server entry point after build is `dist/mc
 
 Claude remains authoritative for host-specific behavior. The repo also ships an additive Codex surface.
 
-Claude surface (`.claude-plugin/plugin.json`) points to:
-- Hooks: `./hooks/hooks.json` (empty by default)
-- Skills: `./skills/`
+Claude surface uses `.claude-plugin/plugin.json` for metadata and Claude's
+default-path discovery for runtime capabilities:
 - Commands: `./commands/`
-- MCP servers: `./.mcp.json`
+- Agents: `./agents/`
+- Skills: `./skills/`
+- Hooks: `./hooks/hooks.json` (empty by default; do not redeclare in the manifest)
+- MCP servers: `./.mcp.json` (do not redeclare the default path in the manifest)
 
 Codex surface (`.codex-plugin/plugin.json`) points to:
 - Skills: `./skills/`
