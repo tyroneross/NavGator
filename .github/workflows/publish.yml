@@ -45,14 +45,11 @@ jobs:
           ls -la dist/
           node dist/cli/index.js --help >/dev/null
 
-      - name: Setup Node.js for npmjs Trusted Publisher
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.PUBLISH_NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Publish to npmjs (with provenance)
-        run: npm publish --registry https://registry.npmjs.org --access public
+      - name: Read package version
+        id: package
+        run: |
+          VERSION=$(node -e "const fs = require('fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js for GitHub Packages
         uses: actions/setup-node@v4
@@ -61,7 +58,38 @@ jobs:
           registry-url: 'https://npm.pkg.github.com'
           scope: '@tyroneross'
 
+      - name: Check GitHub Packages version
+        id: github_packages
+        run: |
+          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish to GitHub Packages
+        if: steps.github_packages.outputs.exists != 'true'
         run: npm publish --registry https://npm.pkg.github.com --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js for npmjs Trusted Publisher
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.PUBLISH_NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check npmjs version
+        id: npmjs
+        run: |
+          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to npmjs (with provenance)
+        if: steps.npmjs.outputs.exists != 'true'
+        run: npm publish --registry https://registry.npmjs.org --access public
