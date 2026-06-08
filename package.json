@@ -39,6 +39,10 @@
     "CLAUDE.md",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "npm run build:cli && npm run build:web",
     "build:cli": "tsc && npm run build:fixshebang",
@@ -73,11 +77,11 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tyroneross/navgator"
+    "url": "git+https://github.com/tyroneross/NavGator.git"
   },
-  "homepage": "https://github.com/tyroneross/navgator#readme",
+  "homepage": "https://github.com/tyroneross/NavGator#readme",
   "bugs": {
-    "url": "https://github.com/tyroneross/navgator/issues"
+    "url": "https://github.com/tyroneross/NavGator/issues"
   },
   "engines": {
     "node": ">=20.0.0"

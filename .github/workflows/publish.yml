@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish packages
 
 on:
   push:
@@ -6,12 +6,16 @@ on:
       - 'v*'
   workflow_dispatch:
 
+env:
+  NODE_VERSION: '24'
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,8 +23,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - name: Install root dependencies
         run: npm ci --ignore-scripts
@@ -37,7 +42,18 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Publish to npm (with provenance)
-        run: npm publish --access public --provenance
+      - name: Publish to npmjs (with provenance)
+        run: npm publish --registry https://registry.npmjs.org --access public
+
+      - name: Setup Node.js for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@tyroneross'
+          package-manager-cache: false
+
+      - name: Publish to GitHub Packages
+        run: npm publish --registry https://npm.pkg.github.com --provenance=false
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
