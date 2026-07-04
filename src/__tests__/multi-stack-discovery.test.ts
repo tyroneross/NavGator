@@ -77,6 +77,13 @@ describe('discoverStackRoots', () => {
     expect(out.map(s => s.origin)).toEqual(['service']);
   });
 
+  it('detects Cargo.toml as a Rust stack root', () => {
+    fs.mkdirSync(path.join(tmp, 'rust-api'));
+    fs.writeFileSync(path.join(tmp, 'rust-api', 'Cargo.toml'), '[package]\nname = "rust-api"\nversion = "0.1.0"\n');
+    const out = discoverStackRoots(tmp, false);
+    expect(out.map(s => s.origin)).toEqual(['rust-api']);
+  });
+
   it('falls back to root when nothing matches anywhere', () => {
     fs.mkdirSync(path.join(tmp, 'docs'));
     const out = discoverStackRoots(tmp, false);

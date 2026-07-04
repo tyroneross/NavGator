@@ -99,6 +99,33 @@ describe('selectScanMode (Run 1 — D2)', () => {
         expect(decision.mode).toBe('full');
         expect(decision.reason).toBe('manifest-changed');
     });
+    it('lockfile-trigger: Cargo.toml modified → full / manifest-changed', () => {
+        const changes = {
+            ...emptyChanges(),
+            modified: ['Cargo.toml'],
+        };
+        const decision = selectScanMode(changes, indexWith(), {});
+        expect(decision.mode).toBe('full');
+        expect(decision.reason).toBe('manifest-changed');
+    });
+    it('lockfile-trigger: Cargo.lock modified → full / manifest-changed', () => {
+        const changes = {
+            ...emptyChanges(),
+            modified: ['Cargo.lock'],
+        };
+        const decision = selectScanMode(changes, indexWith(), {});
+        expect(decision.mode).toBe('full');
+        expect(decision.reason).toBe('manifest-changed');
+    });
+    it('lockfile-trigger: nested Cargo.toml modified → full / manifest-changed', () => {
+        const changes = {
+            ...emptyChanges(),
+            modified: ['crates/api/Cargo.toml'],
+        };
+        const decision = selectScanMode(changes, indexWith(), {});
+        expect(decision.mode).toBe('full');
+        expect(decision.reason).toBe('manifest-changed');
+    });
     // Run 1.6 — item #1: extended trigger list
     it('build-config-trigger: tsconfig.json modified → full / manifest-changed', () => {
         const decision = selectScanMode({ ...emptyChanges(), modified: ['tsconfig.json'] }, indexWith(), {});

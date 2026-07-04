@@ -54,6 +54,7 @@ import { loadCache, makeLookup } from './enrich/cache.js';
 import { scanNpmPackages, detectNpm } from './scanners/packages/npm.js';
 import { scanPipPackages, detectPip } from './scanners/packages/pip.js';
 import { scanSpmPackages, detectSpm } from './scanners/packages/swift.js';
+import { scanCargoPackages, detectCargo } from './scanners/packages/cargo.js';
 import { scanInfrastructure } from './scanners/infrastructure/index.js';
 import { scanPrismaSchema, detectPrisma } from './scanners/infrastructure/prisma-scanner.js';
 import { scanEnvVars, detectEnvFiles } from './scanners/infrastructure/env-scanner.js';
@@ -313,6 +314,8 @@ const FULL_SCAN_TRIGGER_FILES: ReadonlySet<string> = new Set<string>([
   'prisma/schema.prisma',
   'Package.swift',
   'Package.resolved',
+  'Cargo.toml',
+  'Cargo.lock',
   // Build / runtime config — change resolution, deploy targets, ignore rules
   'tsconfig.json',
   'vercel.json',
@@ -403,8 +406,11 @@ export function selectScanMode(
     for (const f of fileChanges.removed) changed.add(f);
   }
 
+  const changedMatchesTrigger = (file: string, trigger: string): boolean =>
+    file === trigger || file.endsWith(`/${trigger}`);
+
   for (const trigger of FULL_SCAN_TRIGGER_FILES) {
-    if (changed.has(trigger)) {
+    if (Array.from(changed).some((file) => changedMatchesTrigger(file, trigger))) {
       return { mode: 'full', reason: 'manifest-changed' };
     }
   }
@@ -530,7 +536,7 @@ export async function scan(
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,h,m}', {
+  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,rs,h,m}', {
     cwd: root,
     ignore: getIgnorePatterns(root),
   });
@@ -551,6 +557,8 @@ export async function scan(
     'prisma/schema.prisma',
     'Package.swift',
     'Package.resolved',
+    'Cargo.toml',
+    'Cargo.lock',
     // Build / runtime config — track so changes trigger full scan
     'tsconfig.json',
     'vercel.json',
@@ -566,6 +574,14 @@ export async function scan(
     } catch {
       // ignore
     }
+  }
+
+  const rustManifestFiles = await glob('**/{Cargo.toml,Cargo.lock}', {
+    cwd: root,
+    ignore: getIgnorePatterns(root),
+  });
+  for (const file of rustManifestFiles) {
+    if (!manifestFiles.includes(file)) manifestFiles.push(file);
   }
   const filesForChangeDetection = [...sourceFiles, ...manifestFiles];
 
@@ -768,6 +784,17 @@ export async function scan(
           console.log(`  - Detected Swift/Xcode project (${sr.origin})`);
         }
         packageTasks.push(scanSpmPackages(sr.path).then(result => {
+          tagOrigin(result as never);
+          allComponents.push(...result.components);
+          allWarnings.push(...result.warnings);
+        }));
+      }
+
+      if (detectCargo(sr.path)) {
+        if (options.verbose) {
+          console.log(`  - Detected Rust/Cargo project (${sr.origin})`);
+        }
+        packageTasks.push(scanCargoPackages(sr.path).then(result => {
           tagOrigin(result as never);
           allComponents.push(...result.components);
           allWarnings.push(...result.warnings);
