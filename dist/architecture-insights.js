@@ -52,6 +52,40 @@ export function getTopFanOut(components, connections, limit = 5) {
         .sort((a, b) => b.count - a.count || a.component.name.localeCompare(b.component.name))
         .slice(0, limit);
 }
+export function getModuleDepthSignals(components, connections) {
+    const importEdges = getImportConnections(components, connections).filter(({ from, to }) => isInternalCodeComponent(from) && isInternalCodeComponent(to));
+    // Distinct importers (fan-in) and distinct imported modules (fan-out) per component.
+    const importers = new Map();
+    const importsTo = new Map();
+    for (const { from, to } of importEdges) {
+        if (from.component_id === to.component_id)
+            continue; // ignore self-imports
+        if (!importers.has(to.component_id))
+            importers.set(to.component_id, new Set());
+        importers.get(to.component_id).add(from.component_id);
+        if (!importsTo.has(from.component_id))
+            importsTo.set(from.component_id, new Set());
+        importsTo.get(from.component_id).add(to.component_id);
+    }
+    return components
+        .filter(isInternalCodeComponent)
+        .map((component) => {
+        const fanIn = importers.get(component.component_id)?.size || 0;
+        const fanOut = importsTo.get(component.component_id)?.size || 0;
+        const shallownessScore = fanOut / (fanIn + 1);
+        return { component, fanIn, fanOut, shallownessScore };
+    })
+        .sort((a, b) => b.shallownessScore - a.shallownessScore ||
+        a.component.name.localeCompare(b.component.name));
+}
+export function detectShallowModules(components, connections, opts) {
+    const minFanOut = opts?.minFanOut ?? 4;
+    const minShallowness = opts?.minShallowness ?? 2;
+    const limit = opts?.limit ?? 20;
+    return getModuleDepthSignals(components, connections)
+        .filter((signal) => signal.fanOut >= minFanOut && signal.shallownessScore >= minShallowness)
+        .slice(0, limit);
+}
 export function detectImportCycles(components, connections, limit = 5) {
     const importEdges = getImportConnections(components, connections)
         .filter(({ from, to }) => isInternalCodeComponent(from) && isInternalCodeComponent(to));

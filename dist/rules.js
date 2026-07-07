@@ -4,7 +4,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { detectImportCycles, detectLayerViolations, getTopFanOut, getTopHotspots } from './architecture-insights.js';
+import { detectImportCycles, detectLayerViolations, detectShallowModules, getTopFanOut, getTopHotspots } from './architecture-insights.js';
 /**
  * Get all built-in architecture rules
  */
@@ -180,6 +180,21 @@ export function getBuiltinRules() {
                     component: entry.component.name,
                     message: `${entry.component.name} imports ${entry.count} modules — possible god-object`,
                     suggestion: 'Consider splitting responsibilities or introducing narrower abstractions',
+                }));
+            },
+        },
+        {
+            id: 'shallow-module',
+            name: 'Shallow Module',
+            description: 'Internal module imports many modules but is used by few — a thin pass-through (advisory heuristic for Ousterhout depth)',
+            severity: 'warning',
+            check: (components, connections) => {
+                return detectShallowModules(components, connections).map((signal) => ({
+                    rule_id: 'shallow-module',
+                    severity: 'warning',
+                    component: signal.component.name,
+                    message: `${signal.component.name} is a shallow module (imports ${signal.fanOut}, used by ${signal.fanIn}) — thin pass-through; consider deepening behind a narrower interface`,
+                    suggestion: 'Consolidate the related logic it wires together behind one deeper module with a narrower interface, so callers depend on fewer moving parts',
                 }));
             },
         },

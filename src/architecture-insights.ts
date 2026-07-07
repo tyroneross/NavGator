@@ -83,6 +83,88 @@ export function getTopFanOut(
     .slice(0, limit);
 }
 
+// =============================================================================
+// MODULE DEPTH / SHALLOW-MODULE HEURISTIC
+// =============================================================================
+//
+// Operationalizes John Ousterhout's deep-vs-shallow module distinction (A
+// Philosophy of Software Design) as a graph heuristic over the import graph.
+//
+//   Deep module   = high fan-in, low fan-out: hides substantial complexity
+//                   behind a narrow interface. Many modules depend on it; it
+//                   depends on few. (What you want.)
+//   Shallow module = low fan-in, high fan-out: a thin pass-through / glue
+//                   layer that mostly wires other modules together, adding
+//                   little of its own. Its interface is nearly as wide as its
+//                   implementation. (A smell worth reviewing.)
+//
+// shallownessScore = fanOut / (fanIn + 1). High score => imports much, used
+// little => shallow. The +1 avoids divide-by-zero and damps leaf modules.
+//
+// ADVISORY ONLY. This is a graph PROXY, not Ousterhout's true depth metric:
+// the import graph exposes no lines-of-code and no interface width (exported
+// symbol count / parameter counts), so we cannot measure the
+// implementation-to-interface ratio Ousterhout actually defines. A module can
+// legitimately import many things (an app entry point / composition root) and
+// not be "shallow" in the design sense. Treat flags as prompts to look, never
+// as errors. Provenance:
+// build-loop-memory/research/2026-07-06-ai-coding-fundamentals-and-harness-claims.md
+export interface ModuleDepthSignal {
+  component: ArchitectureComponent;
+  fanIn: number;
+  fanOut: number;
+  shallownessScore: number;
+}
+
+export function getModuleDepthSignals(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[]
+): ModuleDepthSignal[] {
+  const importEdges = getImportConnections(components, connections).filter(
+    ({ from, to }) => isInternalCodeComponent(from) && isInternalCodeComponent(to)
+  );
+
+  // Distinct importers (fan-in) and distinct imported modules (fan-out) per component.
+  const importers = new Map<string, Set<string>>();
+  const importsTo = new Map<string, Set<string>>();
+
+  for (const { from, to } of importEdges) {
+    if (from.component_id === to.component_id) continue; // ignore self-imports
+    if (!importers.has(to.component_id)) importers.set(to.component_id, new Set());
+    importers.get(to.component_id)!.add(from.component_id);
+    if (!importsTo.has(from.component_id)) importsTo.set(from.component_id, new Set());
+    importsTo.get(from.component_id)!.add(to.component_id);
+  }
+
+  return components
+    .filter(isInternalCodeComponent)
+    .map((component) => {
+      const fanIn = importers.get(component.component_id)?.size || 0;
+      const fanOut = importsTo.get(component.component_id)?.size || 0;
+      const shallownessScore = fanOut / (fanIn + 1);
+      return { component, fanIn, fanOut, shallownessScore };
+    })
+    .sort(
+      (a, b) =>
+        b.shallownessScore - a.shallownessScore ||
+        a.component.name.localeCompare(b.component.name)
+    );
+}
+
+export function detectShallowModules(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  opts?: { minFanOut?: number; minShallowness?: number; limit?: number }
+): ModuleDepthSignal[] {
+  const minFanOut = opts?.minFanOut ?? 4;
+  const minShallowness = opts?.minShallowness ?? 2;
+  const limit = opts?.limit ?? 20;
+
+  return getModuleDepthSignals(components, connections)
+    .filter((signal) => signal.fanOut >= minFanOut && signal.shallownessScore >= minShallowness)
+    .slice(0, limit);
+}
+
 export function detectImportCycles(
   components: ArchitectureComponent[],
   connections: ArchitectureConnection[],
