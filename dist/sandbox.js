@@ -26,7 +26,7 @@ export function detectSandbox() {
         };
     }
     // 2. Codex environment
-    if (process.env.CODEX === '1' || (process.env.OPENAI_API_KEY && !process.stdout.isTTY)) {
+    if (process.env.CODEX === '1') {
         return {
             enabled: true,
             detected: true,

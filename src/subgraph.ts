@@ -103,7 +103,7 @@ export function extractSubgraph(
   // Apply classification filter
   if (options.classification) {
     filteredConnections = filteredConnections.filter(c => {
-      const semantic = (c as any).semantic;
+      const semantic = c.semantic;
       return semantic?.classification === options.classification;
     });
   }

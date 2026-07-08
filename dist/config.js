@@ -309,13 +309,13 @@ export function shouldRescan(config, projectRoot) {
  * Validate component ID format
  */
 export function isValidComponentId(id) {
-    return /^COMP_[a-z0-9-]+_[a-z0-9_]+_[a-z0-9]{4}$/i.test(id);
+    return /^COMP_[a-z0-9-]+_[a-z0-9_]+_[a-z0-9]{4,8}$/i.test(id);
 }
 /**
  * Validate connection ID format
  */
 export function isValidConnectionId(id) {
-    return /^CONN_[a-z0-9-]+_[a-z0-9]{6}$/i.test(id);
+    return /^CONN_[a-z0-9-]+_[a-z0-9]{4,8}$/i.test(id);
 }
 /**
  * Sanitize a path to prevent directory traversal

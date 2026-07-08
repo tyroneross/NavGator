@@ -188,6 +188,27 @@ describe('Architecture Rules', () => {
             expect(violations[0].message).toContain('imports 8 modules');
         });
     });
+    describe('shallow-module', () => {
+        it('fires (advisory) on a thin pass-through module', () => {
+            // glue imports 6 modules, used by 1 → shallow.
+            const glue = createComponent({ name: 'glue/wire', type: 'component', file: 'src/glue/wire.ts' });
+            const app = createComponent({ name: 'app/main', type: 'component', file: 'src/app/main.ts' });
+            const components = [glue, app];
+            const connections = [createConnection(app, glue, { connection_type: 'imports' })];
+            for (let i = 0; i < 6; i++) {
+                const dep = createComponent({ name: `core/dep-${i}`, type: 'component', file: `src/core/dep-${i}.ts` });
+                components.push(dep);
+                connections.push(createConnection(glue, dep, { connection_type: 'imports' }));
+            }
+            const rule = getBuiltinRules().find(r => r.id === 'shallow-module');
+            const violations = rule.check(components, connections);
+            expect(violations).toHaveLength(1);
+            expect(violations[0].component).toBe('glue/wire');
+            expect(violations[0].severity).toBe('warning');
+            expect(violations[0].message).toContain('shallow module');
+            expect(violations[0].message).toContain('imports 6');
+        });
+    });
     describe('layer-violation', () => {
         it('detects upward import violations', () => {
             const core = createComponent({ name: 'core/types', type: 'component', file: 'src/core/types.ts' });

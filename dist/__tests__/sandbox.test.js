@@ -33,9 +33,12 @@ describe('sandbox', () => {
         expect(config.restrictions.noChildProcess).toBe(true);
         expect(config.restrictions.readOnlyFs).toBe(true);
     });
-    it('detects Codex environment via OPENAI_API_KEY + no TTY', () => {
+    it('does not trigger sandbox for OPENAI_API_KEY + no TTY (too broad)', () => {
+        // OPENAI_API_KEY alone should not trigger sandbox — many devs have this set for other tools.
+        // Only CODEX=1 triggers Codex detection now.
         process.env.OPENAI_API_KEY = 'sk-test';
-        // Mock process.stdout.isTTY
+        delete process.env.CODEX;
+        delete process.env.CI;
         const originalIsTTY = process.stdout.isTTY;
         Object.defineProperty(process.stdout, 'isTTY', {
             value: false,
@@ -43,9 +46,8 @@ describe('sandbox', () => {
             configurable: true,
         });
         const config = detectSandbox();
-        expect(config.enabled).toBe(true);
-        expect(config.detected).toBe(true);
-        expect(config.restrictions.readOnlyFs).toBe(true);
+        expect(config.enabled).toBe(false);
+        expect(config.detected).toBe(false);
         // Restore
         Object.defineProperty(process.stdout, 'isTTY', {
             value: originalIsTTY,

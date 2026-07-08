@@ -193,7 +193,7 @@ export function traceDataflow(startComponent, allComponents, allConnections, opt
             const semantic = allConnections.find(c => c.connection_id === s.connection?.id)?.semantic;
             return semantic?.classification;
         })
-            .filter(Boolean);
+            .filter((c) => c != null);
         if (classifications.length > 0) {
             // Most common classification
             const counts = new Map();
