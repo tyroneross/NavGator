@@ -8,7 +8,8 @@ NavGator tracks architecture connections across your entire stack—packages, se
 
 ## Features
 
-- **Component Detection**: Packages (npm, pip), frameworks, databases, queues, infrastructure
+- **Component Detection**: Packages (npm, pip, cargo, go, gem, composer), frameworks, databases, queues, infrastructure
+- **Source-Level Code Navigation**: Swift (types, protocol conformance, state/actor isolation, SwiftUI navigation) and Rust (modules, structs/enums/traits, trait impls, `use` graph, LLM calls) — mapped straight from source
 - **Connection Mapping**: API → Database, Frontend → API, Queue → Handler, Service calls
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
@@ -449,6 +450,18 @@ Extract a focused subgraph around a specific component.
 | `field-reference` | Database model field → file that references it |
 | `runtime-binding` | Component → its runtime service/resource |
 | `queue-uses-cache` | Queue system → Redis/cache instance |
+| `conforms-to` | Type → protocol/trait it implements (Swift `: Protocol`, Rust `impl Trait for Type`) |
+| `imports` | File → module/file it imports (incl. Rust `use crate::…`) |
+| `uses-package` | Code → external package/crate (incl. Rust `use <crate>`) |
+
+### Source-Level Code Navigation
+
+Beyond packages and infrastructure, NavGator scans source directly for two compiled-language stacks. Both run automatically during `navgator scan` when the project is detected (`Package.swift` → Swift, `Cargo.toml` → Rust) and feed the same component/connection graph, so `trace`, `impact`, and `diagram` work on them.
+
+| Language | Detected | Produces |
+|----------|----------|----------|
+| **Swift** (`.swift`) | `Package.swift` / Xcode project | Types, protocol conformance (`conforms-to`), `@Published`/`@Observable` state (`observes`), actor isolation, UserDefaults/Keychain keys (`stores`), SwiftUI navigation, LLM calls, entitlement requirements |
+| **Rust** (`.rs`) | `Cargo.toml` / `Cargo.lock` | Modules, structs/enums/traits, trait impls (`conforms-to`), internal `use` graph (`imports`), external crate use (`uses-package`), LLM API calls (`service-call`) |
 
 ### Runtime Topology
 

@@ -143,6 +143,15 @@ NavGator detects infrastructure beyond packages:
 
 These are detected automatically during `navgator scan`. Use `navgator coverage --fields` or `--typespec` for detailed analysis.
 
+### Source-Level Code Navigation (Swift, Rust)
+
+NavGator scans compiled-language source directly, not just package manifests. Two stacks are supported and run automatically during `navgator scan`:
+
+- **Swift** — gated on `Package.swift`/Xcode project. Extracts types, protocol conformance (`conforms-to`), observable/actor state, string-keyed deps (`stores`), SwiftUI navigation, LLM calls, and entitlement requirements. Sets project type `swift-app`.
+- **Rust** — gated on `Cargo.toml`/`Cargo.lock`. Extracts modules, structs/enums/traits, trait impls (`conforms-to`), the internal `use` graph (`imports`), external crate use (`uses-package`), and LLM API calls (`service-call`). Sets project type `rust-app`. Scanner: `src/scanners/rust/code-scanner.ts`, wired in `src/scanner.ts` under `detectCargo`.
+
+These components/connections join the same graph as everything else, so `explore`, `trace`, `impact`, and `diagram` operate on Swift/Rust symbols identically. `navgator status` shows the detected project stack on its `Project:` line.
+
 ### Runtime Topology
 
 NavGator annotates components with runtime identity — service names, connection endpoints, and deployment targets extracted from code and config. This enables backward tracing from runtime failures to code: "which code produces to this BullMQ queue?" or "what database engine does this Prisma schema connect to?"

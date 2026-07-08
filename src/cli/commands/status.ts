@@ -56,6 +56,12 @@ export function registerStatusCommand(program: Command): void {
         const hoursSince = Math.round((Date.now() - index.last_scan) / (1000 * 60 * 60));
 
         console.log(`Last scan: ${lastScan.toLocaleString()} (${hoursSince}h ago)`);
+        if (index.project?.type && index.project.type !== 'unknown') {
+          const stack: string[] = [index.project.type];
+          if (index.project.platforms?.length) stack.push(index.project.platforms.join('/'));
+          if (index.project.architecture_pattern) stack.push(index.project.architecture_pattern);
+          console.log(`Project: ${stack.join(' · ')}`);
+        }
         console.log(`Total components: ${index.stats.total_components}`);
         console.log(`Total connections: ${index.stats.total_connections}`);
 
