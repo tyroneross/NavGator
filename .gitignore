@@ -37,3 +37,14 @@ web/.next/
 # Bookmark snapshot data (.bookmark/ is where the plugin actually writes;
 # the earlier .claude/bookmarks/ pattern was a typo that never matched)
 .bookmark/
+.claude/bookmarks/
+
+# Agent-tooling state (never tracked — plugins store under .<toolname>/)
+.build-loop/
+.rally/
+.codex/
+.claude-code-debugger/
+.navgator/dirty.json
+
+# Generated .navgator state inside test fixtures
+__tests__/fixtures/**/.navgator/

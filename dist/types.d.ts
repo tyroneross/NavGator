@@ -186,7 +186,7 @@ export interface FileChangeResult {
  * Project-level metadata for agent orientation
  */
 export interface ProjectMetadata {
-    type: 'swift-app' | 'web-app' | 'api' | 'library' | 'monorepo' | 'unknown';
+    type: 'swift-app' | 'rust-app' | 'web-app' | 'api' | 'library' | 'monorepo' | 'unknown';
     platforms?: ('iOS' | 'macOS' | 'watchOS' | 'tvOS' | 'visionOS')[];
     architecture_pattern?: string;
     min_deployment?: Record<string, string>;

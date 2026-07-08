@@ -152,7 +152,34 @@ export async function scanSwiftCode(
   // Load all Swift files
   const allSwiftFiles = await glob('**/*.swift', {
     cwd: projectRoot,
-    ignore: ['.build/**', 'DerivedData/**', '.swiftpm/**', 'Pods/**', 'Carthage/**', '*.playground/**'],
+    ignore: [
+      '.build/**',
+      '**/.build/**',
+      '**/.navgator/**',
+      '**/.rally/**',
+      '**/.build-loop/**',
+      '**/.claude/**',
+      '**/.codex/**',
+      '**/.ibr/**',
+      'build/**',
+      '**/build/**',
+      'build-*/**',
+      '**/build-*/**',
+      'DerivedData/**',
+      '**/DerivedData/**',
+      'SourcePackages/**',
+      '**/SourcePackages/**',
+      '.swiftpm/**',
+      '**/.swiftpm/**',
+      'Pods/**',
+      '**/Pods/**',
+      'Carthage/**',
+      '**/Carthage/**',
+      'vendor/**',
+      '**/vendor/**',
+      '*.playground/**',
+      '**/*.playground/**',
+    ],
   });
   // Walk-set restriction (incremental). Bit-identical when undefined.
   const swiftFiles = walkSet

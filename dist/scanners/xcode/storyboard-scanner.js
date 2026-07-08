@@ -21,11 +21,21 @@ export async function scanStoryboards(projectRoot) {
         cwd: projectRoot,
         ignore: [
             '**/node_modules/**',
+            '**/.navgator/**',
+            '**/.rally/**',
+            '**/.build-loop/**',
+            '**/.claude/**',
+            '**/.codex/**',
+            '**/.ibr/**',
             '**/build/**',
+            '**/build-*/**',
             '**/DerivedData/**',
+            '**/SourcePackages/**',
             '**/.build/**',
+            '**/.swiftpm/**',
             '**/Pods/**',
             '**/Carthage/**',
+            '**/vendor/**',
         ],
     });
     // Track view controllers by ID (for segue resolution)

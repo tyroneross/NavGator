@@ -55,11 +55,21 @@ export async function scanStoryboards(projectRoot: string): Promise<{
     cwd: projectRoot,
     ignore: [
       '**/node_modules/**',
+      '**/.navgator/**',
+      '**/.rally/**',
+      '**/.build-loop/**',
+      '**/.claude/**',
+      '**/.codex/**',
+      '**/.ibr/**',
       '**/build/**',
+      '**/build-*/**',
       '**/DerivedData/**',
+      '**/SourcePackages/**',
       '**/.build/**',
+      '**/.swiftpm/**',
       '**/Pods/**',
       '**/Carthage/**',
+      '**/vendor/**',
     ],
   });
 

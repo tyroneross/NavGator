@@ -11,15 +11,25 @@ const DEFAULT_IGNORE_PATTERNS = [
   '**/node_modules/**',
   '**/dist/**',
   '**/build/**',
+  '**/build-*/**',
   '**/.next/**',
   '**/__pycache__/**',
   '**/venv/**',
   '**/.venv/**',
   '**/.git/**',
+  '**/.navgator/**',
+  '**/.rally/**',
+  '**/.build-loop/**',
+  '**/.claude/**',
+  '**/.codex/**',
+  '**/.ibr/**',
   '**/.build/**',
+  '**/target/**',
   '**/DerivedData/**',
+  '**/SourcePackages/**',
   '**/.swiftpm/**',
   '**/Pods/**',
+  '**/vendor/**',
   '**/coverage/**',
   // Saved-webpage asset directories (Mediasite/Confluence/MHTML exports etc.)
   // contain inert JS that has no runtime role in the project.
@@ -69,6 +79,7 @@ import { scanWithAST, scanDatabaseOperations } from './scanners/connections/ast-
 import { scanPrompts, convertToArchitecture, formatPromptsOutput, PromptScanResult } from './scanners/prompts/index.js';
 import { traceLLMCalls, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 import { scanSwiftCode } from './scanners/swift/code-scanner.js';
+import { scanRustCode } from './scanners/rust/code-scanner.js';
 import { scanImports } from './scanners/connections/import-scanner.js';
 import {
   storeComponents,
@@ -1204,6 +1215,28 @@ export async function scan(
         allWarnings.push({
           type: 'parse_error',
           message: `Xcode project scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        });
+      }
+    }
+
+    // Rust code analysis (modules, types, trait impls, use graph, LLM calls)
+    if (detectCargo(root)) {
+      if (options.verbose) console.log('  - Scanning Rust code connections...');
+      try {
+        const rustResult = await scanRustCode(root, incWalkSet);
+        allComponents.push(...rustResult.components);
+        allConnections.push(...rustResult.connections);
+        allWarnings.push(...rustResult.warnings);
+        if (!projectMetadata || Object.keys(projectMetadata).length === 0) {
+          projectMetadata = rustResult.projectMeta;
+        }
+        if (options.verbose) {
+          console.log(`    Rust: ${rustResult.components.length} components, ${rustResult.connections.length} connections`);
+        }
+      } catch (error) {
+        allWarnings.push({
+          type: 'parse_error',
+          message: `Rust code scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         });
       }
     }
