@@ -32,6 +32,7 @@ import {
   loadAllConnections,
   loadIndex,
   clearStorage,
+  partitionPriorStateForFiles,
 } from '../storage.js';
 import {
   writeFullComponentsJsonl,
@@ -176,6 +177,37 @@ describe('R6 — loadAll* fall back to *.full.jsonl', () => {
     const config = cfg(false);
     expect(await loadAllComponents(config, root)).toEqual([]);
     expect(await loadAllConnections(config, root)).toEqual([]);
+  });
+});
+
+describe('incremental canonical-state partition', () => {
+  let root: string;
+  beforeEach(() => { root = tmpRoot(); });
+  afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+  it('uses normalized source ownership rather than physical per-entity files', () => {
+    const { components, connections } = fixture();
+    components[0].source.config_files = [path.join(root, 'src', 'a.ts')];
+    connections[0].code_reference = {
+      ...(connections[0].code_reference ?? {}),
+      file: './src/a.ts',
+      symbol: './b',
+      symbol_type: 'import',
+      line_start: 1,
+    };
+
+    const partition = partitionPriorStateForFiles(
+      components,
+      connections,
+      new Set(['src/a.ts']),
+      root,
+    );
+
+    expect(partition.componentsRemoved).toBe(1);
+    expect(partition.connectionsRemoved).toBe(1);
+    expect(partition.survivingComponents.map((component) => component.name).sort())
+      .toEqual(['core/b', 'core/c']);
+    expect(partition.survivingConnections).toHaveLength(1);
   });
 });
 

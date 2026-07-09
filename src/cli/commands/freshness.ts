@@ -1,12 +1,24 @@
 import { Command } from 'commander';
 import { spawn } from 'child_process';
-import { markDirty } from '../../freshness/dirty-ledger.js';
-import { drain, drainUntilClean } from '../../freshness/drainer.js';
+import { markDirty, readDirty } from '../../freshness/dirty-ledger.js';
+import { drain, drainUntilClean, type DrainScanLifecycle } from '../../freshness/drainer.js';
 import { computeStamp, readStamp, type FreshnessStamp } from '../../freshness/stamp.js';
 import { scan } from '../../scanner.js';
 
-/** Production scanFn: run the real incremental scan; it persists everything. */
-const realScan = async (root: string) => scan(root, { mode: 'incremental' });
+/** Production scanFn: reconcile the dirty snapshot before releasing the scan lease. */
+const realScan = async (
+  root: string,
+  changed: string[],
+  lifecycle: DrainScanLifecycle,
+) => scan(root, {
+  // Auto preserves full-scan triggers for manifests/configuration while still
+  // selecting the incremental fast path for ordinary source edits.
+  mode: 'auto',
+  _forcedChangedFiles: changed,
+  _onLeaseAcquired: lifecycle.onLeaseAcquired,
+  _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+  _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+});
 
 /** Testable core: append paths to the dirty ledger. */
 export function runMarkDirty(paths: string[], root: string): void {
@@ -25,7 +37,16 @@ export async function runDrainUntilClean(root: string, minIntervalMs?: number) {
 
 /** Testable core: return the current stamp (computing a transient one if none). */
 export async function runFreshness(root: string): Promise<FreshnessStamp> {
-  return readStamp(root) ?? (await computeStamp(root, { inFlight: false }));
+  const stamp = readStamp(root) ?? (await computeStamp(root, { inFlight: false }));
+  // The immutable ledger is canonical. A marker can exit/crash after committing
+  // its event but before its best-effort stamp refresh, so never trust persisted
+  // dirty fields without overlaying the live event set at the read boundary.
+  const dirty = readDirty(root);
+  return {
+    ...stamp,
+    dirty_files: dirty,
+    dirty_count: dirty.length,
+  };
 }
 
 /**

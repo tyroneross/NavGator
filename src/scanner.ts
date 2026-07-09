@@ -57,6 +57,7 @@ import {
   FileChangeResult,
   ProjectMetadata,
   GitInfo,
+  ArchitectureScanOutcome,
 } from './types.js';
 import { getGitInfo } from './git.js';
 import { enrichFromCache } from './enrich/external-resolver.js';
@@ -98,6 +99,8 @@ import {
   loadReverseDeps,
   runIntegrityCheck,
   mergeByStableId,
+  normalizeTrackedPath,
+  partitionPriorStateForFiles,
   atomicWriteJSON,
   ensureStableIdPublic,
   buildReverseDepsIndex,
@@ -109,7 +112,8 @@ import {
   formatFileChangeSummary,
 } from './storage.js';
 import { getConfig, ensureStorageDirectories, NavGatorConfig, getIndexPath, getStoragePath, SCHEMA_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
-import { acquireLock } from './scan-lock.js';
+import { acquireScanLease, type ScanLease } from './scan-lock.js';
+import { scanLockPath } from './freshness/paths.js';
 import {
   computeArchitectureDiff,
   classifySignificance,
@@ -168,14 +172,27 @@ export interface ScanOptions {
   scip?: boolean;            // Opt-in: run SCIP indexer for resolved cross-file edges (~500ms cold)
   /**
    * Internal-only (Run 1.7 — Problem A). When the integrity check on an
-   * incremental scan fails, the outer scan releases its lock and recursively
-   * re-enters with `mode: 'full', clearFirst: true, _promotedFromIncremental: true`.
+   * incremental scan fails, the outer scan recursively re-enters while reusing
+   * its lease with `mode: 'full', clearFirst: true, _promotedFromIncremental: true`.
    * The inner scan honors this flag by labeling its timeline entry and stats
    * `scan_type: 'incremental→full'` (instead of plain 'full') so downstream
    * tooling — and the Run 1.6 #3 evidence-preservation contract — sees the
    * promotion. NEVER set this flag from outside scanner.ts.
    */
   _promotedFromIncremental?: boolean;
+  /** Internal-only: recursive incremental-to-full promotion reuses the same
+   * owner-safe lease. NEVER set this outside scanner.ts. */
+  _scanLease?: ScanLease;
+  /** Internal-only freshness callback. Runs after persistence and before this
+   * scan releases its canonical lease. */
+  _beforeLeaseRelease?: () => Promise<void>;
+  /** Internal-only freshness lifecycle callbacks. */
+  _onLeaseAcquired?: () => Promise<void>;
+  _onLeaseFailureBeforeRelease?: () => Promise<void>;
+  /** Internal-only dirty-ledger paths that must be included in this walk. */
+  _forcedChangedFiles?: string[];
+  /** Test seam for a mutation after scanner reads but before hash persistence. */
+  _beforeHashSave?: () => Promise<void>;
   /** Run 2 — D4: skip the SQC audit pass entirely. */
   noAudit?: boolean;
   /** Run 2 — D4: override the audit's plan-selection auto-pick. */
@@ -329,6 +346,7 @@ const FULL_SCAN_TRIGGER_FILES: ReadonlySet<string> = new Set<string>([
   'Cargo.lock',
   // Build / runtime config — change resolution, deploy targets, ignore rules
   'tsconfig.json',
+  'jsconfig.json',
   'vercel.json',
   'fly.toml',
   'railway.json',
@@ -340,6 +358,26 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Cap on consecutive incremental scans before forcing a full scan. */
 const INCREMENTAL_CAP = 20;
+
+/**
+ * Convert hook/ledger paths to the same project-relative POSIX identity used
+ * by glob, hashes, walk sets, and connection code references. Paths outside
+ * the project are ignored so a malformed hook payload cannot partition or
+ * clear unrelated canonical state.
+ */
+function normalizeForcedChangedFiles(files: string[], root: string): string[] {
+  const normalized = new Set<string>();
+  for (const raw of files) {
+    const value = raw.trim();
+    if (!value || value.includes('\0')) continue;
+    const tracked = normalizeTrackedPath(value, root);
+    if (!tracked || tracked === '..' || tracked.startsWith('../') || path.posix.isAbsolute(tracked)) {
+      continue;
+    }
+    normalized.add(tracked);
+  }
+  return [...normalized].sort();
+}
 
 export interface ScanModeDecision {
   mode: 'full' | 'incremental';
@@ -460,26 +498,7 @@ export function selectScanMode(
 export async function scan(
   projectRoot?: string,
   options: ScanOptions = {}
-): Promise<{
-  components: ArchitectureComponent[];
-  connections: ArchitectureConnection[];
-  warnings: ScanWarning[];
-  fileChanges?: FileChangeResult;
-  promptScan?: PromptScanResult;
-  fieldUsageReport?: FieldUsageReport;
-  typeSpecReport?: TypeSpecReport;
-  timelineEntry?: TimelineEntry;
-  gitInfo?: GitInfo;
-  stats: {
-    scan_duration_ms: number;
-    components_found: number;
-    connections_found: number;
-    warnings_count: number;
-    files_scanned: number;
-    files_changed: number;
-    prompts_found?: number;
-  };
-}> {
+): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>> {
   const startTime = Date.now();
   const root = projectRoot || process.cwd();
   const config = getConfig();
@@ -519,15 +538,23 @@ export async function scan(
   // Phase 0.0: Concurrency lock (Run 1.6 — item #4)
   // ==========================================================================
   // Prevent two `navgator scan` processes corrupting each other's
-  // .navgator/architecture/ output. Stale locks (>10 min OR pid gone)
-  // auto-clear. Live contention exits cleanly with code 0.
-  const storeDir = getStoragePath(config, root);
+  // .navgator/architecture/ output. A heartbeat reports liveness; dead owners
+  // and stale unreadable records recover safely. Live contention returns `busy`.
   const requestedScanType = options.mode ?? (options.clearFirst ? 'full' : options.incremental ? 'incremental' : 'auto');
-  const lock = acquireLock(storeDir, requestedScanType);
-  if (!lock.ok) {
-    console.log(lock.message);
+  const ownsLease = options._scanLease === undefined;
+  const acquisition = options._scanLease
+    ? { ok: true as const, lease: options._scanLease }
+    : acquireScanLease(scanLockPath(root), requestedScanType);
+  if (!acquisition.ok) {
+    if (!acquisition.retryable) {
+      throw new Error(acquisition.message);
+    }
+    if (options.verbose) console.log(acquisition.message);
     const duration = Date.now() - startTime;
     return {
+      status: 'busy',
+      retryable: true,
+      message: acquisition.message,
       components: [],
       connections: [],
       warnings: [],
@@ -541,8 +568,10 @@ export async function scan(
       },
     };
   }
+  const lease = acquisition.lease;
 
   try {
+  await options._onLeaseAcquired?.();
   // ==========================================================================
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================
@@ -572,6 +601,7 @@ export async function scan(
     'Cargo.lock',
     // Build / runtime config — track so changes trigger full scan
     'tsconfig.json',
+    'jsconfig.json',
     'vercel.json',
     'fly.toml',
     'railway.json',
@@ -594,12 +624,38 @@ export async function scan(
   for (const file of rustManifestFiles) {
     if (!manifestFiles.includes(file)) manifestFiles.push(file);
   }
+  const nestedModuleConfigFiles = await glob('**/{tsconfig.json,jsconfig.json}', {
+    cwd: root,
+    ignore: getIgnorePatterns(root),
+  });
+  for (const file of nestedModuleConfigFiles) {
+    if (!manifestFiles.includes(file)) manifestFiles.push(file);
+  }
   const filesForChangeDetection = [...sourceFiles, ...manifestFiles];
 
   // Detect file changes using prior hashes BEFORE any clearing.
   // (Used by mode selection AND timeline summary even on full scans.)
   let fileChanges: FileChangeResult | undefined;
   fileChanges = await detectFileChanges(filesForChangeDetection, root, config);
+
+  // Freshness drains carry an immutable pre-scan ledger snapshot. Force those
+  // paths into the incremental walk even when hashes already match, because a
+  // prior scan may have persisted a late edit's hash without consuming it.
+  const forcedChangedFiles = normalizeForcedChangedFiles(
+    options._forcedChangedFiles ?? [],
+    root,
+  );
+  for (const forced of forcedChangedFiles) {
+    if (
+      !fileChanges.added.includes(forced) &&
+      !fileChanges.modified.includes(forced) &&
+      !fileChanges.removed.includes(forced)
+    ) {
+      if (fs.existsSync(path.join(root, forced))) fileChanges.modified.push(forced);
+      else fileChanges.removed.push(forced);
+      fileChanges.unchanged = fileChanges.unchanged.filter((file) => file !== forced);
+    }
+  }
 
   if (options.verbose) {
     console.log(`File changes: ${formatFileChangeSummary(fileChanges)}`);
@@ -699,7 +755,11 @@ export async function scan(
       console.log(`Scan complete (noop) in ${duration}ms`);
     }
 
+    await options._beforeLeaseRelease?.();
+
     return {
+      status: 'noop',
+      retryable: false,
       components: existingComponents,
       connections: existingConnections,
       warnings: [],
@@ -1044,17 +1104,23 @@ export async function scan(
         ))
         .map(c => ({ name: c.name, component_id: c.component_id }));
 
-      // In incremental mode, restrict the import scan to walk-set files. Falls
-      // back to the full sourceFiles list (bit-identical) on full scans.
-      const importSourceFiles = incWalkSet
-        ? sourceFiles.filter(f => incWalkSet.has(f))
-        : sourceFiles;
-      const importResult = await scanImports(root, importSourceFiles, knownPackages);
+      // Import resolution needs the complete source-file universe even when
+      // only a subset of origins is dirty. Otherwise an unchanged local target
+      // is absent from knownFiles and a valid edge silently disappears. Scan
+      // against the complete universe, then retain only dirty-origin edges for
+      // the incremental delta.
+      const importResult = await scanImports(root, sourceFiles, knownPackages);
+      const importConnections = incWalkSet
+        ? importResult.connections.filter(connection => {
+            const origin = connection.code_reference?.file?.replace(/\\/g, '/');
+            return origin !== undefined && incWalkSet.has(origin);
+          })
+        : importResult.connections;
       allComponents.push(...importResult.components);
-      allConnections.push(...importResult.connections);
+      allConnections.push(...importConnections);
       if (options.verbose) {
-        const usesPkgCount = importResult.connections.filter(c => c.connection_type === 'uses-package').length;
-        console.log(`    Found ${importResult.components.length} internal modules, ${importResult.connections.length} file-level imports (${usesPkgCount} uses-package)`);
+        const usesPkgCount = importConnections.filter(c => c.connection_type === 'uses-package').length;
+        console.log(`    Found ${importResult.components.length} internal modules, ${importConnections.length} file-level imports (${usesPkgCount} uses-package)`);
       }
 
       // SCIP overlay (T11): when --scip / NAVGATOR_SCIP=1, run the
@@ -1443,13 +1509,23 @@ export async function scan(
     // to the new ones (since stable_id is the join key but connections
     // reference component_id, which gets a fresh random suffix per scan).
     const preClearComponents = await loadAllComponents(config, root);
+    const preClearConnections = await loadAllConnections(config, root);
+
+    // Partition the prior canonical generation in memory. This is required for
+    // the default consolidated layout: clearForFiles has no per-entity files
+    // to delete there, and reloading would resurrect stale JSONL records.
+    const partition = partitionPriorStateForFiles(
+      preClearComponents,
+      preClearConnections,
+      walkSet,
+      root,
+    );
 
     // Clear only the touched subset.
     await clearForFiles(config, root, walkSet);
 
-    // Load survivors (everything NOT in walk-set, still on disk).
-    const survivingComponents = await loadAllComponents(config, root);
-    const survivingConnections = await loadAllConnections(config, root);
+    const survivingComponents = partition.survivingComponents;
+    const survivingConnections = partition.survivingConnections;
 
     // Populate stable_ids on the in-memory uniqueComponents BEFORE merging.
     // Disk-loaded survivors get stable_ids from loadAllComponents, but
@@ -1535,9 +1611,9 @@ export async function scan(
       // them on promote truncated the graph (atomize-ai: 6,445 → 58
       // connections, 2,452 → 58 components).
       //
-      // Fix: release the scan lock and recursively re-enter scan() with
-      // `mode: 'full', clearFirst: true`. The inner scan walks the full
-      // source tree, the lock re-acquires cleanly inside, and its result
+      // Fix: recursively re-enter scan() with `mode: 'full', clearFirst: true`
+      // while reusing this owner-safe lease. The inner scan walks the full
+      // source tree without opening a second writer window, and its result
       // is returned verbatim. The internal `_promotedFromIncremental`
       // flag tells the inner scan to label its timeline entry and stats
       // `scan_type: 'incremental→full'` — preserving the Run 1.6 #3
@@ -1545,13 +1621,13 @@ export async function scan(
       //
       // We `return` early so the rest of the outer scan's phases
       // (storage, timeline, manifest, hashes) don't double-run.
-      lock.release();
       return await scan(root, {
         ...options,
         mode: 'full',
         clearFirst: true,
         incremental: false,
         _promotedFromIncremental: true,
+        _scanLease: lease,
       });
     }
 
@@ -1956,6 +2032,7 @@ export async function scan(
 
   // Phase 6: hash both source files AND manifests so manifest edits are
   // detectable on the next scan (selectScanMode uses this to fire 'manifest-changed').
+  await options._beforeHashSave?.();
   const fileHashes = await computeFileHashes(filesForChangeDetection, root);
   await saveHashes(fileHashes, config, root);
 
@@ -1989,7 +2066,11 @@ export async function scan(
     // Non-fatal: scan already completed, gitignore guard is best-effort
   }
 
+  await options._beforeLeaseRelease?.();
+
   return {
+    status: 'completed',
+    retryable: false,
     components: finalComponents,
     connections: finalConnections,
     warnings: allWarnings,
@@ -2020,23 +2101,23 @@ export async function scan(
       prompts_found: promptScanResultHolder?.prompts.length,
     },
   };
+  } catch (error) {
+    await options._onLeaseFailureBeforeRelease?.();
+    throw error;
   } finally {
     // Run 1.6 — item #4: release the scan lock on every exit path
     // (success, early-return, throw). Idempotent.
-    lock.release();
+    if (ownsLease) lease.release();
   }
 }
 
 /**
  * Quick scan - only packages, no code analysis
  */
-export async function quickScan(projectRoot?: string): Promise<ScanResult> {
-  const result = await scan(projectRoot, { quick: true });
-  return {
-    components: result.components,
-    connections: result.connections,
-    warnings: result.warnings,
-  };
+export async function quickScan(
+  projectRoot?: string,
+): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>> {
+  return scan(projectRoot, { quick: true });
 }
 
 /**
@@ -2094,11 +2175,12 @@ export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
 export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 
 /**
- * R6 auto-refresh: run an incremental scan when the on-disk graph is stale.
+ * R6 auto-refresh: run a policy-selected scan when the on-disk graph is stale.
  *
  * Cheap by design — checks only `index.last_scan` age. If older than
- * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'incremental' })`
- * which internally fast-paths to "no-changes" when nothing actually moved.
+ * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'auto' })`, which
+ * preserves manifest/config full-scan triggers and fast-paths ordinary source
+ * edits or "no-changes" cases.
  * Per-entity files stay off (the default); auto-refresh is footprint-safe.
  *
  * Returns a one-line description that callers can surface to the user. Never
@@ -2110,7 +2192,7 @@ export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-c
 export interface AutoRefreshOptions {
   /** Default true. Programmatic override beats the env var. */
   enabled?: boolean;
-  /** Default 5 minutes. Older than this → trigger incremental. */
+  /** Default 5 minutes. Older than this → trigger policy-selected refresh. */
   staleAfterMinutes?: number;
   /**
    * Test-seam: swap the scan implementation. Defaults to the real `scan`
@@ -2121,8 +2203,8 @@ export interface AutoRefreshOptions {
 
 export interface AutoRefreshResult {
   refreshed: boolean;
-  /** "stale", "fresh", "no-index", "disabled", "error" */
-  reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'error';
+  /** "stale", "fresh", "no-index", "disabled", "busy", "error" */
+  reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'busy' | 'error';
   /** Files updated by the refresh (only set on `refreshed: true`). */
   filesChanged?: number;
   /** Human-readable summary suitable for one-line stderr / status emit. */
@@ -2187,24 +2269,31 @@ export async function autoRefreshIfStale(
       };
     }
 
-    // Stale → run incremental. selectScanMode will pick the right mode
-    // internally; on a "no changes" hit it returns almost immediately.
+    // Stale → let selectScanMode choose. Auto preserves mandatory full-scan
+    // triggers for manifests/config while ordinary source edits stay fast.
     const scanFn = options.scanImpl ?? scan;
-    const result = await scanFn(root, { mode: 'incremental' });
+    const { captureDirtySnapshot, reconcileClean } = await import('./freshness/drainer.js');
+    const dirtySnapshot = captureDirtySnapshot(root);
+    const result = await scanFn(root, {
+      mode: 'auto',
+      _forcedChangedFiles: dirtySnapshot.paths,
+      _beforeLeaseRelease: async () => reconcileClean(root, dirtySnapshot),
+    });
+
+    if (result.status === 'busy') {
+      // Contention is retryable. Do not reconcile (the graph was not updated),
+      // and remove the in-process debounce so the next read can retry.
+      _lastRefreshAttemptMs.delete(root);
+      return {
+        refreshed: false,
+        reason: 'busy',
+        message: result.message,
+      };
+    }
 
     const changed = (result.fileChanges?.added.length ?? 0) +
       (result.fileChanges?.modified.length ?? 0) +
       (result.fileChanges?.removed.length ?? 0);
-
-    // Stamp coherence: this incremental scan covered every changed file via
-    // hashes, so the freshness ledger/stamp must be reconciled or the stamp
-    // would lie. Best-effort — never fail the refresh on freshness bookkeeping.
-    try {
-      const { reconcileClean } = await import('./freshness/drainer.js');
-      await reconcileClean(root);
-    } catch {
-      /* freshness subsystem is optional; ignore */
-    }
 
     return {
       refreshed: true,

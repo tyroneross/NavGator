@@ -15,6 +15,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { autoRefreshIfStale, scan } from '../scanner.js';
 import { getStoragePath } from '../config.js';
+import { markDirty, readDirty } from '../freshness/dirty-ledger.js';
+import { drain } from '../freshness/drainer.js';
+import { loadAllConnections } from '../storage.js';
 import type { NavGatorConfig } from '../types.js';
 
 function tmpProjectRoot(): string {
@@ -51,6 +54,22 @@ function writeStubIndex(root: string, lastScanMs: number): void {
     },
   };
   fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify(index, null, 2));
+}
+
+function writeImportFixture(root: string): void {
+  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'auto-refresh-fixture', version: '0.0.0', dependencies: {} }),
+  );
+  fs.writeFileSync(
+    path.join(root, 'src', 'a.ts'),
+    `import { fromB } from './b';\nexport const fromA = () => fromB();\n`,
+  );
+  fs.writeFileSync(
+    path.join(root, 'src', 'b.ts'),
+    `export const fromB = () => 1;\n`,
+  );
 }
 
 describe('R6 — autoRefreshIfStale', () => {
@@ -94,6 +113,8 @@ describe('R6 — autoRefreshIfStale', () => {
     const spy = vi
       .fn()
       .mockResolvedValue({
+        status: 'completed',
+        retryable: false,
         components: [],
         connections: [],
         warnings: [],
@@ -116,7 +137,13 @@ describe('R6 — autoRefreshIfStale', () => {
     expect(result.reason).toBe('stale');
     expect(result.filesChanged).toBe(2);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(root, { mode: 'incremental' });
+    expect(spy).toHaveBeenCalledWith(
+      root,
+      expect.objectContaining({
+        mode: 'auto',
+        _beforeLeaseRelease: expect.any(Function),
+      }),
+    );
     expect(result.message).toContain('refreshed');
   });
 
@@ -219,6 +246,122 @@ describe('R6 — autoRefreshIfStale', () => {
     expect(result.refreshed).toBe(false);
     expect(result.reason).toBe('error');
     expect(result.message).toContain('disk full');
+  });
+
+  it('reports retryable busy without clearing the dirty ledger', async () => {
+    writeStubIndex(root, Date.now() - 10 * 60 * 1000);
+    markDirty(['src/pending.ts'], root);
+    const spy = vi.fn().mockResolvedValue({
+      status: 'busy',
+      retryable: true,
+      message: 'Scan already in progress (pid 42)',
+      components: [],
+      connections: [],
+      warnings: [],
+      stats: {
+        scan_duration_ms: 1,
+        files_scanned: 0,
+        files_changed: 0,
+        components_found: 0,
+        connections_found: 0,
+        warnings_count: 0,
+      },
+    } as never);
+
+    const result = await autoRefreshIfStale(root, {
+      staleAfterMinutes: 5,
+      scanImpl: spy as unknown as typeof scan,
+    });
+
+    expect(result).toMatchObject({ refreshed: false, reason: 'busy' });
+    expect(result.message).toContain('Scan already in progress');
+    expect(readDirty(root)).toEqual(['src/pending.ts']);
+  });
+
+  it('forces captured dirty paths when hashes already contain a late edit', async () => {
+    writeImportFixture(root);
+    await scan(root, { mode: 'full' });
+    markDirty(['src/a.ts'], root);
+    let injectLateEdit = true;
+
+    const first = await drain(root, {
+      minIntervalMs: 0,
+      scanFn: async (scanRoot, changed, lifecycle) => scan(scanRoot, {
+        mode: 'incremental',
+        _forcedChangedFiles: changed,
+        _onLeaseAcquired: lifecycle.onLeaseAcquired,
+        _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+        _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+        _beforeHashSave: injectLateEdit
+          ? async () => {
+              injectLateEdit = false;
+              fs.writeFileSync(
+                path.join(root, 'src', 'a.ts'),
+                `export const fromA = () => 2;\n`,
+              );
+              markDirty(['src/a.ts'], root);
+            }
+          : undefined,
+      }),
+    });
+
+    expect(first.status).toBe('drained');
+    expect(readDirty(root)).toEqual(['src/a.ts']);
+    expect((await loadAllConnections(undefined, root)).some(
+      (connection) =>
+        connection.connection_type === 'imports' &&
+        connection.code_reference?.file === 'src/a.ts' &&
+        connection.code_reference?.symbol === './b',
+    )).toBe(true);
+
+    const refreshed = await autoRefreshIfStale(root, { staleAfterMinutes: 0 });
+
+    expect(refreshed).toMatchObject({ refreshed: true, reason: 'stale' });
+    expect(readDirty(root)).toEqual([]);
+    expect((await loadAllConnections(undefined, root)).some(
+      (connection) =>
+        connection.connection_type === 'imports' &&
+        connection.code_reference?.file === 'src/a.ts' &&
+        connection.code_reference?.symbol === './b',
+    )).toBe(false);
+  });
+
+  it('uses auto mode so stale refresh honors tsconfig full-scan triggers', async () => {
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'auto-alias-fixture', version: '0.0.0', dependencies: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }),
+    );
+    fs.writeFileSync(path.join(root, 'src', 'b.ts'), 'export const b = 1;\n');
+    fs.writeFileSync(
+      path.join(root, 'src', 'a.ts'),
+      "import { b } from '@/b';\nexport const a = b;\n",
+    );
+    await scan(root, { mode: 'full' });
+    expect((await loadAllConnections(undefined, root)).some(
+      (connection) =>
+        connection.connection_type === 'imports' &&
+        connection.code_reference?.symbol === '@/b',
+    )).toBe(true);
+
+    fs.writeFileSync(
+      path.join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '#/*': ['src/*'] } } }),
+    );
+    markDirty(['tsconfig.json'], root);
+    const refreshed = await autoRefreshIfStale(root, { staleAfterMinutes: 0 });
+
+    expect(refreshed).toMatchObject({ refreshed: true, reason: 'stale' });
+    expect(readDirty(root)).toEqual([]);
+    expect((await loadAllConnections(undefined, root)).some(
+      (connection) =>
+        connection.connection_type === 'imports' &&
+        connection.code_reference?.symbol === '@/b',
+    )).toBe(false);
   });
 
   // f3: in-process debounce — a second call within staleAfterMs of the FIRST

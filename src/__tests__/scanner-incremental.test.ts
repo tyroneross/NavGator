@@ -15,10 +15,20 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
-import { scan, selectScanMode } from '../scanner.js';
-import { loadIndex, loadReverseDeps } from '../storage.js';
+import { quickScan, scan, selectScanMode } from '../scanner.js';
+import { loadAllConnections, loadIndex, loadReverseDeps } from '../storage.js';
 import { getStoragePath, SCHEMA_VERSION } from '../config.js';
-import type { ArchitectureIndex, FileChangeResult } from '../types.js';
+import { acquireScanLease, readScanLease } from '../scan-lock.js';
+import { scanLockPath } from '../freshness/paths.js';
+import { drain } from '../freshness/drainer.js';
+import { markDirty, readDirty } from '../freshness/dirty-ledger.js';
+import { readStamp } from '../freshness/stamp.js';
+import type {
+  ArchitectureComponent,
+  ArchitectureConnection,
+  ArchitectureIndex,
+  FileChangeResult,
+} from '../types.js';
 
 /**
  * Build a self-contained mini project in a fresh tmp dir.
@@ -53,6 +63,45 @@ function makeTmpProject(): string {
 
 function emptyChanges(): FileChangeResult {
   return { added: [], modified: [], removed: [], unchanged: [] };
+}
+
+function normalizedArchitecture(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+): { components: string[]; connections: string[] } {
+  const componentKeyById = new Map(
+    components.map((component) => [
+      component.component_id,
+      `${component.type}|${component.name}|${[...(component.source?.config_files ?? [])].sort().join(',')}`,
+    ]),
+  );
+  const endpoint = (id: string | undefined): string =>
+    id ? (componentKeyById.get(id) ?? id) : '';
+  return {
+    components: components
+      .map((component) => componentKeyById.get(component.component_id) ?? component.component_id)
+      .sort(),
+    connections: connections
+      .map((connection) =>
+        [
+          endpoint(connection.from?.component_id),
+          endpoint(connection.to?.component_id),
+          connection.connection_type,
+          connection.code_reference?.file ?? '',
+          connection.code_reference?.symbol ?? '',
+          connection.code_reference?.line_start ?? '',
+        ].join('|'),
+      )
+      .sort(),
+  };
+}
+
+function readJsonl<T>(filePath: string): T[] {
+  return fs.readFileSync(filePath, 'utf-8')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T);
 }
 
 function indexWith(overrides: Partial<ArchitectureIndex> = {}): ArchitectureIndex {
@@ -266,6 +315,7 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
   it('scenario 1: edit-one-file → mode=incremental, files_scanned > 0 < total', async () => {
     // Baseline full scan
     const baseline = await scan(projectRoot, { mode: 'full' });
+    expect(baseline.status).toBe('completed');
     expect(baseline.timelineEntry?.scan_type).toBe('full');
     const baselineCount = baseline.components.length;
     expect(baselineCount).toBeGreaterThan(0);
@@ -305,6 +355,27 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
     expect(idx?.incrementals_since_full).toBe(0);
   });
 
+  it.each(['tsconfig.json', 'jsconfig.json'])(
+    'tracks nearest nested %s changes and forces a trustworthy full scan',
+    async (configName) => {
+      const nestedDir = path.join(projectRoot, 'apps', 'web');
+      fs.mkdirSync(nestedDir, { recursive: true });
+      const nestedConfig = path.join(nestedDir, configName);
+      fs.writeFileSync(nestedConfig, JSON.stringify({ compilerOptions: { baseUrl: '.' } }, null, 2));
+      await scan(projectRoot, { mode: 'full' });
+
+      fs.writeFileSync(
+        nestedConfig,
+        JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }, null, 2),
+      );
+      const result = await scan(projectRoot, { mode: 'auto' });
+
+      expect(result.status).toBe('completed');
+      expect(result.fileChanges?.modified).toContain(`apps/web/${configName}`);
+      expect(result.timelineEntry?.scan_type).toBe('full');
+    },
+  );
+
   it('scenario 6: noop → no file changes → scan_type=noop, last_scan updated', async () => {
     const baseline = await scan(projectRoot, { mode: 'full' });
     const baselineLastScan = (await loadIndex(undefined, projectRoot))?.last_scan ?? 0;
@@ -312,6 +383,7 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
     await new Promise((r) => setTimeout(r, 10));
 
     const noop = await scan(projectRoot, { mode: 'auto' });
+    expect(noop.status).toBe('noop');
     expect(noop.timelineEntry?.scan_type).toBe('noop');
     expect(noop.timelineEntry?.files_scanned).toBe(0);
 
@@ -366,6 +438,7 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
 
     // Incremental scan: integrity check should fail and promote to full
     const inc = await scan(projectRoot, { mode: 'incremental', perEntityFiles: true });
+    expect(inc.status).toBe('completed');
     expect(inc.timelineEntry?.scan_type).toBe('incremental→full');
     // Run 1.6 — item #3: incremental→full must still report walk-set size
     // (NOT total source file count) so we don't lose evidence the incremental
@@ -416,6 +489,205 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
   });
 });
 
+describe.each([false, true])(
+  'incremental import deletion (perEntityFiles=%s)',
+  (perEntityFiles) => {
+    it('removes the edge from returned and canonical state and equals a subsequent full scan', async () => {
+      const root = makeTmpProject();
+      try {
+        const baseline = await scan(root, { mode: 'full', perEntityFiles });
+        expect(baseline.status).toBe('completed');
+        const removedEdge = baseline.connections.find(
+          (connection) =>
+            connection.connection_type === 'imports' &&
+            connection.code_reference?.file === 'src/a.ts' &&
+            connection.code_reference?.symbol === './b',
+        );
+        expect(removedEdge).toBeDefined();
+
+        fs.writeFileSync(
+          path.join(root, 'src', 'a.ts'),
+          `export function fromA() { return 2; }\n`,
+        );
+        const incremental = await scan(root, { mode: 'incremental', perEntityFiles });
+        expect(incremental.status).toBe('completed');
+        expect(incremental.timelineEntry?.scan_type).toBe('incremental');
+        expect(incremental.connections.some(
+          (connection) => connection.connection_id === removedEdge?.connection_id,
+        )).toBe(false);
+        expect(incremental.connections.some(
+          (connection) =>
+            connection.connection_type === 'imports' &&
+            connection.code_reference?.file === 'src/a.ts' &&
+            connection.code_reference?.symbol === './b',
+        )).toBe(false);
+
+        const storeDir = path.join(root, '.navgator', 'architecture');
+        const canonicalConnections = readJsonl<ArchitectureConnection>(
+          path.join(storeDir, 'connections.full.jsonl'),
+        );
+        expect(canonicalConnections.some(
+          (connection) => connection.connection_id === removedEdge?.connection_id,
+        )).toBe(false);
+
+        const graph = JSON.parse(
+          fs.readFileSync(path.join(storeDir, 'graph.json'), 'utf-8'),
+        ) as { edges: Array<{ id: string }> };
+        expect(graph.edges.some((edge) => edge.id === removedEdge?.connection_id)).toBe(false);
+
+        const reverseDeps = JSON.parse(
+          fs.readFileSync(path.join(storeDir, 'reverse-deps.json'), 'utf-8'),
+        ) as { edges: Record<string, string[]> };
+        expect(reverseDeps.edges['src/b.ts'] ?? []).not.toContain('src/a.ts');
+
+        const incrementalNormalized = normalizedArchitecture(
+          incremental.components,
+          incremental.connections,
+        );
+        const full = await scan(root, { mode: 'full', perEntityFiles });
+        expect(full.status).toBe('completed');
+        expect(incrementalNormalized).toEqual(
+          normalizedArchitecture(full.components, full.connections),
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  },
+);
+
+describe('dirty-ledger forced incremental walk', () => {
+  it('rescans a late edit even when the previous scan persisted its new hash', async () => {
+    const root = makeTmpProject();
+    try {
+      await scan(root, { mode: 'full' });
+      markDirty(['src/a.ts'], root);
+      let injectLateEdit = true;
+      const outcomes: Awaited<ReturnType<typeof scan>>[] = [];
+      const scanFromLedger = async (
+        scanRoot: string,
+        changed: string[],
+        lifecycle: {
+          onLeaseAcquired: () => Promise<void>;
+          beforeLeaseRelease: () => Promise<void>;
+          onLeaseFailureBeforeRelease: () => Promise<void>;
+        },
+      ) => {
+        const outcome = await scan(scanRoot, {
+          mode: 'incremental',
+          _forcedChangedFiles: changed,
+          _onLeaseAcquired: lifecycle.onLeaseAcquired,
+          _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+          _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+          _beforeHashSave: injectLateEdit
+            ? async () => {
+                injectLateEdit = false;
+                fs.writeFileSync(
+                  path.join(root, 'src', 'a.ts'),
+                  `export function fromA() { return 2; }\n`,
+                );
+                markDirty(['src/a.ts'], root);
+              }
+            : undefined,
+        });
+        outcomes.push(outcome);
+        return outcome;
+      };
+
+      const first = await drain(root, { scanFn: scanFromLedger, minIntervalMs: 0 });
+      expect(first.status).toBe('drained');
+      expect(readDirty(root)).toEqual(['src/a.ts']);
+      expect(outcomes[0]?.connections.some(
+        (connection) =>
+          connection.connection_type === 'imports' &&
+          connection.code_reference?.file === 'src/a.ts' &&
+          connection.code_reference?.symbol === './b',
+      )).toBe(true);
+
+      // hashes.json already contains the late file content. The ledger path is
+      // therefore the only signal that can force this corrective walk.
+      const second = await drain(root, { scanFn: scanFromLedger, minIntervalMs: 0 });
+      expect(second.status).toBe('drained');
+      expect(readDirty(root)).toEqual([]);
+      expect((await loadAllConnections(undefined, root)).some(
+        (connection) =>
+          connection.connection_type === 'imports' &&
+          connection.code_reference?.file === 'src/a.ts' &&
+          connection.code_reference?.symbol === './b',
+      )).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('canonicalizes an absolute hook path before building the incremental walk set', async () => {
+    const root = makeTmpProject();
+    try {
+      await scan(root, { mode: 'full' });
+      const absoluteA = path.join(root, 'src', 'a.ts');
+      markDirty([absoluteA], root);
+      let outcome: Awaited<ReturnType<typeof scan>> | undefined;
+
+      const result = await drain(root, {
+        minIntervalMs: 0,
+        scanFn: async (scanRoot, changed, lifecycle) => {
+          outcome = await scan(scanRoot, {
+            mode: 'incremental',
+            _forcedChangedFiles: changed,
+            _onLeaseAcquired: lifecycle.onLeaseAcquired,
+            _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+            _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+          });
+          return outcome;
+        },
+      });
+
+      expect(result.status).toBe('drained');
+      expect(readDirty(root)).toEqual([]);
+      expect(outcome?.fileChanges?.modified).toContain('src/a.ts');
+      expect(outcome?.fileChanges?.modified).not.toContain(absoluteA);
+      expect((await loadAllConnections(undefined, root)).some(
+        (connection) =>
+          connection.connection_type === 'imports' &&
+          connection.code_reference?.file === 'src/a.ts' &&
+          connection.code_reference?.symbol === './b',
+      )).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('settles freshness and releases the lease after a real post-acquisition scan fault', async () => {
+    const root = makeTmpProject();
+    try {
+      await scan(root, { mode: 'full' });
+      markDirty(['src/a.ts'], root);
+
+      const result = await drain(root, {
+        minIntervalMs: 0,
+        scanFn: (scanRoot, changed, lifecycle) => scan(scanRoot, {
+          mode: 'auto',
+          _forcedChangedFiles: changed,
+          _onLeaseAcquired: lifecycle.onLeaseAcquired,
+          _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+          _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+          _beforeHashSave: async () => {
+            throw new Error('injected hash persistence fault');
+          },
+        }),
+      });
+
+      expect(result.status).toBe('error');
+      expect(result.error).toContain('injected hash persistence fault');
+      expect(readDirty(root)).toEqual(['src/a.ts']);
+      expect(readStamp(root)?.scan_in_flight).toBe(false);
+      expect(fs.existsSync(scanLockPath(root))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 // =============================================================================
 // Schema migration safety (C14)
 // =============================================================================
@@ -433,65 +705,70 @@ describe('scan concurrency lock (Run 1.6 — item #4)', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('held lock → second scan exits cleanly with the contention message', async () => {
+  it('held lock → second scan returns a retryable contention outcome', async () => {
     // Run a baseline so .navgator/architecture exists.
     await scan(projectRoot, { mode: 'full' });
 
-    // Plant a fresh, live-PID lock file (use this process's pid so isPidAlive returns true).
-    const cfgArg = {
-      storageMode: 'local',
-      storagePath: '.navgator/architecture',
-      autoScan: false,
-      healthCheckEnabled: false,
-      scanDepth: 'shallow',
-      defaultConfidenceThreshold: 0.6,
-    } as never;
-    const lockPath = path.join(getStoragePath(cfgArg, projectRoot), 'scan.lock');
-    fs.writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: process.pid, started_at: Date.now(), scan_type: 'incremental' })
-    );
+    const lockPath = scanLockPath(projectRoot);
+    const held = acquireScanLease(lockPath, 'incremental', { startHeartbeat: false });
+    expect(held.ok).toBe(true);
+    if (!held.ok) throw new Error(held.message);
 
-    // Second scan should NOT crash — must exit cleanly with the message.
-    const result = await scan(projectRoot, { mode: 'auto' });
-    expect(result.components).toEqual([]);
-    expect(result.connections).toEqual([]);
-    expect(result.stats.files_scanned).toBe(0);
+    try {
+      // Second scan should NOT crash or masquerade as success.
+      const result = await scan(projectRoot, { mode: 'auto' });
+      expect(result.status).toBe('busy');
+      expect(result.retryable).toBe(true);
+      expect(result.components).toEqual([]);
+      expect(result.connections).toEqual([]);
+      expect(result.stats.files_scanned).toBe(0);
 
-    const logged = logSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('\n');
-    expect(logged).toContain('Scan already in progress');
-    expect(logged).toContain(`pid ${process.pid}`);
+      expect(result.message).toContain('Scan already in progress');
+      expect(result.message).toContain(`pid ${process.pid}`);
+      expect(logSpy).not.toHaveBeenCalled();
 
-    // Lock must remain (we planted it; the contention path must NOT release it).
-    expect(fs.existsSync(lockPath)).toBe(true);
-    fs.unlinkSync(lockPath);
+      // Lock must remain (the contention path must NOT release another owner).
+      expect(fs.existsSync(lockPath)).toBe(true);
+    } finally {
+      held.lease.release();
+    }
   });
 
-  it('stale lock (>10 min old) auto-clears and scan proceeds normally', async () => {
+  it('quickScan preserves the retryable busy outcome', async () => {
+    const held = acquireScanLease(scanLockPath(projectRoot), 'full', { startHeartbeat: false });
+    expect(held.ok).toBe(true);
+    if (!held.ok) throw new Error(held.message);
+    try {
+      const result = await quickScan(projectRoot);
+      expect(result.status).toBe('busy');
+      expect(result.retryable).toBe(true);
+      expect(result.message).toContain('Scan already in progress');
+    } finally {
+      held.lease.release();
+    }
+  });
+
+  it('dead-owner lock auto-clears and scan proceeds normally', async () => {
     // First scan creates state.
     await scan(projectRoot, { mode: 'full' });
 
-    const cfgArg = {
-      storageMode: 'local',
-      storagePath: '.navgator/architecture',
-      autoScan: false,
-      healthCheckEnabled: false,
-      scanDepth: 'shallow',
-      defaultConfidenceThreshold: 0.6,
-    } as never;
-    const lockPath = path.join(getStoragePath(cfgArg, projectRoot), 'scan.lock');
+    const lockPath = scanLockPath(projectRoot);
     // Stale: 11 minutes old.
     fs.writeFileSync(
       lockPath,
       JSON.stringify({
-        pid: process.pid,
+        version: 1,
+        pid: Number.MAX_SAFE_INTEGER,
+        token: 'stale-test-owner',
         started_at: Date.now() - 11 * 60 * 1000,
+        heartbeat_at: Date.now() - 11 * 60 * 1000,
         scan_type: 'full',
       })
     );
 
     // Should auto-clear stale lock and complete.
     const result = await scan(projectRoot, { mode: 'auto' });
+    expect(result.status).not.toBe('busy');
     expect(result.timelineEntry?.scan_type).toBeDefined();
     // After scan, lock should be released (file gone).
     expect(fs.existsSync(lockPath)).toBe(false);
@@ -501,15 +778,7 @@ describe('scan concurrency lock (Run 1.6 — item #4)', () => {
     const result = await scan(projectRoot, { mode: 'full' });
     expect(result.timelineEntry?.scan_type).toBe('full');
 
-    const cfgArg = {
-      storageMode: 'local',
-      storagePath: '.navgator/architecture',
-      autoScan: false,
-      healthCheckEnabled: false,
-      scanDepth: 'shallow',
-      defaultConfidenceThreshold: 0.6,
-    } as never;
-    const lockPath = path.join(getStoragePath(cfgArg, projectRoot), 'scan.lock');
+    const lockPath = scanLockPath(projectRoot);
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 });
@@ -775,10 +1044,10 @@ describe('manifest.json (Run 1.6 — item #9)', () => {
 // disk state had the package + infra components but only the walk-set's slice
 // of code-level components, and the graph was wiped from N → tiny.
 //
-// The Run 1.7 fix is recursive re-entry: scan() releases its lock, calls
-// itself with `mode: 'full', clearFirst: true`, and returns the inner scan's
+// The Run 1.7 fix is recursive re-entry under the same lease/token: scan()
+// calls itself with `mode: 'full', clearFirst: true`, then returns the inner
 // result with `scan_type` overridden to 'incremental→full' for evidence
-// (Run 1.6 #3 contract).
+// (Run 1.6 #3 contract). No release/reacquire writer window is introduced.
 
 describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
   it('promote retains full graph (>= baseline counts), not just walk-set slice', async () => {
@@ -830,8 +1099,20 @@ describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
     // 4. Incremental scan: integrity fails → recursive promote.
     // R6: stay opted-in so per-entity files remain available for the disk
     // assertion below.
-    const inc = await scan(root, { mode: 'auto', perEntityFiles: true });
+    const observedLeaseTokens: string[] = [];
+    const inc = await scan(root, {
+      mode: 'auto',
+      perEntityFiles: true,
+      _onLeaseAcquired: async () => {
+        const token = readScanLease(scanLockPath(root))?.token;
+        expect(token).toBeTruthy();
+        observedLeaseTokens.push(token as string);
+      },
+    });
     expect(inc.timelineEntry?.scan_type).toBe('incremental→full');
+    expect(observedLeaseTokens).toHaveLength(2);
+    expect(new Set(observedLeaseTokens).size).toBe(1);
+    expect(fs.existsSync(scanLockPath(root))).toBe(false);
 
     // 5. CORE ASSERTIONS — Run 1.7 — Problem A. Pre-fix, these counts dropped
     //    to a tiny walk-set slice. Post-fix, they MUST equal (or exceed by 1

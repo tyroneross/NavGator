@@ -1,16 +1,25 @@
 /**
  * The background drainer. Coalesces the dirty set and runs one incremental scan
- * under the single-writer lock, then writes an honest stamp. Designed to be
+ * through scan()'s single-writer lease, then writes an honest stamp. Designed to be
  * invoked repeatedly and cheaply (by the hook, the orchestrator, or a timer):
- *  - busy      -> another drainer holds the lock; caller should not wait.
+ *  - busy      -> scan() could not acquire the shared lease; dirty work stays.
  *  - debounced -> a drain ran within minIntervalMs; skipped (dirty set kept).
  *  - clean     -> nothing dirty; stamp refreshed only.
  *  - drained   -> scanned, cleared the drained subset, stamp updated.
  *  - error     -> scan threw; dirty set left intact for a retry.
  */
-import { readDirty, clearDirty } from './dirty-ledger.js';
-import { acquireLock, releaseLock } from './scan-lock.js';
-import { computeStamp, writeStamp, readStamp } from './stamp.js';
+import {
+  captureDirtySnapshot,
+  clearDirtySnapshot,
+  readDirty,
+  withDirtyLedgerMutationLock,
+  type DirtyLedgerSnapshot,
+} from './dirty-ledger.js';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { computeStamp, readStamp, type FreshnessStamp } from './stamp.js';
+import { stampPath } from './paths.js';
 
 export type DrainStatus = 'busy' | 'debounced' | 'clean' | 'drained' | 'error';
 
@@ -21,10 +30,77 @@ export interface DrainResult {
 }
 
 export interface DrainOptions {
-  /** Injected scanner. Production passes a wrapper over NavGator `scan()`. */
-  scanFn: (root: string, changed: string[]) => Promise<void>;
+  /** Injected scanner. `scan()` itself is the sole scan-lease owner. */
+  scanFn: (
+    root: string,
+    changed: string[],
+    lifecycle: DrainScanLifecycle,
+  ) => Promise<DrainScanOutcome>;
   /** Skip if the last stamp was generated within this window (default 3000ms). */
   minIntervalMs?: number;
+  /** Test-only seam for an edit arriving after an empty snapshot. */
+  _afterEmptySnapshot?: () => void;
+}
+
+export type DrainScanOutcome =
+  | { status: 'completed' | 'noop'; retryable?: false }
+  | { status: 'busy'; retryable: true; message: string };
+
+export interface DrainScanLifecycle {
+  onLeaseAcquired: () => Promise<void>;
+  beforeLeaseRelease: () => Promise<void>;
+  onLeaseFailureBeforeRelease: () => Promise<void>;
+}
+
+export { captureDirtySnapshot, type DirtyLedgerSnapshot } from './dirty-ledger.js';
+
+/**
+ * Stamp writes must remain safe now that multiple drainers may reach scan()
+ * concurrently. The shared stamp writer uses a fixed `.tmp` path, so this
+ * lane uses a unique same-directory candidate before the atomic rename.
+ */
+function writeDrainStamp(root: string, stamp: FreshnessStamp): void {
+  const target = stampPath(root);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const candidate = `${target}.tmp.${process.pid}.${crypto.randomUUID()}`;
+  try {
+    fs.writeFileSync(candidate, JSON.stringify(stamp, null, 2), 'utf8');
+    fs.renameSync(candidate, target);
+  } finally {
+    try { fs.unlinkSync(candidate); } catch { /* renamed or best effort */ }
+  }
+}
+
+interface HonestStampOptions {
+  requireClean?: boolean;
+  cleanGeneratedAt?: number;
+  dirtyGeneratedAt?: number;
+}
+
+/**
+ * Serialize drain-side reconciliation and recheck the canonical ledger before
+ * publishing. A concurrent mark is an immutable event; freshness read
+ * boundaries overlay that ledger even if its best-effort stamp refresh races
+ * this publication or the marking process exits immediately afterward.
+ */
+function writeHonestDrainStamp(
+  root: string,
+  proposed: FreshnessStamp,
+  options: HonestStampOptions = {},
+): boolean {
+  return withDirtyLedgerMutationLock(root, () => {
+    const dirty = readDirty(root);
+    if (options.requireClean && dirty.length > 0) return false;
+    writeDrainStamp(root, {
+      ...proposed,
+      generated_at: dirty.length > 0
+        ? options.dirtyGeneratedAt ?? proposed.generated_at
+        : options.cleanGeneratedAt ?? proposed.generated_at,
+      dirty_files: dirty,
+      dirty_count: dirty.length,
+    });
+    return true;
+  });
 }
 
 export async function drain(root: string, opts: DrainOptions): Promise<DrainResult> {
@@ -36,36 +112,95 @@ export async function drain(root: string, opts: DrainOptions): Promise<DrainResu
     return { status: 'debounced', scanned: 0 };
   }
 
-  if (!acquireLock(root)) {
-    return { status: 'busy', scanned: 0 };
+  const dirtySnapshot = captureDirtySnapshot(root);
+  const dirty = dirtySnapshot.paths;
+
+  if (dirty.length === 0) {
+    opts._afterEmptySnapshot?.();
+    const proposed = await computeStamp(root, { inFlight: false });
+    const published = writeHonestDrainStamp(root, proposed, { requireClean: true });
+    return published
+      ? { status: 'clean', scanned: 0 }
+      : { status: 'debounced', scanned: 0 };
   }
 
+  let outcome: DrainScanOutcome;
+  let leaseAcquired = false;
+  let reconciledBeforeRelease = false;
+  let failureSettledBeforeRelease = false;
+  const onLeaseAcquired = async (): Promise<void> => {
+    leaseAcquired = true;
+    const proposed = await computeStamp(root, {
+      inFlight: true,
+      generatedAt: prior?.generated_at,
+    });
+    writeHonestDrainStamp(root, proposed, {
+      dirtyGeneratedAt: prior?.generated_at,
+    });
+  };
+  const beforeLeaseRelease = async (): Promise<void> => {
+    if (reconciledBeforeRelease) return;
+    reconciledBeforeRelease = true;
+    await reconcileClean(root, dirtySnapshot);
+  };
+  const onLeaseFailureBeforeRelease = async (): Promise<void> => {
+    if (failureSettledBeforeRelease) return;
+    failureSettledBeforeRelease = true;
+    const proposed = await computeStamp(root, {
+      inFlight: false,
+      generatedAt: prior?.generated_at,
+    });
+    writeHonestDrainStamp(root, proposed, {
+      dirtyGeneratedAt: prior?.generated_at,
+    });
+  };
   try {
-    const dirty = readDirty(root);
-
-    if (dirty.length === 0) {
-      writeStamp(root, await computeStamp(root, { inFlight: false }));
-      return { status: 'clean', scanned: 0 };
-    }
-
-    // Mark in-flight so concurrent readers see the truth during the scan.
-    writeStamp(root, await computeStamp(root, { inFlight: true }));
-
-    try {
-      await opts.scanFn(root, dirty);
-    } catch (e) {
-      // Leave the dirty set intact; clear the in-flight flag honestly.
-      writeStamp(root, await computeStamp(root, { inFlight: false }));
-      return { status: 'error', scanned: 0, error: e instanceof Error ? e.message : String(e) };
-    }
-
-    const completedAt = Date.now();
-    clearDirty(dirty, root); // clears only what we drained; late arrivals remain
-    writeStamp(root, await computeStamp(root, { inFlight: false, generatedAt: completedAt }));
-    return { status: 'drained', scanned: dirty.length };
-  } finally {
-    releaseLock(root);
+    outcome = await opts.scanFn(root, dirty, {
+      onLeaseAcquired,
+      beforeLeaseRelease,
+      onLeaseFailureBeforeRelease,
+    });
+  } catch (e) {
+    // Lifecycle cleanup must happen under the canonical lease. If the scanner
+    // did not invoke it, leave any in-flight marker conservative for a retry.
+    return { status: 'error', scanned: 0, error: e instanceof Error ? e.message : String(e) };
   }
+
+  const outcomeStatus = (outcome as { status?: unknown } | undefined)?.status;
+  if (
+    outcomeStatus !== 'completed' &&
+    outcomeStatus !== 'noop' &&
+    outcomeStatus !== 'busy'
+  ) {
+    const proposed = await computeStamp(root, {
+      inFlight: false,
+      generatedAt: prior?.generated_at,
+    });
+    writeHonestDrainStamp(root, proposed, {
+      dirtyGeneratedAt: prior?.generated_at,
+    });
+    return { status: 'error', scanned: 0, error: 'scan returned an unknown outcome' };
+  }
+
+  if (outcome.status === 'busy') {
+    // No lease-acquired callback means this attempt never wrote in-flight.
+    if (leaseAcquired) {
+      return { status: 'error', scanned: 0, error: 'busy returned after lease acquisition' };
+    }
+    return { status: 'busy', scanned: 0, error: outcome.message };
+  }
+
+  if (!leaseAcquired || !reconciledBeforeRelease) {
+    // A completed scanner that skipped the lease-held callback is unsafe: it
+    // may already have released, so post-hoc ledger clearing could erase late
+    // work or race a new scan. Preserve everything and require a retry.
+    return {
+      status: 'error',
+      scanned: 0,
+      error: 'scan completed without lease-held freshness lifecycle',
+    };
+  }
+  return { status: 'drained', scanned: dirty.length };
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -104,15 +239,26 @@ export async function drainUntilClean(
 }
 
 /**
- * Stamp coherence for out-of-band scans. NavGator's existing `autoRefreshIfStale`
- * backstop runs an incremental scan WITHOUT going through the drainer, which
- * would leave the dirty ledger and stamp stale — making the stamp lie (report
- * dirty when the graph is actually current). Call this after any such scan to
- * reconcile: the incremental scan already covered every changed file via hashes,
- * so the whole ledger is safely cleared and a clean stamp written. Best-effort.
+ * Stamp coherence for scans that do not originate in the drainer. For example,
+ * `autoRefreshIfStale` captures this snapshot, forces its paths into an auto-mode
+ * scan, then reconciles before releasing the scan lease. Only the captured
+ * immutable events are cleared; events arriving during the scan remain dirty.
  */
-export async function reconcileClean(root: string): Promise<void> {
-  const all = readDirty(root);
-  if (all.length > 0) clearDirty(all, root);
-  writeStamp(root, await computeStamp(root, { inFlight: false }));
+export async function reconcileClean(
+  root: string,
+  snapshot: DirtyLedgerSnapshot = captureDirtySnapshot(root),
+): Promise<void> {
+  // Delete only immutable event filenames captured before the scan. Late
+  // events, including repeated edits to the same path, have distinct names.
+  clearDirtySnapshot(snapshot, root);
+  const prior = readStamp(root);
+  const completedAt = Date.now();
+  const proposed = await computeStamp(root, {
+    inFlight: false,
+    generatedAt: completedAt,
+  });
+  writeHonestDrainStamp(root, proposed, {
+    cleanGeneratedAt: completedAt,
+    dirtyGeneratedAt: prior?.generated_at,
+  });
 }
