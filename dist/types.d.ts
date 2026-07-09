@@ -359,6 +359,52 @@ export interface ScanResult {
     connections: ArchitectureConnection[];
     warnings: ScanWarning[];
 }
+/**
+ * Outcome status for the top-level architecture scan orchestrator.
+ *
+ * This is intentionally separate from `ScanResult`, which is the lightweight
+ * contract shared by individual detector modules.
+ */
+export type ArchitectureScanStatus = 'completed' | 'noop' | 'busy';
+export interface ArchitectureScanStats {
+    scan_duration_ms: number;
+    components_found: number;
+    connections_found: number;
+    warnings_count: number;
+    files_scanned: number;
+    files_changed: number;
+    prompts_found?: number;
+}
+/**
+ * Fields preserved across every top-level scan outcome, including contention.
+ * Optional report types stay generic so this shared module does not depend on
+ * scanner implementations that already consume `types.ts`.
+ */
+export interface ArchitectureScanPayload<TPromptScan = unknown, TFieldUsageReport = unknown, TTypeSpecReport = unknown> {
+    components: ArchitectureComponent[];
+    connections: ArchitectureConnection[];
+    warnings: ScanWarning[];
+    fileChanges?: FileChangeResult;
+    promptScan?: TPromptScan;
+    fieldUsageReport?: TFieldUsageReport;
+    typeSpecReport?: TTypeSpecReport;
+    timelineEntry?: TimelineEntry;
+    gitInfo?: GitInfo;
+    stats: ArchitectureScanStats;
+}
+/**
+ * Discriminated result for a full, incremental, or no-op architecture scan.
+ * A busy lease is retryable data rather than an empty successful scan.
+ */
+export type ArchitectureScanOutcome<TPromptScan = unknown, TFieldUsageReport = unknown, TTypeSpecReport = unknown> = (ArchitectureScanPayload<TPromptScan, TFieldUsageReport, TTypeSpecReport> & {
+    status: 'completed' | 'noop';
+    retryable?: false;
+    message?: never;
+}) | (ArchitectureScanPayload<TPromptScan, TFieldUsageReport, TTypeSpecReport> & {
+    status: 'busy';
+    retryable: true;
+    message: string;
+});
 export interface ScanWarning {
     type: 'missing_file' | 'parse_error' | 'low_confidence' | 'deprecated';
     message: string;
