@@ -1,9 +1,25 @@
 import { Command } from 'commander';
 import { loadAllComponents, loadAllConnections, loadFileMap } from '../../storage.js';
 import { getConfig } from '../../config.js';
-import { wrapInEnvelope } from '../../agent-output.js';
-import { computeCoverage, formatCoverageOutput } from '../../coverage.js';
+import { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope } from '../../agent-output.js';
+import { computeCoverage, formatCoverageOutput, type CoverageReport } from '../../coverage.js';
 import { checkDataAvailability } from './helpers.js';
+
+export function buildCoverageAgentData(report: CoverageReport) {
+  const boundedGaps = boundAgentCollection(report.gaps, AGENT_OUTPUT_LIMITS.commandItems);
+  return {
+    ...report,
+    gaps: boundedGaps.items,
+    gap_summary: {
+      total: boundedGaps.truncation.total,
+      returned: boundedGaps.truncation.returned,
+      truncated: boundedGaps.truncation.truncated,
+    },
+    truncation: {
+      gaps: boundedGaps.truncation,
+    },
+  };
+}
 
 export function registerCoverageCommand(program: Command): void {
   program
@@ -78,7 +94,7 @@ export function registerCoverageCommand(program: Command): void {
         }
 
         if (options.agent) {
-          console.log(wrapInEnvelope('coverage', report));
+          console.log(wrapInEnvelope('coverage', buildCoverageAgentData(report)));
           return;
         }
 

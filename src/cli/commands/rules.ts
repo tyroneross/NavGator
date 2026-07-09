@@ -1,9 +1,49 @@
 import { Command } from 'commander';
 import { loadAllComponents, loadAllConnections } from '../../storage.js';
 import { getConfig } from '../../config.js';
-import { wrapInEnvelope } from '../../agent-output.js';
-import { checkRules, getBuiltinRules, loadCustomRules, formatRulesOutput } from '../../rules.js';
+import { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope } from '../../agent-output.js';
+import {
+  checkRules,
+  getBuiltinRules,
+  loadCustomRules,
+  formatRulesOutput,
+  type RuleViolation,
+} from '../../rules.js';
 import { checkDataAvailability } from './helpers.js';
+
+export function buildRulesAgentData(
+  violations: RuleViolation[],
+  rulesChecked: number,
+  severity?: string
+) {
+  const severityRank = { error: 0, warning: 1, info: 2 } as const;
+  const selected = (severity
+    ? violations.filter(v => v.severity === severity)
+    : [...violations]
+  ).sort((a, b) =>
+    severityRank[a.severity] - severityRank[b.severity] ||
+    a.rule_id.localeCompare(b.rule_id) ||
+    (a.component ?? '').localeCompare(b.component ?? '') ||
+    a.message.localeCompare(b.message)
+  );
+  const bounded = boundAgentCollection(selected, AGENT_OUTPUT_LIMITS.commandItems);
+  return {
+    violations: bounded.items,
+    summary: {
+      total: violations.length,
+      selected: selected.length,
+      returned: bounded.truncation.returned,
+      truncated: bounded.truncation.truncated,
+      errors: violations.filter(v => v.severity === 'error').length,
+      warnings: violations.filter(v => v.severity === 'warning').length,
+      info: violations.filter(v => v.severity === 'info').length,
+    },
+    rules_checked: rulesChecked,
+    truncation: {
+      violations: bounded.truncation,
+    },
+  };
+}
 
 export function registerRulesCommand(program: Command): void {
   program
@@ -27,16 +67,7 @@ export function registerRulesCommand(program: Command): void {
         const violations = checkRules(components, connections, allRules);
 
         if (options.agent) {
-          const data = {
-            violations,
-            summary: {
-              total: violations.length,
-              errors: violations.filter(v => v.severity === 'error').length,
-              warnings: violations.filter(v => v.severity === 'warning').length,
-              info: violations.filter(v => v.severity === 'info').length,
-            },
-            rules_checked: allRules.length,
-          };
+          const data = buildRulesAgentData(violations, allRules.length, options.severity);
           console.log(wrapInEnvelope('rules', data));
           return;
         }

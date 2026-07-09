@@ -961,6 +961,40 @@ export interface ExecutiveSummary {
   };
   components: CompactComponent[];
   connections: CompactConnection[];
+  rule_health: SummaryRuleHealth;
+  truncation: {
+    risks: AgentCollectionWindow;
+    blockers: AgentCollectionWindow;
+    next_actions: AgentCollectionWindow;
+    components: AgentCollectionWindow;
+    connections: AgentCollectionWindow;
+  };
+}
+
+/** Deterministic collection accounting for bounded machine-facing payloads. */
+export interface AgentCollectionWindow {
+  total: number;
+  returned: number;
+  truncated: boolean;
+  limit: number;
+}
+
+export interface SummaryRuleViolation {
+  rule_id: string;
+  severity: 'error' | 'warning' | 'info';
+  component?: string;
+  message: string;
+  suggestion?: string;
+}
+
+/** Architecture-rule health is always present in executive summaries. */
+export interface SummaryRuleHealth {
+  total: number;
+  errors: number;
+  warnings: number;
+  info: number;
+  violations: SummaryRuleViolation[];
+  truncation: AgentCollectionWindow;
 }
 
 export interface SummaryRisk {

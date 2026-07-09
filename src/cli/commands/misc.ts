@@ -125,8 +125,14 @@ async function runScan(): Promise<void> {
     verbose: false,
   });
 
+  if (result.status === 'busy') {
+    console.error(`Scan busy: ${result.message}`);
+    process.exitCode = 2;
+    return;
+  }
+
   console.log('\n========================================');
-  console.log('SCAN COMPLETE');
+  console.log(result.status === 'noop' ? 'SCAN NO CHANGES' : 'SCAN COMPLETE');
   console.log('========================================\n');
 
   const byType: Record<string, number> = {};

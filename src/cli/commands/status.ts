@@ -27,7 +27,7 @@ export function registerStatusCommand(program: Command): void {
         const refresh = await autoRefreshIfStale(process.cwd(), {
           enabled: options.refresh !== false,
         });
-        if (refresh.refreshed && !options.json && !options.agent) {
+        if ((refresh.refreshed || refresh.reason === 'busy') && !options.json && !options.agent) {
           console.log(refresh.message);
         }
 
@@ -40,12 +40,12 @@ export function registerStatusCommand(program: Command): void {
         }
 
         if (options.agent) {
-          console.log(wrapInEnvelope('status', index));
+          console.log(wrapInEnvelope('status', { ...index, refresh }));
           return;
         }
 
         if (options.json) {
-          console.log(JSON.stringify(index, null, 2));
+          console.log(JSON.stringify({ ...index, refresh }, null, 2));
           return;
         }
 

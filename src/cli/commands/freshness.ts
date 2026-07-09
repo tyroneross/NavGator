@@ -6,9 +6,7 @@ import { computeStamp, readStamp, type FreshnessStamp } from '../../freshness/st
 import { scan } from '../../scanner.js';
 
 /** Production scanFn: run the real incremental scan; it persists everything. */
-const realScan = async (root: string): Promise<void> => {
-  await scan(root, {});
-};
+const realScan = async (root: string) => scan(root, { mode: 'incremental' });
 
 /** Testable core: append paths to the dirty ledger. */
 export function runMarkDirty(paths: string[], root: string): void {

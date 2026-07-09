@@ -8,6 +8,7 @@
 
 import { createInterface } from "readline";
 import { TOOLS, handleToolCall } from "./tools.js";
+import { NAVGATOR_VERSION } from "../version.js";
 
 // --- JSON-RPC transport over stdio ---
 
@@ -43,7 +44,7 @@ function sendError(id: string | number, code: number, message: string) {
 
 const SERVER_INFO = {
   name: "navgator",
-  version: "0.9.0",
+  version: NAVGATOR_VERSION,
 };
 
 const CAPABILITIES = {

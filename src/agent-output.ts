@@ -8,16 +8,53 @@ import {
   ArchitectureConnection,
   GitInfo,
   AgentEnvelope,
+  AgentCollectionWindow,
   ExecutiveSummary,
   SummaryRisk,
   SummaryBlocker,
   SummaryAction,
+  SummaryRuleViolation,
   CompactComponent,
   CompactConnection,
   toCompactComponent,
   toCompactConnection,
 } from './types.js';
 import { SCHEMA_VERSION } from './config.js';
+import { checkRules, type RuleViolation } from './rules.js';
+
+/** Hard caps keep machine-facing output predictable on large repositories. */
+export const AGENT_OUTPUT_LIMITS = {
+  risks: 20,
+  blockers: 20,
+  nextActions: 12,
+  components: 50,
+  connections: 100,
+  ruleViolations: 20,
+  commandItems: 50,
+} as const;
+
+export interface BoundedAgentCollection<T> {
+  items: T[];
+  truncation: AgentCollectionWindow;
+}
+
+/** Return a deterministic prefix plus explicit total/returned accounting. */
+export function boundAgentCollection<T>(
+  items: readonly T[],
+  limit: number = AGENT_OUTPUT_LIMITS.commandItems
+): BoundedAgentCollection<T> {
+  const safeLimit = Math.max(0, Math.floor(limit));
+  const returned = Math.min(items.length, safeLimit);
+  return {
+    items: items.slice(0, returned),
+    truncation: {
+      total: items.length,
+      returned,
+      truncated: returned < items.length,
+      limit: safeLimit,
+    },
+  };
+}
 
 /**
  * Wrap any command output in a stable envelope for machine consumers.
@@ -55,12 +92,60 @@ export function buildExecutiveSummary(
   projectPath: string,
   git?: GitInfo
 ): ExecutiveSummary {
-  const compactComponents: CompactComponent[] = components.map(toCompactComponent);
-  const compactConnections: CompactConnection[] = connections.map(toCompactConnection);
+  const violations = sortRuleViolations(checkRules(components, connections));
+  const architectureRisks: SummaryRisk[] = violations
+    .filter((violation) =>
+      violation.severity === 'error' && violation.rule_id !== 'vulnerable-dependency'
+    )
+    .map((violation) => ({
+      type: 'architecture_rule',
+      severity: 'critical',
+      component: violation.component,
+      message: violation.message,
+    }));
 
-  const risks = computeRisks(components);
-  const blockers = computeBlockers(components, connections);
-  const nextActions = computeNextActions(components, risks, blockers);
+  const riskRank: Record<SummaryRisk['severity'], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+  const allRisks = [...architectureRisks, ...computeRisks(components)].sort((a, b) =>
+    riskRank[a.severity] - riskRank[b.severity] ||
+    a.type.localeCompare(b.type) ||
+    (a.component ?? '').localeCompare(b.component ?? '') ||
+    a.message.localeCompare(b.message)
+  );
+  const allBlockers = computeBlockers(components, connections).sort((a, b) =>
+    a.type.localeCompare(b.type) ||
+    (a.component ?? '').localeCompare(b.component ?? '') ||
+    a.message.localeCompare(b.message)
+  );
+  const allNextActions = computeNextActions(
+    components,
+    allRisks,
+    allBlockers,
+    architectureRisks.length
+  ).sort((a, b) => a.action.localeCompare(b.action) || a.reason.localeCompare(b.reason));
+
+  const risks = boundAgentCollection(allRisks, AGENT_OUTPUT_LIMITS.risks);
+  const blockers = boundAgentCollection(allBlockers, AGENT_OUTPUT_LIMITS.blockers);
+  const nextActions = boundAgentCollection(allNextActions, AGENT_OUTPUT_LIMITS.nextActions);
+  const boundedComponents = boundAgentCollection(
+    [...components].sort((a, b) => a.component_id.localeCompare(b.component_id)),
+    AGENT_OUTPUT_LIMITS.components
+  );
+  const boundedConnections = boundAgentCollection(
+    [...connections].sort((a, b) => a.connection_id.localeCompare(b.connection_id)),
+    AGENT_OUTPUT_LIMITS.connections
+  );
+  const boundedViolations = boundAgentCollection(
+    violations,
+    AGENT_OUTPUT_LIMITS.ruleViolations
+  );
+
+  const compactComponents: CompactComponent[] = boundedComponents.items.map(toCompactComponent);
+  const compactConnections: CompactConnection[] = boundedConnections.items.map(toCompactConnection);
 
   const outdatedCount = components.filter((c) => c.status === 'outdated').length;
   const vulnerableCount = components.filter((c) => c.status === 'vulnerable').length;
@@ -69,9 +154,9 @@ export function buildExecutiveSummary(
     project_path: projectPath,
     timestamp: Date.now(),
     git,
-    risks,
-    blockers,
-    next_actions: nextActions,
+    risks: risks.items,
+    blockers: blockers.items,
+    next_actions: nextActions.items,
     stats: {
       total_components: components.length,
       total_connections: connections.length,
@@ -80,6 +165,45 @@ export function buildExecutiveSummary(
     },
     components: compactComponents,
     connections: compactConnections,
+    rule_health: {
+      total: violations.length,
+      errors: violations.filter((violation) => violation.severity === 'error').length,
+      warnings: violations.filter((violation) => violation.severity === 'warning').length,
+      info: violations.filter((violation) => violation.severity === 'info').length,
+      violations: boundedViolations.items.map(toSummaryRuleViolation),
+      truncation: boundedViolations.truncation,
+    },
+    truncation: {
+      risks: risks.truncation,
+      blockers: blockers.truncation,
+      next_actions: nextActions.truncation,
+      components: boundedComponents.truncation,
+      connections: boundedConnections.truncation,
+    },
+  };
+}
+
+function sortRuleViolations(violations: RuleViolation[]): RuleViolation[] {
+  const rank: Record<RuleViolation['severity'], number> = {
+    error: 0,
+    warning: 1,
+    info: 2,
+  };
+  return [...violations].sort((a, b) =>
+    rank[a.severity] - rank[b.severity] ||
+    a.rule_id.localeCompare(b.rule_id) ||
+    (a.component ?? '').localeCompare(b.component ?? '') ||
+    a.message.localeCompare(b.message)
+  );
+}
+
+function toSummaryRuleViolation(violation: RuleViolation): SummaryRuleViolation {
+  return {
+    rule_id: violation.rule_id,
+    severity: violation.severity,
+    component: violation.component,
+    message: violation.message,
+    suggestion: violation.suggestion,
   };
 }
 
@@ -149,9 +273,18 @@ function computeBlockers(
 function computeNextActions(
   components: ArchitectureComponent[],
   risks: SummaryRisk[],
-  blockers: SummaryBlocker[]
+  blockers: SummaryBlocker[],
+  architectureRuleErrors: number = 0
 ): SummaryAction[] {
   const actions: SummaryAction[] = [];
+
+  if (architectureRuleErrors > 0) {
+    actions.push({
+      action: `Resolve ${architectureRuleErrors} architecture rule error${architectureRuleErrors !== 1 ? 's' : ''}`,
+      reason: 'Architecture rule errors indicate unsafe dependency or layer boundaries',
+      command: 'navgator rules --severity error',
+    });
+  }
 
   const vulnerableRisks = risks.filter((r) => r.type === 'vulnerability');
   if (vulnerableRisks.length > 0) {

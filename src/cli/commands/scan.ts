@@ -70,9 +70,27 @@ export function registerScanCommand(program: Command): void {
           console.log = origLog;
         }
 
+        if (result.status === 'busy') {
+          const busyData = {
+            status: result.status,
+            retryable: result.retryable,
+            message: result.message,
+          };
+          if (isAgent) {
+            console.log(wrapInEnvelope('scan', busyData));
+          } else if (isJson) {
+            console.log(JSON.stringify(busyData, null, 2));
+          } else {
+            console.error(`Scan busy: ${result.message}`);
+          }
+          process.exitCode = 2;
+          return;
+        }
+
         // JSON/Agent output mode
         if (isJson) {
           const jsonData: Record<string, unknown> = {
+            status: result.status,
             components_found: result.stats.components_found,
             connections_found: result.stats.connections_found,
             scan_duration_ms: result.stats.scan_duration_ms,
@@ -102,7 +120,7 @@ export function registerScanCommand(program: Command): void {
         }
 
         console.log('\n========================================');
-        console.log('SCAN COMPLETE');
+        console.log(result.status === 'noop' ? 'SCAN NO CHANGES' : 'SCAN COMPLETE');
         console.log('========================================\n');
 
         // Group components by type

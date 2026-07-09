@@ -3,9 +3,18 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { wrapInEnvelope, buildExecutiveSummary } from '../agent-output.js';
+import {
+  AGENT_OUTPUT_LIMITS,
+  boundAgentCollection,
+  wrapInEnvelope,
+  buildExecutiveSummary,
+} from '../agent-output.js';
+import { buildCoverageAgentData } from '../cli/commands/coverage.js';
+import { buildRulesAgentData } from '../cli/commands/rules.js';
 import { createMockComponent, createMockConnection } from './helpers.js';
 import type { ArchitectureComponent, ArchitectureConnection, GitInfo } from '../types.js';
+import type { CoverageReport } from '../coverage.js';
+import type { RuleViolation } from '../rules.js';
 
 describe('wrapInEnvelope', () => {
   it('returns valid JSON string', () => {
@@ -72,6 +81,77 @@ describe('wrapInEnvelope', () => {
     const parsed = JSON.parse(result);
 
     expect(parsed.metadata).toBeUndefined();
+  });
+});
+
+describe('boundAgentCollection', () => {
+  it('returns an explicit deterministic collection window', () => {
+    const bounded = boundAgentCollection([1, 2, 3, 4], 2);
+
+    expect(bounded.items).toEqual([1, 2]);
+    expect(bounded.truncation).toEqual({
+      total: 4,
+      returned: 2,
+      truncated: true,
+      limit: 2,
+    });
+  });
+
+  it('bounds rules agent data while preserving total error counts', () => {
+    const violations: RuleViolation[] = Array.from(
+      { length: AGENT_OUTPUT_LIMITS.commandItems + 25 },
+      (_, index) => ({
+        rule_id: `rule-${String(index).padStart(3, '0')}`,
+        severity: index < 12 ? 'error' : 'warning',
+        component: `Component${index}`,
+        message: `Violation ${index}`,
+      })
+    );
+
+    const data = buildRulesAgentData(violations, 9);
+    const envelope = JSON.parse(wrapInEnvelope('rules', data));
+
+    expect(envelope.data.summary).toMatchObject({
+      total: violations.length,
+      returned: AGENT_OUTPUT_LIMITS.commandItems,
+      truncated: true,
+      errors: 12,
+    });
+    expect(envelope.data.violations).toHaveLength(AGENT_OUTPUT_LIMITS.commandItems);
+    expect(envelope.data.violations[0].severity).toBe('error');
+    expect(envelope.data.truncation.violations.total).toBe(violations.length);
+  });
+
+  it('bounds coverage gaps with total and returned accounting', () => {
+    const report: CoverageReport = {
+      overall_confidence: 0.5,
+      component_coverage: {
+        total_files_in_project: 100,
+        files_mapped_to_components: 50,
+        coverage_percent: 50,
+      },
+      connection_coverage: {
+        total_connections: 0,
+        by_confidence: { high: 0, medium: 0, low: 0 },
+        by_classification: {},
+      },
+      gaps: Array.from({ length: AGENT_OUTPUT_LIMITS.commandItems + 10 }, (_, index) => ({
+        type: 'unmapped-file' as const,
+        target: `src/file-${index}.ts`,
+        message: `src/file-${index}.ts is unmapped`,
+      })),
+    };
+
+    const data = buildCoverageAgentData(report);
+    const envelope = JSON.parse(wrapInEnvelope('coverage', data));
+
+    expect(envelope.data.gap_summary).toEqual({
+      total: report.gaps.length,
+      returned: AGENT_OUTPUT_LIMITS.commandItems,
+      truncated: true,
+    });
+    expect(envelope.data.gaps).toHaveLength(AGENT_OUTPUT_LIMITS.commandItems);
+    expect(envelope.data.truncation.gaps.total).toBe(report.gaps.length);
   });
 });
 
@@ -315,5 +395,64 @@ describe('buildExecutiveSummary', () => {
     const reviewAction = summary.next_actions.find(a => a.action.includes('Review'));
     expect(reviewAction).toBeDefined();
     expect(reviewAction?.action).toContain('unused');
+  });
+
+  it('surfaces architecture rule errors in rule health and risks', () => {
+    const frontend = createMockComponent({
+      component_id: 'COMP_frontend_app',
+      name: 'FrontendApp',
+      role: { layer: 'frontend', purpose: 'UI', critical: true },
+    });
+    const database = createMockComponent({
+      component_id: 'COMP_database_main',
+      name: 'MainDatabase',
+      role: { layer: 'database', purpose: 'Data', critical: true },
+    });
+    const directConnection = createMockConnection(
+      frontend.component_id,
+      database.component_id
+    );
+
+    const summary = buildExecutiveSummary(
+      [frontend, database],
+      [directConnection],
+      '/test/project'
+    );
+
+    expect(summary.rule_health.errors).toBeGreaterThan(0);
+    expect(summary.rule_health.violations[0]?.severity).toBe('error');
+    expect(summary.risks.some((risk) => risk.type === 'architecture_rule')).toBe(true);
+    expect(summary.next_actions[0]?.command).toBe('navgator rules --severity error');
+  });
+
+  it('bounds large summaries and reports total versus returned counts', () => {
+    const components = Array.from({ length: AGENT_OUTPUT_LIMITS.components + 25 }, (_, index) =>
+      createMockComponent({
+        component_id: `COMP_service_${index}`,
+        name: `Service${String(index).padStart(3, '0')}`,
+        role: { layer: 'backend', purpose: 'Service', critical: false },
+      })
+    );
+    const connections = Array.from({ length: AGENT_OUTPUT_LIMITS.connections + 25 }, (_, index) =>
+      createMockConnection(
+        components[index % components.length]!.component_id,
+        components[(index + 1) % components.length]!.component_id,
+        { connection_id: `CONN_${index}` }
+      )
+    );
+
+    const summary = buildExecutiveSummary(components, connections, '/test/project');
+
+    expect(summary.components).toHaveLength(AGENT_OUTPUT_LIMITS.components);
+    expect(summary.connections).toHaveLength(AGENT_OUTPUT_LIMITS.connections);
+    expect(summary.truncation.components).toEqual({
+      total: components.length,
+      returned: AGENT_OUTPUT_LIMITS.components,
+      truncated: true,
+      limit: AGENT_OUTPUT_LIMITS.components,
+    });
+    expect(summary.truncation.connections.total).toBe(connections.length);
+    expect(summary.truncation.connections.returned).toBe(AGENT_OUTPUT_LIMITS.connections);
+    expect(JSON.stringify(summary).length).toBeLessThan(100_000);
   });
 });

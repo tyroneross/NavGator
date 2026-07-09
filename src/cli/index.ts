@@ -6,6 +6,7 @@
  */
 
 import { Command } from 'commander';
+import { NAVGATOR_VERSION } from '../version.js';
 import { registerScanCommand } from './commands/scan.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerImpactCommand } from './commands/impact.js';
@@ -50,7 +51,7 @@ const program = new Command();
 program
   .name('navgator')
   .description('Architecture connection tracker - know your stack before you change it')
-  .version('0.9.0')
+  .version(NAVGATOR_VERSION)
   .option('--sandbox', 'Run in sandbox mode (restricts network, interactive, child processes)')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
 

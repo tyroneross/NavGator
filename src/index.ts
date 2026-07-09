@@ -60,7 +60,12 @@ export { getGitInfo } from './git.js';
 export { computeImpact, computeSeverity } from './impact.js';
 
 // Agent output
-export { wrapInEnvelope, buildExecutiveSummary } from './agent-output.js';
+export {
+  AGENT_OUTPUT_LIMITS,
+  boundAgentCollection,
+  wrapInEnvelope,
+  buildExecutiveSummary,
+} from './agent-output.js';
 
 // Types
 export type {
@@ -72,6 +77,10 @@ export type {
   ComponentType,
   ConnectionType,
   ScanResult,
+  ArchitectureScanStatus,
+  ArchitectureScanStats,
+  ArchitectureScanPayload,
+  ArchitectureScanOutcome,
   ScanWarning,
   Snapshot,
   SnapshotComponent,
@@ -90,6 +99,9 @@ export type {
   AffectedComponent,
   AgentEnvelope,
   ExecutiveSummary,
+  AgentCollectionWindow,
+  SummaryRuleHealth,
+  SummaryRuleViolation,
   SummaryRisk,
   SummaryBlocker,
   SummaryAction,

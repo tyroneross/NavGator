@@ -81,6 +81,10 @@ export async function setup(options: SetupOptions = {}): Promise<SetupResult> {
   try {
     const fastResult = await quickScan(projectPath);
 
+    if (fastResult.status === 'busy') {
+      throw new Error(`Fast scan busy: ${fastResult.message}`);
+    }
+
     componentsFound = fastResult.components.length;
     connectionsFound = fastResult.connections.length;
 
@@ -129,6 +133,10 @@ export async function setup(options: SetupOptions = {}): Promise<SetupResult> {
         useAST: true,
         verbose: options.verbose,
       });
+
+      if (deepResult.status === 'busy') {
+        throw new Error(`Deep scan busy: ${deepResult.message}`);
+      }
 
       componentsFound = deepResult.components.length;
       connectionsFound = deepResult.connections.length;
