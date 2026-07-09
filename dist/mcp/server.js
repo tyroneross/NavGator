@@ -7,6 +7,7 @@
  */
 import { createInterface } from "readline";
 import { TOOLS, handleToolCall } from "./tools.js";
+import { NAVGATOR_VERSION } from "../version.js";
 // --- JSON-RPC transport over stdio ---
 const rl = createInterface({ input: process.stdin, terminal: false });
 rl.on("line", (line) => {
@@ -35,7 +36,7 @@ function sendError(id, code, message) {
 // --- MCP Protocol ---
 const SERVER_INFO = {
     name: "navgator",
-    version: "0.9.0",
+    version: NAVGATOR_VERSION,
 };
 const CAPABILITIES = {
     tools: {},

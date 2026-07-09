@@ -21,7 +21,7 @@ export function registerScanCommand(program) {
         .option('--no-audit', 'Skip the SQC audit pass (Run 2)')
         .option('--audit-plan <plan>', 'Audit plan: aql | sprt | cochran (default: auto)')
         .option('--single-stack', 'Disable multi-stack auto-discovery — scan only the project root')
-        .option('--per-entity-files', 'Write one JSON per component + per connection alongside the consolidated graph (R6 footprint fix: off by default; consolidated graph.json/index.json/connections.jsonl/reverse-deps.json are the source of truth)')
+        .option('--per-entity-files', 'Write one JSON per component + per connection alongside canonical components.full.jsonl/connections.full.jsonl records (off by default; graph and compact files are derived views)')
         .option('--json', 'Output scan results as JSON')
         .option('--agent', 'Output wrapped in agent envelope (implies --json)')
         .action(async (options) => {
@@ -66,9 +66,28 @@ export function registerScanCommand(program) {
             if (isJson) {
                 console.log = origLog;
             }
+            if (result.status === 'busy') {
+                const busyData = {
+                    status: result.status,
+                    retryable: result.retryable,
+                    message: result.message,
+                };
+                if (isAgent) {
+                    console.log(wrapInEnvelope('scan', busyData));
+                }
+                else if (isJson) {
+                    console.log(JSON.stringify(busyData, null, 2));
+                }
+                else {
+                    console.error(`Scan busy: ${result.message}`);
+                }
+                process.exitCode = 2;
+                return;
+            }
             // JSON/Agent output mode
             if (isJson) {
                 const jsonData = {
+                    status: result.status,
                     components_found: result.stats.components_found,
                     connections_found: result.stats.connections_found,
                     scan_duration_ms: result.stats.scan_duration_ms,
@@ -97,7 +116,7 @@ export function registerScanCommand(program) {
                 return;
             }
             console.log('\n========================================');
-            console.log('SCAN COMPLETE');
+            console.log(result.status === 'noop' ? 'SCAN NO CHANGES' : 'SCAN COMPLETE');
             console.log('========================================\n');
             // Group components by type
             const byType = {};

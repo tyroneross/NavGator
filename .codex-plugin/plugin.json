@@ -1,12 +1,12 @@
 {
   "name": "navgator",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
   "author": {
     "name": "Tyrone Ross"
   },
-  "homepage": "https://github.com/tyroneross/navgator",
-  "repository": "https://github.com/tyroneross/navgator",
+  "homepage": "https://github.com/tyroneross/NavGator",
+  "repository": "https://github.com/tyroneross/NavGator",
   "license": "Apache-2.0",
   "keywords": [
     "architecture",
@@ -16,7 +16,7 @@
     "impact-analysis"
   ],
   "skills": "./skills",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "NavGator",
     "shortDescription": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",

@@ -17,7 +17,7 @@ import * as os from 'node:os';
 
 import { quickScan, scan, selectScanMode } from '../scanner.js';
 import { loadAllConnections, loadIndex, loadReverseDeps } from '../storage.js';
-import { getStoragePath, SCHEMA_VERSION } from '../config.js';
+import { getConfig, getStoragePath, SCHEMA_VERSION } from '../config.js';
 import { acquireScanLease, readScanLease } from '../scan-lock.js';
 import { scanLockPath } from '../freshness/paths.js';
 import { drain } from '../freshness/drainer.js';
@@ -732,6 +732,75 @@ describe('scan concurrency lock (Run 1.6 — item #4)', () => {
     } finally {
       held.lease.release();
     }
+  });
+
+  it('serializes legacy migration behind the canonical scan lease', async () => {
+    const legacyDir = path.join(projectRoot, '.claude', 'architecture');
+    const legacySentinel = path.join(legacyDir, 'legacy-sentinel.json');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(legacySentinel, JSON.stringify({ legacy: true }));
+
+    let signalAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => { signalAcquired = resolve; });
+    let allowMigration!: () => void;
+    const migrationAllowed = new Promise<void>((resolve) => { allowMigration = resolve; });
+
+    const winner = scan(projectRoot, {
+      mode: 'full',
+      _onLeaseAcquired: async () => {
+        signalAcquired();
+        await migrationAllowed;
+      },
+    });
+
+    await acquired;
+    expect(fs.existsSync(legacySentinel)).toBe(true);
+
+    const contender = await scan(projectRoot, { mode: 'full' });
+    expect(contender).toMatchObject({ status: 'busy', retryable: true });
+    expect(fs.existsSync(legacySentinel)).toBe(true);
+
+    allowMigration();
+    const result = await winner;
+    expect(result.status).toBe('completed');
+    expect(fs.existsSync(legacySentinel)).toBe(false);
+    expect(fs.existsSync(
+      path.join(projectRoot, '.navgator', 'architecture', 'legacy-sentinel.json'),
+    )).toBe(true);
+  });
+
+  it('keeps winner config isolated from a busy contender override', async () => {
+    const cachedPerEntityFiles = getConfig().perEntityFiles;
+    let signalAcquired!: () => void;
+    const acquired = new Promise<void>((resolve) => { signalAcquired = resolve; });
+    let allowWinner!: () => void;
+    const winnerAllowed = new Promise<void>((resolve) => { allowWinner = resolve; });
+
+    const winner = scan(projectRoot, {
+      mode: 'full',
+      perEntityFiles: true,
+      _onLeaseAcquired: async () => {
+        signalAcquired();
+        await winnerAllowed;
+      },
+    });
+
+    await acquired;
+    const contender = await scan(projectRoot, {
+      mode: 'full',
+      perEntityFiles: false,
+    });
+    expect(contender).toMatchObject({ status: 'busy', retryable: true });
+
+    allowWinner();
+    const result = await winner;
+    expect(result.status).toBe('completed');
+    expect(getConfig().perEntityFiles).toBe(cachedPerEntityFiles);
+
+    const componentDir = path.join(projectRoot, '.navgator', 'architecture', 'components');
+    const connectionDir = path.join(projectRoot, '.navgator', 'architecture', 'connections');
+    expect(fs.readdirSync(componentDir).some((file) => file.endsWith('.json'))).toBe(true);
+    expect(fs.readdirSync(connectionDir).some((file) => file.endsWith('.json'))).toBe(true);
   });
 
   it('quickScan preserves the retryable busy outcome', async () => {

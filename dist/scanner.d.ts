@@ -2,11 +2,12 @@
  * NavGator Main Scanner
  * Orchestrates all component and connection scanners
  */
-import { ArchitectureComponent, ArchitectureConnection, ScanResult, ScanWarning, FileChangeResult, GitInfo } from './types.js';
+import { FileChangeResult, ArchitectureScanOutcome } from './types.js';
 import { FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer.js';
 import { TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
 import { PromptScanResult } from './scanners/prompts/index.js';
-import { TimelineEntry, ArchitectureIndex } from './types.js';
+import { type ScanLease } from './scan-lock.js';
+import { ArchitectureIndex } from './types.js';
 /**
  * Mode the scanner runs in.
  * - 'auto': default. Inspect index + file changes; pick full or incremental.
@@ -31,14 +32,27 @@ export interface ScanOptions {
     scip?: boolean;
     /**
      * Internal-only (Run 1.7 — Problem A). When the integrity check on an
-     * incremental scan fails, the outer scan releases its lock and recursively
-     * re-enters with `mode: 'full', clearFirst: true, _promotedFromIncremental: true`.
+     * incremental scan fails, the outer scan recursively re-enters while reusing
+     * its lease with `mode: 'full', clearFirst: true, _promotedFromIncremental: true`.
      * The inner scan honors this flag by labeling its timeline entry and stats
      * `scan_type: 'incremental→full'` (instead of plain 'full') so downstream
      * tooling — and the Run 1.6 #3 evidence-preservation contract — sees the
      * promotion. NEVER set this flag from outside scanner.ts.
      */
     _promotedFromIncremental?: boolean;
+    /** Internal-only: recursive incremental-to-full promotion reuses the same
+     * owner-safe lease. NEVER set this outside scanner.ts. */
+    _scanLease?: ScanLease;
+    /** Internal-only freshness callback. Runs after persistence and before this
+     * scan releases its canonical lease. */
+    _beforeLeaseRelease?: () => Promise<void>;
+    /** Internal-only freshness lifecycle callbacks. */
+    _onLeaseAcquired?: () => Promise<void>;
+    _onLeaseFailureBeforeRelease?: () => Promise<void>;
+    /** Internal-only dirty-ledger paths that must be included in this walk. */
+    _forcedChangedFiles?: string[];
+    /** Test seam for a mutation after scanner reads but before hash persistence. */
+    _beforeHashSave?: () => Promise<void>;
     /** Run 2 — D4: skip the SQC audit pass entirely. */
     noAudit?: boolean;
     /** Run 2 — D4: override the audit's plan-selection auto-pick. */
@@ -102,30 +116,11 @@ export declare function selectScanMode(fileChanges: FileChangeResult | undefined
 /**
  * Run a full architecture scan
  */
-export declare function scan(projectRoot?: string, options?: ScanOptions): Promise<{
-    components: ArchitectureComponent[];
-    connections: ArchitectureConnection[];
-    warnings: ScanWarning[];
-    fileChanges?: FileChangeResult;
-    promptScan?: PromptScanResult;
-    fieldUsageReport?: FieldUsageReport;
-    typeSpecReport?: TypeSpecReport;
-    timelineEntry?: TimelineEntry;
-    gitInfo?: GitInfo;
-    stats: {
-        scan_duration_ms: number;
-        components_found: number;
-        connections_found: number;
-        warnings_count: number;
-        files_scanned: number;
-        files_changed: number;
-        prompts_found?: number;
-    };
-}>;
+export declare function scan(projectRoot?: string, options?: ScanOptions): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>>;
 /**
  * Quick scan - only packages, no code analysis
  */
-export declare function quickScan(projectRoot?: string): Promise<ScanResult>;
+export declare function quickScan(projectRoot?: string): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>>;
 /**
  * Scan only for AI prompts (detailed)
  */
@@ -137,11 +132,12 @@ export type { PromptScanResult, DetectedPrompt } from './scanners/prompts/index.
 export { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
 export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-call-tracer.js';
 /**
- * R6 auto-refresh: run an incremental scan when the on-disk graph is stale.
+ * R6 auto-refresh: run a policy-selected scan when the on-disk graph is stale.
  *
  * Cheap by design — checks only `index.last_scan` age. If older than
- * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'incremental' })`
- * which internally fast-paths to "no-changes" when nothing actually moved.
+ * `staleAfterMinutes` (default 5), kicks off `scan({ mode: 'auto' })`, which
+ * preserves manifest/config full-scan triggers and fast-paths ordinary source
+ * edits or "no-changes" cases.
  * Per-entity files stay off (the default); auto-refresh is footprint-safe.
  *
  * Returns a one-line description that callers can surface to the user. Never
@@ -153,7 +149,7 @@ export type { TracedLLMCall, LLMTraceResult } from './scanners/connections/llm-c
 export interface AutoRefreshOptions {
     /** Default true. Programmatic override beats the env var. */
     enabled?: boolean;
-    /** Default 5 minutes. Older than this → trigger incremental. */
+    /** Default 5 minutes. Older than this → trigger policy-selected refresh. */
     staleAfterMinutes?: number;
     /**
      * Test-seam: swap the scan implementation. Defaults to the real `scan`
@@ -163,8 +159,8 @@ export interface AutoRefreshOptions {
 }
 export interface AutoRefreshResult {
     refreshed: boolean;
-    /** "stale", "fresh", "no-index", "disabled", "error" */
-    reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'error';
+    /** "stale", "fresh", "no-index", "disabled", "busy", "error" */
+    reason: 'stale' | 'fresh' | 'no-index' | 'disabled' | 'busy' | 'error';
     /** Files updated by the refresh (only set on `refreshed: true`). */
     filesChanged?: number;
     /** Human-readable summary suitable for one-line stderr / status emit. */

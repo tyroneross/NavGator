@@ -225,10 +225,29 @@ export declare function atomicWriteFile(target: string, content: string, encodin
  * Atomically write a JSON-serializable value to disk (pretty-printed).
  */
 export declare function atomicWriteJSON(target: string, value: unknown): Promise<void>;
+/** Normalize a scanner/storage path into the project-relative POSIX form. */
+export declare function normalizeTrackedPath(filePath: string, projectRoot: string): string;
+export interface PriorStatePartition {
+    survivingComponents: ArchitectureComponent[];
+    survivingConnections: ArchitectureConnection[];
+    componentsRemoved: number;
+    connectionsRemoved: number;
+}
+/**
+ * Partition the prior canonical generation in memory for an incremental scan.
+ *
+ * This is deliberately independent of the physical storage layout. With
+ * consolidated storage enabled there are no per-entity files for
+ * `clearForFiles` to remove, so reloading from disk would incorrectly restore
+ * stale entities from `*.full.jsonl`. Source ownership is determined from a
+ * component's config files and a connection's originating code reference (or
+ * FROM component when the connection lacks a direct code reference).
+ */
+export declare function partitionPriorStateForFiles(components: ArchitectureComponent[], connections: ArchitectureConnection[], changedPaths: Set<string>, projectRoot: string): PriorStatePartition;
 /**
  * Clear only the components and connections whose source files overlap
  * `changedPaths`. Used by incremental scans so we re-emit just the touched
- * subset and merge the rest by stable_id.
+ * subset in the legacy per-entity layout.
  *
  * - For components: a component is cleared if any of its `source.config_files`
  *   appears in `changedPaths`.
@@ -236,8 +255,9 @@ export declare function atomicWriteJSON(target: string, value: unknown): Promise
  *   appears in `changedPaths`. (We do NOT delete based on the target's
  *   source files — that would over-clear.)
  *
- * Survivors stay on disk and get merged with new incoming data via
- * mergeByStableId.
+ * This function is physical cleanup only. The scanner partitions its prior
+ * canonical state in memory before calling this function; correctness must not
+ * depend on per-entity files existing.
  */
 export declare function clearForFiles(config: NavGatorConfig | undefined, projectRoot: string | undefined, changedPaths: Set<string>): Promise<{
     componentsCleared: number;

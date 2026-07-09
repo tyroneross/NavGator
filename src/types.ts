@@ -347,7 +347,7 @@ export interface ProjectMetadata {
 export type ScanType = 'full' | 'incremental' | 'incremental→full' | 'noop';
 
 export interface ArchitectureIndex {
-  schema_version?: string;      // NavGator schema version (e.g., '1.0.0')
+  schema_version?: string;      // NavGator schema version (e.g., '1.1.0')
   version: string;              // Index format version
   last_scan: number;            // Unix timestamp of last scan
   /**
@@ -463,7 +463,8 @@ export interface AuditReport {
 }
 
 /**
- * Full connection graph (for visualization/analysis)
+ * Derived connection-graph projection for visualization and analysis.
+ * Complete connection records live in `connections.full.jsonl`.
  */
 export interface ConnectionGraph {
   schema_version?: string;
@@ -642,9 +643,9 @@ export interface NavGatorConfig {
   /**
    * When true, scan writes one JSON file per component and per connection
    * under `<storage>/components/` and `<storage>/connections/`. Default is
-   * `false` — the consolidated `graph.json`, `index.json`, `connections.jsonl`,
-   * and `reverse-deps.json` files are the source of truth and the per-entity
-   * files duplicate ~70MB of data on large projects (R6 fix).
+   * `false` — canonical records remain in `components.full.jsonl` and
+   * `connections.full.jsonl`; graph/index/compact files are derived views.
+   * Per-entity files duplicate substantial data on large projects.
    *
    * Override via env: `NAVGATOR_PER_ENTITY_FILES=true` or CLI:
    * `navgator scan --per-entity-files`.

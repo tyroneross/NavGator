@@ -17,8 +17,8 @@ afterEach(() => {
 });
 
 describe('freshness CLI helpers', () => {
-  it('runMarkDirty appends to the ledger', () => {
-    runMarkDirty(['src/a.ts'], root);
+  it('runMarkDirty appends to the ledger', async () => {
+    await runMarkDirty(['src/a.ts'], root);
     expect(readDirty(root)).toEqual(['src/a.ts']);
   });
 
@@ -29,7 +29,7 @@ describe('freshness CLI helpers', () => {
   });
 
   it('overlays durable ledger events when the persisted stamp remained clean', async () => {
-    runMarkDirty(['src/late.ts'], root);
+    await runMarkDirty(['src/late.ts'], root);
     fs.writeFileSync(
       path.join(root, '.navgator', 'architecture', 'freshness.json'),
       JSON.stringify({
@@ -76,7 +76,7 @@ describe('freshness CLI helpers', () => {
       path.join(root, 'tsconfig.json'),
       JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '#/*': ['src/*'] } } }),
     );
-    runMarkDirty(['tsconfig.json'], root);
+    await runMarkDirty(['tsconfig.json'], root);
     const result = await runDrain(root, 0);
 
     expect(result.status).toBe('drained');

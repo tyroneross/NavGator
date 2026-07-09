@@ -1,7 +1,7 @@
 ---
 name: architecture-scan
 description: Use when user asks to scan architecture, check dependencies, find outdated packages, show project structure, refresh architecture, or run a health check. Navgator scan, status, and staleness check.
-version: 0.4.0
+version: 0.9.1
 user-invocable: false
 ---
 

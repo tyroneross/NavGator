@@ -24,7 +24,7 @@ export function registerStatusCommand(program) {
             const refresh = await autoRefreshIfStale(process.cwd(), {
                 enabled: options.refresh !== false,
             });
-            if (refresh.refreshed && !options.json && !options.agent) {
+            if ((refresh.refreshed || refresh.reason === 'busy') && !options.json && !options.agent) {
                 console.log(refresh.message);
             }
             const config = getConfig();
@@ -34,11 +34,11 @@ export function registerStatusCommand(program) {
                 return;
             }
             if (options.agent) {
-                console.log(wrapInEnvelope('status', index));
+                console.log(wrapInEnvelope('status', { ...index, refresh }));
                 return;
             }
             if (options.json) {
-                console.log(JSON.stringify(index, null, 2));
+                console.log(JSON.stringify({ ...index, refresh }, null, 2));
                 return;
             }
             console.log('NavGator - Architecture Status\n');

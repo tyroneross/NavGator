@@ -29,6 +29,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 const MARKER_START = '# >>> NavGator safety guard (auto-managed)';
 const MARKER_END = '# <<< NavGator safety guard';
 const GUARDED_PATTERNS = [
@@ -45,9 +46,15 @@ const GUARDED_PATTERNS = [
     // Legacy filenames from pre-rename NavGator versions — harmless if not written.
     '.navgator/architecture/SUMMARY.md',
     '.navgator/architecture/SUMMARY_FULL.md',
+    // Freshness and writer-coordination state is always local and may contain
+    // project-relative paths. Ignore both durable files and crash leftovers.
+    '.navgator/dirty.json',
+    '.navgator/dirty.d/',
+    '.navgator/dirty.lock*',
+    '.navgator/scan.lock*',
+    '.navgator/architecture/freshness.json.tmp*',
 ];
-const BLOCK = [
-    '',
+const MANAGED_BLOCK = [
     MARKER_START,
     '# These files are regenerated from .env on every NavGator scan and contain',
     '# parsed hostnames/endpoints from your live environment. Credentials are',
@@ -56,8 +63,20 @@ const BLOCK = [
     '# not re-add it while the markers below are missing.',
     ...GUARDED_PATTERNS,
     MARKER_END,
-    '',
 ].join('\n');
+const BLOCK = `\n${MANAGED_BLOCK}\n`;
+function ignoreTarget(projectRoot) {
+    const projectGitignore = path.join(projectRoot, '.gitignore');
+    if (fs.existsSync(projectGitignore))
+        return projectGitignore;
+    try {
+        const resolved = execFileSync('git', ['-C', projectRoot, 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        return resolved || null;
+    }
+    catch {
+        return null;
+    }
+}
 /**
  * Ensure the project's .gitignore has NavGator-managed safety patterns.
  *
@@ -65,33 +84,43 @@ const BLOCK = [
  * can log if they want to surface the behavior.
  */
 export async function ensureSafeGitignore(projectRoot) {
-    const gitignorePath = path.join(projectRoot, '.gitignore');
+    const gitignorePath = ignoreTarget(projectRoot) ?? path.join(projectRoot, '.gitignore');
     // Opt-out via env var
     if (process.env.NAVGATOR_SKIP_GITIGNORE_GUARD === '1') {
         return { action: 'opt-out', gitignorePath };
     }
-    // Nothing to do if .gitignore doesn't exist — don't create one just for this
-    if (!fs.existsSync(gitignorePath)) {
+    // Outside a Git worktree, do not create a project file solely for the guard.
+    if (!fs.existsSync(gitignorePath) && gitignorePath === path.join(projectRoot, '.gitignore')) {
         return { action: 'no-gitignore', gitignorePath };
     }
-    let content;
+    let content = '';
     try {
         content = await fs.promises.readFile(gitignorePath, 'utf-8');
     }
-    catch {
-        return { action: 'no-gitignore', gitignorePath };
+    catch (error) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
+            return { action: 'no-gitignore', gitignorePath };
+        }
     }
-    // Already has the managed block
-    if (content.includes(MARKER_START)) {
-        return { action: 'already-present', gitignorePath };
+    // Upgrade an older managed block in place when new runtime files are added.
+    const markerStart = content.indexOf(MARKER_START);
+    if (markerStart >= 0) {
+        const markerEnd = content.indexOf(MARKER_END, markerStart);
+        if (markerEnd < 0)
+            return { action: 'no-gitignore', gitignorePath };
+        const blockEnd = markerEnd + MARKER_END.length;
+        const currentBlock = content.slice(markerStart, blockEnd);
+        if (currentBlock === MANAGED_BLOCK) {
+            return { action: 'already-present', gitignorePath };
+        }
+        const updated = `${content.slice(0, markerStart)}${MANAGED_BLOCK}${content.slice(blockEnd)}`;
+        await fs.promises.mkdir(path.dirname(gitignorePath), { recursive: true });
+        await fs.promises.writeFile(gitignorePath, updated, 'utf-8');
+        return { action: 'updated', gitignorePath };
     }
     // User has a broader rule that covers the guarded patterns → no-op
     // (Don't add a duplicate block if `.navgator/` or equivalent is already ignored.)
-    const broaderRules = [
-        '.navgator/',
-        '.navgator/architecture/',
-        '.navgator/architecture/components/',
-    ];
+    const broaderRules = ['.navgator/'];
     const lines = content.split('\n').map((l) => l.trim());
     for (const broader of broaderRules) {
         if (lines.includes(broader)) {
@@ -101,6 +130,7 @@ export async function ensureSafeGitignore(projectRoot) {
     // Append the managed block
     const needsTrailingNewline = content.length > 0 && !content.endsWith('\n');
     const newContent = content + (needsTrailingNewline ? '\n' : '') + BLOCK;
+    await fs.promises.mkdir(path.dirname(gitignorePath), { recursive: true });
     await fs.promises.writeFile(gitignorePath, newContent, 'utf-8');
     return { action: 'added', gitignorePath };
 }

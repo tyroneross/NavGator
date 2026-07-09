@@ -7,43 +7,50 @@ on:
   workflow_dispatch:
 
 env:
-  BUILD_NODE_VERSION: '22'
   PUBLISH_NODE_VERSION: '24'
+  CLAUDE_CODE_VERSION: '2.1.206'
+  CODEX_CLI_VERSION: '0.130.0'
+  DISABLE_AUTOUPDATER: '1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
-      packages: write
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: ${{ env.BUILD_NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org'
+          node-version: ${{ env.PUBLISH_NODE_VERSION }}
 
       - name: Install root dependencies
         run: npm ci --ignore-scripts
 
       - name: Install web dependencies
-        run: cd web && npm ci
+        run: npm --prefix web ci --ignore-scripts
 
-      - name: Test
-        run: npm run test:release
+      - name: Audit production dependencies
+        run: |
+          npm audit --omit=dev --audit-level=moderate
+          npm --prefix web audit --omit=dev --audit-level=moderate
+
+      - name: Install pinned host CLIs
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" "@openai/codex@${CODEX_CLI_VERSION}"
+
+      - name: Test full suite
+        run: npm test
+
+      - name: Typecheck root and web
+        run: npm run typecheck
 
       - name: Build
         run: npm run build
-
-      - name: Verify build output
-        run: |
-          ls -la dist/
-          node dist/cli/index.js --help >/dev/null
 
       - name: Read package version
         id: package
@@ -51,8 +58,72 @@ jobs:
           VERSION=$(node -e "const fs = require('fs'); process.stdout.write(JSON.parse(fs.readFileSync('package.json', 'utf8')).version)")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          if [ "$RELEASE_TAG" != "$EXPECTED_TAG" ]; then
+            echo "Release tag $RELEASE_TAG does not match package version $PACKAGE_VERSION (expected $EXPECTED_TAG)." >&2
+            exit 1
+          fi
+
+      - name: Pack the verified artifact once
+        id: artifact
+        run: |
+          PACK_JSON=$(npm pack --json --ignore-scripts)
+          FILE=$(node -e "const value = JSON.parse(process.argv[1]); process.stdout.write(value[0].filename)" "$PACK_JSON")
+          test -f "$FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact packed Claude and Codex artifact
+        env:
+          REQUIRE_CLAUDE_VALIDATION: '1'
+          REQUIRE_CODEX_VALIDATION: '1'
+          NAVGATOR_RELEASE_TARBALL: ${{ steps.artifact.outputs.file }}
+        run: npm run verify:release
+
+      - name: Hash verified artifact
+        run: sha256sum "${{ steps.artifact.outputs.file }}" > "${{ steps.artifact.outputs.file }}.sha256"
+
+      - name: Upload verified artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: navgator-release
+          path: |
+            ${{ steps.artifact.outputs.file }}
+            ${{ steps.artifact.outputs.file }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      packages: write
+    steps:
+      - name: Download verified artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: navgator-release
+          path: release
+
+      - name: Verify artifact hash
+        run: cd release && sha256sum -c *.sha256
+
+      - name: Resolve artifact path
+        id: artifact
+        run: |
+          FILE=$(find release -maxdepth 1 -type f -name '*.tgz' -print -quit)
+          test -n "$FILE"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js for npmjs
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -60,7 +131,7 @@ jobs:
       - name: Check npmjs version
         id: npmjs
         run: |
-          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
+          if npm view "@tyroneross/navgator@${{ needs.build.outputs.version }}" version --registry https://registry.npmjs.org >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -68,12 +139,12 @@ jobs:
 
       - name: Publish to npmjs (with provenance)
         if: steps.npmjs.outputs.exists != 'true'
-        run: npm publish --registry https://registry.npmjs.org --access public --provenance
+        run: npm publish "${{ steps.artifact.outputs.file }}" --ignore-scripts --registry https://registry.npmjs.org --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Setup Node.js for GitHub Packages
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
           registry-url: 'https://npm.pkg.github.com'
@@ -82,7 +153,7 @@ jobs:
       - name: Check GitHub Packages version
         id: github_packages
         run: |
-          if npm view "@tyroneross/navgator@${{ steps.package.outputs.version }}" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+          if npm view "@tyroneross/navgator@${{ needs.build.outputs.version }}" version --registry https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -92,6 +163,6 @@ jobs:
 
       - name: Publish to GitHub Packages
         if: steps.github_packages.outputs.exists != 'true'
-        run: npm publish --registry https://npm.pkg.github.com --provenance=false
+        run: npm publish "${{ steps.artifact.outputs.file }}" --ignore-scripts --registry https://npm.pkg.github.com --provenance=false
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

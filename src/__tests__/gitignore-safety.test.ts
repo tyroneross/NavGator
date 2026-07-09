@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execFileSync } from 'child_process';
 import { ensureSafeGitignore } from '../gitignore-safety.js';
+import { runMarkDirty } from '../cli/commands/freshness.js';
 
 describe('ensureSafeGitignore', () => {
   let tmp: string;
@@ -37,6 +39,9 @@ describe('ensureSafeGitignore', () => {
     expect(after).toContain('.navgator/architecture/components/COMP_config_*.json');
     expect(after).toContain('.navgator/architecture/NAVSUMMARY.md');
     expect(after).toContain('.navgator/architecture/NAVSUMMARY_FULL.md');
+    expect(after).toContain('.navgator/dirty.d/');
+    expect(after).toContain('.navgator/dirty.lock*');
+    expect(after).toContain('.navgator/scan.lock*');
     // Original content preserved
     expect(after).toContain('node_modules/');
     expect(after).toContain('.next/');
@@ -63,10 +68,11 @@ describe('ensureSafeGitignore', () => {
     expect(after).not.toContain('# >>> NavGator safety guard');
   });
 
-  it('also detects .navgator/architecture/ as a broader covering rule', async () => {
+  it('adds freshness ignores when only architecture output is already ignored', async () => {
     fs.writeFileSync(gitignore, '.navgator/architecture/\n');
     const result = await ensureSafeGitignore(tmp);
-    expect(result.action).toBe('already-present');
+    expect(result.action).toBe('added');
+    expect(fs.readFileSync(gitignore, 'utf8')).toContain('.navgator/dirty.d/');
   });
 
   it('respects NAVGATOR_SKIP_GITIGNORE_GUARD=1 opt-out', async () => {
@@ -116,5 +122,38 @@ describe('ensureSafeGitignore', () => {
     const after = fs.readFileSync(gitignore, 'utf-8');
     expect(after).toContain('.navgator/architecture/components.full.jsonl');
     expect(after).toContain('.navgator/architecture/connections.full.jsonl');
+  });
+
+  it('upgrades an older managed block with freshness and lease patterns', async () => {
+    fs.writeFileSync(gitignore, [
+      '# existing',
+      '# >>> NavGator safety guard (auto-managed)',
+      '.navgator/architecture/NAVSUMMARY.md',
+      '# <<< NavGator safety guard',
+      '# trailing',
+      '',
+    ].join('\n'));
+
+    const result = await ensureSafeGitignore(tmp);
+    const after = fs.readFileSync(gitignore, 'utf8');
+    expect(result.action).toBe('updated');
+    expect(after).toContain('.navgator/dirty.d/');
+    expect(after).toContain('.navgator/scan.lock*');
+    expect(after).toContain('# existing');
+    expect(after).toContain('# trailing');
+  });
+
+  it('keeps a fresh Git worktree clean after mark-dirty without creating .gitignore', async () => {
+    execFileSync('git', ['init', '-q', tmp]);
+    await runMarkDirty(['src/secret.ts'], tmp);
+
+    expect(fs.existsSync(gitignore)).toBe(false);
+    expect(execFileSync('git', ['-C', tmp, 'status', '--short'], { encoding: 'utf8' })).toBe('');
+    const exclude = execFileSync(
+      'git',
+      ['-C', tmp, 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'],
+      { encoding: 'utf8' },
+    ).trim();
+    expect(fs.readFileSync(exclude, 'utf8')).toContain('.navgator/dirty.d/');
   });
 });

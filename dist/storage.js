@@ -1462,10 +1462,56 @@ export async function atomicWriteFile(target, content, encoding = 'utf-8') {
 export async function atomicWriteJSON(target, value) {
     await atomicWriteFile(target, JSON.stringify(value, null, 2), 'utf-8');
 }
+/** Normalize a scanner/storage path into the project-relative POSIX form. */
+export function normalizeTrackedPath(filePath, projectRoot) {
+    const normalizedSeparators = filePath.replace(/\\/g, '/');
+    const root = path.resolve(projectRoot);
+    const absolute = path.isAbsolute(normalizedSeparators)
+        ? path.resolve(normalizedSeparators)
+        : path.resolve(root, normalizedSeparators);
+    const relative = path.relative(root, absolute).replace(/\\/g, '/');
+    return relative.replace(/^\.\//, '');
+}
+/**
+ * Partition the prior canonical generation in memory for an incremental scan.
+ *
+ * This is deliberately independent of the physical storage layout. With
+ * consolidated storage enabled there are no per-entity files for
+ * `clearForFiles` to remove, so reloading from disk would incorrectly restore
+ * stale entities from `*.full.jsonl`. Source ownership is determined from a
+ * component's config files and a connection's originating code reference (or
+ * FROM component when the connection lacks a direct code reference).
+ */
+export function partitionPriorStateForFiles(components, connections, changedPaths, projectRoot) {
+    const normalizedChanged = new Set(Array.from(changedPaths, (file) => normalizeTrackedPath(file, projectRoot)));
+    const ownedComponentIds = new Set();
+    const survivingComponents = components.filter((component) => {
+        const owned = (component.source?.config_files ?? []).some((file) => normalizedChanged.has(normalizeTrackedPath(file, projectRoot)));
+        if (owned)
+            ownedComponentIds.add(component.component_id);
+        return !owned;
+    });
+    const survivingConnections = connections.filter((connection) => {
+        const sourceFile = connection.code_reference?.file;
+        const ownedByFile = sourceFile
+            ? normalizedChanged.has(normalizeTrackedPath(sourceFile, projectRoot))
+            : false;
+        const ownedBySourceComponent = connection.from?.component_id
+            ? ownedComponentIds.has(connection.from.component_id)
+            : false;
+        return !ownedByFile && !ownedBySourceComponent;
+    });
+    return {
+        survivingComponents,
+        survivingConnections,
+        componentsRemoved: components.length - survivingComponents.length,
+        connectionsRemoved: connections.length - survivingConnections.length,
+    };
+}
 /**
  * Clear only the components and connections whose source files overlap
  * `changedPaths`. Used by incremental scans so we re-emit just the touched
- * subset and merge the rest by stable_id.
+ * subset in the legacy per-entity layout.
  *
  * - For components: a component is cleared if any of its `source.config_files`
  *   appears in `changedPaths`.
@@ -1473,8 +1519,9 @@ export async function atomicWriteJSON(target, value) {
  *   appears in `changedPaths`. (We do NOT delete based on the target's
  *   source files — that would over-clear.)
  *
- * Survivors stay on disk and get merged with new incoming data via
- * mergeByStableId.
+ * This function is physical cleanup only. The scanner partitions its prior
+ * canonical state in memory before calling this function; correctness must not
+ * depend on per-entity files existing.
  */
 export async function clearForFiles(config, projectRoot, changedPaths) {
     const cfg = config || getConfig();
@@ -1485,6 +1532,8 @@ export async function clearForFiles(config, projectRoot, changedPaths) {
     if (changedPaths.size === 0) {
         return { componentsCleared, connectionsCleared };
     }
+    const normalizedChanged = new Set(Array.from(changedPaths, (file) => normalizeTrackedPath(file, projectRoot ?? process.cwd())));
+    const root = projectRoot ?? process.cwd();
     // Components: scan and delete those whose source.config_files overlap.
     if (fs.existsSync(componentsPath)) {
         const files = await fs.promises.readdir(componentsPath);
@@ -1495,7 +1544,7 @@ export async function clearForFiles(config, projectRoot, changedPaths) {
                 const c = JSON.parse(content);
                 const sourceFiles = c.source?.config_files ?? [];
                 for (const sf of sourceFiles) {
-                    if (changedPaths.has(sf)) {
+                    if (normalizedChanged.has(normalizeTrackedPath(sf, root))) {
                         await fs.promises.unlink(fp).catch(() => { });
                         componentsCleared++;
                         return;
@@ -1516,7 +1565,7 @@ export async function clearForFiles(config, projectRoot, changedPaths) {
                 const content = await fs.promises.readFile(fp, 'utf-8');
                 const c = JSON.parse(content);
                 const refFile = c.code_reference?.file;
-                if (refFile && changedPaths.has(refFile)) {
+                if (refFile && normalizedChanged.has(normalizeTrackedPath(refFile, root))) {
                     await fs.promises.unlink(fp).catch(() => { });
                     connectionsCleared++;
                 }

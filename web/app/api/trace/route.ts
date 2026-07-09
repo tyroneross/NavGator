@@ -6,15 +6,20 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import * as fs from "fs/promises";
-import * as path from "path";
 import type { TraceApiResponse, TraceResult, TracePath, TraceStep } from "@/lib/types";
+import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
+
+function boundedInteger(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = value === null ? fallback : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, min), max) : fallback;
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const component = searchParams.get("component");
   const direction = (searchParams.get("direction") || "both") as "forward" | "backward" | "both";
-  const maxDepth = Math.min(parseInt(searchParams.get("maxDepth") || "5", 10), 10);
+  const maxDepth = boundedInteger(searchParams.get("maxDepth"), 5, 1, 10);
+  const maxPaths = boundedInteger(searchParams.get("maxPaths"), 10, 1, 50);
   const filterClassification = searchParams.get("filter") || undefined;
   const projectPath = searchParams.get("path");
 
@@ -32,11 +37,7 @@ export async function GET(request: NextRequest) {
       process.env.NAVGATOR_PROJECT_PATH ||
       process.cwd().replace(/\/web$/, "");
 
-    const componentsDir = path.join(root, ".navgator", "architecture", "components");
-    const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
-
-    const components = await loadJsonDir(componentsDir);
-    const connections = await loadJsonDir(connectionsDir);
+    const { components, connections } = await loadArchitectureRecords(root);
 
     if (components.length === 0) {
       return NextResponse.json<TraceApiResponse>({
@@ -55,6 +56,9 @@ export async function GET(request: NextRequest) {
       maxDepth,
       direction,
       filterClassification,
+      maxPaths,
+      maxExpansions: 2000,
+      maxQueue: 1000,
     });
 
     return NextResponse.json<TraceApiResponse>({
@@ -69,24 +73,6 @@ export async function GET(request: NextRequest) {
       error: error instanceof Error ? error.message : "Unknown error",
       source: "scan",
     });
-  }
-}
-
-async function loadJsonDir(dir: string): Promise<Record<string, unknown>[]> {
-  try {
-    const files = await fs.readdir(dir);
-    const results: Record<string, unknown>[] = [];
-    for (const file of files.filter((f) => f.endsWith(".json"))) {
-      try {
-        const content = await fs.readFile(path.join(dir, file), "utf-8");
-        results.push(JSON.parse(content));
-      } catch {
-        // Skip invalid files
-      }
-    }
-    return results;
-  } catch {
-    return [];
   }
 }
 
@@ -110,7 +96,7 @@ function getToId(c: Record<string, unknown>): string {
   return String((c.to as Record<string, unknown> | undefined)?.component_id || "");
 }
 function getConnType(c: Record<string, unknown>): string {
-  return String(c.type || "");
+  return String(c.connection_type || c.type || "");
 }
 function getConnId(c: Record<string, unknown>): string {
   return String(c.connection_id || "");
@@ -128,6 +114,9 @@ interface TraceOpts {
   maxDepth: number;
   direction: "forward" | "backward" | "both";
   filterClassification?: string;
+  maxPaths: number;
+  maxExpansions: number;
+  maxQueue: number;
 }
 
 function traceInline(
@@ -207,8 +196,14 @@ function traceInline(
       visited: new Set([startId]),
     },
   ];
+  let expansions = 0;
+  let truncated = false;
 
   while (queue.length > 0) {
+    if (paths.length >= opts.maxPaths || expansions >= opts.maxExpansions) {
+      truncated = true;
+      break;
+    }
     const current = queue.shift()!;
     if (current.depth >= opts.maxDepth) {
       if (current.path.length > 1) {
@@ -251,6 +246,10 @@ function traceInline(
     }
 
     for (const { conn, nextId } of filtered) {
+      if (queue.length >= opts.maxQueue || expansions >= opts.maxExpansions) {
+        truncated = true;
+        break;
+      }
       const nextComp = componentMap.get(nextId);
       if (!nextComp) continue;
 
@@ -274,6 +273,7 @@ function traceInline(
         depth: current.depth + 1,
         visited: newVisited,
       });
+      expansions++;
     }
   }
 
@@ -289,7 +289,9 @@ function traceInline(
   }
 
   // Assign classifications
-  for (const tracePath of uniquePaths) {
+  const limitedPaths = uniquePaths.slice(0, opts.maxPaths);
+  if (uniquePaths.length > limitedPaths.length) truncated = true;
+  for (const tracePath of limitedPaths) {
     const classifications = tracePath.steps
       .filter((s) => s.connection)
       .map((s) => {
@@ -314,8 +316,9 @@ function traceInline(
 
   return {
     query: getName(startComp),
-    paths: uniquePaths,
+    paths: limitedPaths,
     components_touched: [...touchedIds],
     layers_crossed: [...layerSet],
+    truncated,
   };
 }

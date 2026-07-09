@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "navgator": {
+      "command": "node",
+      "args": ["dist/mcp/server.js"],
+      "cwd": "."
+    }
+  }
+}

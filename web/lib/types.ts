@@ -66,12 +66,12 @@ export interface Prompt {
 export interface Component {
   id: string;
   name: string;
-  type: "npm" | "pip" | "spm" | "cargo" | "go" | "gem" | "composer" | "service" | "database" | "queue" | "infra" | "framework" | "prompt" | "llm";
-  layer: "frontend" | "backend" | "data" | "shared" | "external" | "hosting";
+  type: "npm" | "pip" | "spm" | "cargo" | "go" | "gem" | "composer" | "framework" | "database" | "queue" | "infra" | "service" | "llm" | "config" | "cron" | "api-endpoint" | "db-table" | "prompt" | "worker" | "component" | "xcode-target" | "other";
+  layer: "frontend" | "backend" | "database" | "queue" | "infra" | "external";
   version?: string;
   purpose?: string;
   connections: number;
-  status: "active" | "outdated" | "deprecated" | "removed";
+  status: "active" | "outdated" | "deprecated" | "vulnerable" | "unused" | "removed";
   tags: string[];
   file?: string;
   line?: number;
@@ -87,7 +87,7 @@ export interface Connection {
   fromComponent?: string;
   to: string;
   toComponent?: string;
-  type: "service-call" | "api-calls-db" | "frontend-calls-api" | "queue-triggers" | "imports" | "prompt-usage" | "deploys-to" | "observes" | "conforms-to" | "notifies" | "stores" | "navigates-to" | "requires-entitlement" | "target-contains" | "generates" | "uses-package" | "other";
+  type: "api-calls-db" | "frontend-calls-api" | "queue-triggers" | "service-call" | "imports" | "deploys-to" | "env-dependency" | "schema-relation" | "cron-triggers" | "queue-produces" | "queue-consumes" | "prompt-location" | "prompt-usage" | "uses-package" | "observes" | "conforms-to" | "notifies" | "stores" | "navigates-to" | "presents" | "requires-entitlement" | "target-contains" | "build-phase-includes" | "generates" | "field-reference" | "runtime-binding" | "queue-uses-cache" | "other";
   symbol: string;
   line: number;
   code: string;
@@ -278,6 +278,7 @@ export interface TraceResult {
   paths: TracePath[];
   components_touched: string[];
   layers_crossed: string[];
+  truncated?: boolean;
 }
 
 export interface TraceApiResponse {

@@ -1,37 +1,73 @@
 /**
- * Scan concurrency lock (Run 1.6 — item #4).
+ * Owner-safe scan lease shared by every NavGator scan entrypoint.
  *
- * Prevents two `navgator scan` processes from corrupting each other's
- * .navgator/architecture/ output. Lock file at `<storeDir>/scan.lock`
- * with `{pid, started_at, scan_type}`.
- *
- * Stale lock (>10 min OR PID gone) → auto-cleared on entry.
- * Live lock → second scan exits cleanly with a message and returns
- * `{ ok: false, message }` so the caller can surface the message and
- * exit 0 (not crash).
- *
- * The release function MUST be called in a `finally` block so the lock
- * releases on error paths too.
+ * The caller supplies the canonical lock path (`<base>/.navgator/scan.lock`).
+ * A complete record is written to an O_EXCL candidate and published with an
+ * atomic no-overwrite hard link. Each owner receives a random token and keeps
+ * its heartbeat current until owner-safe release.
  */
 export declare const LOCK_FILENAME = "scan.lock";
-export declare const STALE_LOCK_MS: number;
-export type LockResult = {
-    ok: true;
+/** Grace period before an unreadable/corrupt record may be recovered. */
+export declare const LOCK_TTL_MS = 60000;
+export declare const HEARTBEAT_INTERVAL_MS = 20000;
+export interface ScanLeaseRecord {
+    version: 1;
+    pid: number;
+    token: string;
+    started_at: number;
+    heartbeat_at: number;
+    scan_type: string;
+    /** OS process-start identity; distinguishes a recycled PID from the owner. */
+    owner_fingerprint?: string;
+}
+export interface ScanLease {
+    readonly lockPath: string;
+    readonly token: string;
+    /** Refresh the lease only if this owner token still owns the lock file. */
+    heartbeat: () => boolean;
+    /** Idempotently stop heartbeating and remove only this owner's lock file. */
     release: () => void;
+}
+export type ScanLeaseResult = {
+    ok: true;
+    lease: ScanLease;
 } | {
     ok: false;
+    retryable: true;
+    message: string;
+} | {
+    ok: false;
+    retryable: false;
     message: string;
 };
+export interface ScanLeaseOptions {
+    ttlMs?: number;
+    heartbeatIntervalMs?: number;
+    /** Test seams; production callers should not set these. */
+    now?: () => number;
+    pid?: number;
+    token?: string;
+    isPidAlive?: (pid: number) => boolean;
+    getProcessFingerprint?: (pid: number) => string | null;
+    ownerFingerprint?: string;
+    startHeartbeat?: boolean;
+    releaseRetryMs?: number;
+    gateWaitMs?: number;
+    gatePollMs?: number;
+    /** Test-only delay while holding the cross-process acquisition gate. */
+    criticalSectionDelayMs?: number;
+    /** Test seams for deterministic operational-failure coverage. */
+    publishLease?: (lockPath: string, record: ScanLeaseRecord) => void;
+    reclaimUnlink?: (lockPath: string) => void;
+    releaseUnlink?: (lockPath: string) => void;
+}
+export declare function readScanLease(lockPath: string): ScanLeaseRecord | null;
 /**
- * Try to acquire an exclusive scan lock.
+ * Atomically acquire the scan lease at `lockPath`.
  *
- * - On success: returns `{ ok: true, release }`. Caller MUST call `release()`
- *   in a `finally` block.
- * - On contention with a live, non-stale lock: returns `{ ok: false, message }`.
- *   The caller should surface the message and exit cleanly (code 0).
- *
- * Stale locks (older than `STALE_LOCK_MS` OR pid no longer alive) are
- * auto-cleared and the call falls through to acquisition.
+ * A live owner returns a retryable contention result. A dead owner or old
+ * corrupt record is recovered once; atomic publish decides any acquisition
+ * race without exposing an empty canonical file.
  */
-export declare function acquireLock(storeDir: string, scanType?: string): LockResult;
+export declare function acquireScanLease(lockPath: string, scanType?: string, options?: ScanLeaseOptions): ScanLeaseResult;
 //# sourceMappingURL=scan-lock.d.ts.map

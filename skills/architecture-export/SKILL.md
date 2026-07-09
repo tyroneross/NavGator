@@ -1,7 +1,7 @@
 ---
 name: architecture-export
 description: Use when user asks to show or generate an architecture diagram, visualize dependencies, export architecture docs, create architecture documentation, save architecture output, or create a mermaid diagram of their project.
-version: 0.4.0
+version: 0.9.1
 user-invocable: true
 argument-hint: "[diagram|export] [options]"
 ---

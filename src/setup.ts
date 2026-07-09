@@ -10,9 +10,8 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { scan, quickScan } from './scanner.js';
-import { getConfig } from './config.js';
+import { getConfig, getIndexPath } from './config.js';
 import { generateMermaidDiagram, generateSummaryDiagram } from './diagram.js';
 import { loadGraph } from './storage.js';
 import { ArchitectureIndex } from './types.js';
@@ -105,13 +104,6 @@ export async function setup(options: SetupOptions = {}): Promise<SetupResult> {
       }
     }
 
-    // Create initial index to mark scan as complete
-    await markScanComplete(projectPath, {
-      totalComponents: componentsFound,
-      totalConnections: connectionsFound,
-      phase: 'fast',
-    });
-
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Fast scan failed';
     errors.push(msg);
@@ -128,6 +120,7 @@ export async function setup(options: SetupOptions = {}): Promise<SetupResult> {
 
     try {
       const deepResult = await scan(projectPath, {
+        mode: 'full',
         connections: true,
         prompts: true,
         useAST: true,
@@ -158,13 +151,6 @@ export async function setup(options: SetupOptions = {}): Promise<SetupResult> {
           progress('DEEP', 'Full diagram generated');
         }
       }
-
-      // Mark deep scan complete
-      await markScanComplete(projectPath, {
-        totalComponents: componentsFound,
-        totalConnections: connectionsFound,
-        phase: 'deep',
-      });
 
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Deep scan failed';
@@ -225,7 +211,7 @@ export async function isSetupComplete(projectPath?: string): Promise<{
   stale: boolean;
 }> {
   const root = projectPath || process.cwd();
-  const indexPath = path.join(root, '.claude', 'architecture', 'index.json');
+  const indexPath = getIndexPath(getConfig(), root);
 
   try {
     const content = await fs.promises.readFile(indexPath, 'utf-8');
@@ -237,7 +223,7 @@ export async function isSetupComplete(projectPath?: string): Promise<{
     return {
       hasScanned: true,
       lastScan,
-      phase: index.version?.includes('deep') ? 'deep' : 'fast',
+      phase: (index.connections.by_type.imports?.length ?? 0) > 0 ? 'deep' : 'fast',
       stale: hoursSince > 24,
     };
   } catch {
@@ -246,61 +232,6 @@ export async function isSetupComplete(projectPath?: string): Promise<{
       stale: true,
     };
   }
-}
-
-/**
- * Mark scan as complete in the index
- */
-async function markScanComplete(
-  projectPath: string,
-  stats: { totalComponents: number; totalConnections: number; phase: 'fast' | 'deep' }
-): Promise<void> {
-  const config = getConfig();
-  const archDir = path.join(projectPath, '.claude', 'architecture');
-
-  // Ensure directory exists
-  await fs.promises.mkdir(archDir, { recursive: true });
-
-  const indexPath = path.join(archDir, 'index.json');
-
-  let index: ArchitectureIndex;
-
-  try {
-    const content = await fs.promises.readFile(indexPath, 'utf-8');
-    index = JSON.parse(content);
-  } catch {
-    index = {
-      version: '1.0.0',
-      last_scan: Date.now(),
-      project_path: projectPath,
-      components: {
-        by_name: {},
-        by_type: {} as Record<string, string[]>,
-        by_layer: {} as Record<string, string[]>,
-        by_status: {} as Record<string, string[]>,
-      },
-      connections: {
-        by_type: {} as Record<string, string[]>,
-        by_from: {},
-        by_to: {},
-      },
-      stats: {
-        total_components: 0,
-        total_connections: 0,
-        components_by_type: {},
-        connections_by_type: {},
-        outdated_count: 0,
-        vulnerable_count: 0,
-      },
-    };
-  }
-
-  index.last_scan = Date.now();
-  index.version = `1.0.0-${stats.phase}`;
-  index.stats.total_components = stats.totalComponents;
-  index.stats.total_connections = stats.totalConnections;
-
-  await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2));
 }
 
 /**

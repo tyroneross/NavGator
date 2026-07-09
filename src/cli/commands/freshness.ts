@@ -4,6 +4,7 @@ import { markDirty, readDirty } from '../../freshness/dirty-ledger.js';
 import { drain, drainUntilClean, type DrainScanLifecycle } from '../../freshness/drainer.js';
 import { computeStamp, readStamp, type FreshnessStamp } from '../../freshness/stamp.js';
 import { scan } from '../../scanner.js';
+import { ensureSafeGitignore } from '../../gitignore-safety.js';
 
 /** Production scanFn: reconcile the dirty snapshot before releasing the scan lease. */
 const realScan = async (
@@ -21,7 +22,8 @@ const realScan = async (
 });
 
 /** Testable core: append paths to the dirty ledger. */
-export function runMarkDirty(paths: string[], root: string): void {
+export async function runMarkDirty(paths: string[], root: string): Promise<void> {
+  await ensureSafeGitignore(root);
   markDirty(paths, root);
 }
 
@@ -70,9 +72,9 @@ export function registerFreshnessCommands(program: Command): void {
     .command('mark-dirty <paths...>')
     .description('Append changed file paths to the dirty-set ledger (used by the PostToolUse hook)')
     .option('--drain', 'Spawn a detached background drain after marking')
-    .action((paths: string[], options: { drain?: boolean }) => {
+    .action(async (paths: string[], options: { drain?: boolean }) => {
       const root = process.cwd();
-      runMarkDirty(paths, root);
+      await runMarkDirty(paths, root);
       if (options.drain) {
         // Detached + unref so the hook returns immediately (non-blocking). Uses
         // --until-clean so the trailing edits of a burst still get drained.

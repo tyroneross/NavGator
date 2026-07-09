@@ -275,10 +275,13 @@ async function handleScan(args) {
     const quick = args.quick === true;
     const result = await scan(projectRoot, {
         quick,
-        incremental: !quick,
+        mode: "auto",
     });
+    if (result.status === 'busy') {
+        return errorResponse(`Scan busy (retryable): ${result.message}`);
+    }
     const lines = [
-        `Scan complete: ${result.stats.components_found} components, ${result.stats.connections_found} connections`,
+        `${result.status === 'noop' ? 'Scan no changes' : 'Scan complete'}: ${result.stats.components_found} components, ${result.stats.connections_found} connections`,
         `Duration: ${result.stats.scan_duration_ms}ms`,
         `Files scanned: ${result.stats.files_scanned}`,
     ];
@@ -336,7 +339,7 @@ async function handleStatus() {
         ? new Date(status.last_scan).toISOString()
         : "unknown";
     const lines = [];
-    if (refresh.refreshed) {
+    if (refresh.refreshed || refresh.reason === 'busy') {
         lines.push(refresh.message);
     }
     lines.push(`Architecture data: ${staleness}`, `Last scan: ${lastScanStr}`, `Components: ${status.component_count}`, `Connections: ${status.connection_count}`);
@@ -529,7 +532,18 @@ async function handleSummary() {
     const lines = [
         `Executive Summary — ${projectName}`,
         `Components: ${summary.stats.total_components} | Connections: ${summary.stats.total_connections}`,
+        `Architecture rules: ${summary.rule_health.errors} error(s), ${summary.rule_health.warnings} warning(s), ${summary.rule_health.info} info`,
     ];
+    if (summary.rule_health.errors > 0) {
+        lines.push(`\nArchitecture rule errors (${summary.rule_health.errors}):`);
+        for (const violation of summary.rule_health.violations.filter((item) => item.severity === 'error')) {
+            lines.push(`- ${violation.message}`);
+        }
+        const returnedErrors = summary.rule_health.violations.filter((item) => item.severity === 'error').length;
+        if (summary.rule_health.errors > returnedErrors) {
+            lines.push(`  ... and ${summary.rule_health.errors - returnedErrors} more error(s)`);
+        }
+    }
     if (summary.risks.length > 0) {
         lines.push(`\nRisks (${summary.risks.length}):`);
         for (const r of summary.risks.slice(0, 10)) {

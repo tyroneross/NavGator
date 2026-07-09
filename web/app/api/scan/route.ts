@@ -5,21 +5,39 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import * as path from "path";
+import { runNavGatorCli } from "@/lib/server/navgator-cli";
+import { rejectUnsafeMutation } from "@/lib/server/request-guard";
 
 interface ScanResponse {
   success: boolean;
+  status: "completed" | "noop" | "busy" | "error";
+  retryable?: boolean;
   message: string;
   timestamp: string;
   results?: {
-    components?: number;
-    connections?: number;
-    prompts?: number;
+    components: number;
+    connections: number;
+    prompts: number;
   };
   error?: string;
+}
+
+interface CliScanResult {
+  status: "completed" | "noop" | "busy";
+  retryable?: boolean;
+  message?: string;
+  components_found?: number;
+  connections_found?: number;
+  prompts_found?: number;
+}
+
+function parseScanResult(stdout: string): CliScanResult {
+  const parsed = JSON.parse(stdout) as Partial<CliScanResult>;
+  if (!parsed || !["completed", "noop", "busy"].includes(String(parsed.status))) {
+    throw new Error("NavGator CLI returned an invalid scan status");
+  }
+  return parsed as CliScanResult;
 }
 
 /**
@@ -29,40 +47,45 @@ interface ScanResponse {
  */
 export async function POST(request: NextRequest) {
   try {
+    const rejected = rejectUnsafeMutation(request);
+    if (rejected) return rejected;
     const body = await request.json().catch(() => ({}));
-    const projectPath = body.path || process.cwd().replace(/\/web$/, "");
+    const projectPath = path.resolve(
+      /* turbopackIgnore: true */ body.path || process.env.NAVGATOR_PROJECT_PATH || process.cwd(),
+    );
     const includePrompts = body.prompts !== false;
 
-    // Validate project path to prevent command injection
-    if (!/^[a-zA-Z0-9._\s\/~-]+$/.test(projectPath)) {
-      return NextResponse.json<ScanResponse>(
-        { success: false, message: "Invalid project path", timestamp: new Date().toISOString(), error: "Path contains invalid characters" },
-        { status: 400 }
-      );
+    const args = ["scan", "--json"];
+    if (includePrompts) args.push("--prompts");
+    let result: CliScanResult;
+    try {
+      const { stdout } = await runNavGatorCli(args, projectPath, 60000);
+      result = parseScanResult(stdout);
+    } catch (error) {
+      const cliError = error as { code?: number | string; stdout?: string };
+      if (Number(cliError.code) !== 2 || typeof cliError.stdout !== "string") throw error;
+      result = parseScanResult(cliError.stdout);
     }
 
-    // Build the scan command
-    let command = `cd "${projectPath}" && npx navgator scan`;
-    if (includePrompts) {
-      command += " --prompts";
+    if (result.status === "busy") {
+      return NextResponse.json<ScanResponse>({
+        success: false,
+        status: result.status,
+        retryable: result.retryable ?? true,
+        message: result.message || "Another NavGator scan is already running",
+        timestamp: new Date().toISOString(),
+      }, { status: 409 });
     }
-
-    // Run the scan
-    const { stdout, stderr } = await execAsync(command, { timeout: 60000 });
-
-    // Parse results from output
-    const componentMatch = stdout.match(/Components:\s*(\d+)/);
-    const connectionMatch = stdout.match(/Connections:\s*(\d+)/);
-    const promptMatch = stdout.match(/Prompts:\s*(\d+)/);
 
     return NextResponse.json<ScanResponse>({
       success: true,
-      message: "Scan completed successfully",
+      status: result.status,
+      message: result.status === "noop" ? "Architecture is already current" : "Scan completed successfully",
       timestamp: new Date().toISOString(),
       results: {
-        components: componentMatch ? parseInt(componentMatch[1]) : undefined,
-        connections: connectionMatch ? parseInt(connectionMatch[1]) : undefined,
-        prompts: promptMatch ? parseInt(promptMatch[1]) : undefined,
+        components: result.components_found ?? 0,
+        connections: result.connections_found ?? 0,
+        prompts: result.prompts_found ?? 0,
       },
     });
   } catch (error) {
@@ -71,6 +94,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json<ScanResponse>(
       {
         success: false,
+        status: "error",
         message: "Scan failed",
         timestamp: new Date().toISOString(),
         error: error instanceof Error ? error.message : "Unknown error",
@@ -87,12 +111,11 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   try {
-    const projectPath = process.cwd().replace(/\/web$/, "");
+    const projectPath = path.resolve(
+      /* turbopackIgnore: true */ process.env.NAVGATOR_PROJECT_PATH || process.cwd(),
+    );
 
-    // Check if NavGator is available
-    const { stdout } = await execAsync(`cd "${projectPath}" && npx navgator --version`, {
-      timeout: 10000,
-    });
+    const { stdout } = await runNavGatorCli(["--version"], projectPath, 10000);
 
     return NextResponse.json({
       available: true,
@@ -102,7 +125,7 @@ export async function GET() {
   } catch {
     return NextResponse.json({
       available: false,
-      message: "NavGator CLI not available. Install with: npm install -g navgator",
+      message: "Packaged NavGator CLI is not available.",
     });
   }
 }

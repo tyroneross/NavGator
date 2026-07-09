@@ -5,9 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import * as fs from "fs/promises";
-import * as path from "path";
 import type { Component, ComponentsApiResponse, ComponentsSummary } from "@/lib/types";
+import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
 
 // Cache for component data (keyed by project path)
 const componentsCache = new Map<string, { data: ComponentsApiResponse["data"]; timestamp: number }>();
@@ -111,40 +110,35 @@ async function loadComponentData(
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
 
-  // Try to load from NavGator storage
-  const componentsDir = path.join(root, ".navgator", "architecture", "components");
+  const records = await loadArchitectureRecords(root);
+  if (records.components.length === 0) return null;
 
-  try {
-    const files = await fs.readdir(componentsDir);
-    const componentFiles = files.filter((f) => f.endsWith(".json"));
-
-    if (componentFiles.length === 0) return null;
-
-    const components: Component[] = [];
-
-    for (const file of componentFiles) {
-      try {
-        const content = await fs.readFile(path.join(componentsDir, file), "utf-8");
-        const raw = JSON.parse(content);
-        components.push(transformComponent(raw));
-      } catch {
-        // Skip invalid files
-      }
+  const degree = new Map<string, number>();
+  for (const connection of records.connections) {
+    const from = connection.from as Record<string, unknown> | undefined;
+    const to = connection.to as Record<string, unknown> | undefined;
+    for (const value of [from?.component_id, to?.component_id]) {
+      const id = typeof value === "string" ? value : "";
+      if (!id) continue;
+      degree.set(id, (degree.get(id) || 0) + 1);
     }
-
-    if (components.length === 0) return null;
-
-    return {
-      components,
-      summary: buildSummary(components),
-    };
-  } catch {
-    return null;
   }
+  const components = records.components.map((component) => {
+    const transformed = transformComponent(component);
+    return { ...transformed, connections: degree.get(transformed.id) || transformed.connections };
+  });
+  const summary = buildSummary(components);
+  if (records.generatedAt) summary.lastScanned = new Date(records.generatedAt).toISOString();
+  return { components, summary };
 }
 
 function transformComponent(raw: Record<string, unknown>): Component {
   const role = raw.role as Record<string, unknown> | undefined;
+  const source = raw.source;
+  const sourceRecord = source && typeof source === "object" && !Array.isArray(source)
+    ? source as Record<string, unknown>
+    : undefined;
+  const configFiles = sourceRecord?.config_files;
 
   return {
     id: String(raw.component_id || raw.id || ""),
@@ -156,7 +150,9 @@ function transformComponent(raw: Record<string, unknown>): Component {
     connections: Array.isArray(raw.connects_to) ? raw.connects_to.length : 0,
     status: mapStatus(String(raw.status || "active")),
     tags: Array.isArray(raw.tags) ? raw.tags.map(String) : [],
-    file: (raw.source as Record<string, unknown>)?.config_files?.[0] as string | undefined,
+    file: Array.isArray(configFiles) && typeof configFiles[0] === "string"
+      ? configFiles[0]
+      : undefined,
   };
 }
 
@@ -176,18 +172,29 @@ function mapType(type: string): Component["type"] {
     framework: "framework",
     prompt: "prompt",
     llm: "llm",
+    config: "config",
+    cron: "cron",
+    "api-endpoint": "api-endpoint",
+    "db-table": "db-table",
+    worker: "worker",
+    component: "component",
+    "xcode-target": "xcode-target",
+    other: "other",
   };
-  return typeMap[type] || "npm";
+  return typeMap[type] || "other";
 }
 
 function mapLayer(layer: string): Component["layer"] {
   const layerMap: Record<string, Component["layer"]> = {
     frontend: "frontend",
     backend: "backend",
-    data: "data",
-    shared: "shared",
+    database: "database",
+    queue: "queue",
+    infra: "infra",
     external: "external",
-    hosting: "hosting",
+    data: "database",
+    shared: "backend",
+    hosting: "infra",
   };
   return layerMap[layer] || "backend";
 }
@@ -197,6 +204,8 @@ function mapStatus(status: string): Component["status"] {
     active: "active",
     outdated: "outdated",
     deprecated: "deprecated",
+    vulnerable: "vulnerable",
+    unused: "unused",
     removed: "removed",
   };
   return statusMap[status] || "active";
@@ -232,17 +241,17 @@ function generateDemoComponents(): ComponentsApiResponse["data"] {
     { id: "comp-2", name: "next", type: "npm", layer: "frontend", version: "14.0.0", connections: 8, status: "active", tags: ["framework", "ssr"] },
     { id: "comp-3", name: "stripe", type: "npm", layer: "backend", version: "14.5.0", connections: 3, status: "active", tags: ["payments"] },
     { id: "comp-4", name: "bullmq", type: "npm", layer: "backend", version: "4.12.0", connections: 5, status: "active", tags: ["queue", "jobs"] },
-    { id: "comp-5", name: "prisma", type: "npm", layer: "data", version: "5.6.0", connections: 6, status: "active", tags: ["orm", "database"] },
-    { id: "comp-6", name: "zod", type: "npm", layer: "shared", version: "3.22.0", connections: 7, status: "active", tags: ["validation"] },
+    { id: "comp-5", name: "prisma", type: "npm", layer: "database", version: "5.6.0", connections: 6, status: "active", tags: ["orm", "database"] },
+    { id: "comp-6", name: "zod", type: "npm", layer: "backend", version: "3.22.0", connections: 7, status: "active", tags: ["validation"] },
     { id: "comp-7", name: "tailwindcss", type: "npm", layer: "frontend", version: "3.3.5", connections: 4, status: "active", tags: ["css", "styling"] },
-    { id: "comp-8", name: "typescript", type: "npm", layer: "shared", version: "5.2.2", connections: 15, status: "active", tags: ["language", "types"] },
+    { id: "comp-8", name: "typescript", type: "npm", layer: "backend", version: "5.2.2", connections: 15, status: "active", tags: ["language", "types"] },
     { id: "comp-9", name: "Stripe", type: "service", layer: "external", purpose: "Payments", connections: 3, status: "active", tags: ["payments", "api"] },
     { id: "comp-10", name: "OpenAI", type: "service", layer: "external", purpose: "AI/ML", connections: 2, status: "active", tags: ["ai", "llm"] },
     { id: "comp-11", name: "Anthropic", type: "service", layer: "external", purpose: "AI/ML", connections: 2, status: "active", tags: ["ai", "llm"] },
     { id: "comp-12", name: "SendGrid", type: "service", layer: "external", purpose: "Email", connections: 1, status: "active", tags: ["email"] },
-    { id: "comp-13", name: "PostgreSQL", type: "database", layer: "data", purpose: "Primary DB", connections: 8, status: "active", tags: ["sql", "relational"] },
-    { id: "comp-14", name: "Redis", type: "database", layer: "data", purpose: "Cache", connections: 4, status: "active", tags: ["cache", "memory"] },
-    { id: "comp-15", name: "Vercel", type: "infra", layer: "hosting", purpose: "Deployment", connections: 2, status: "active", tags: ["hosting", "deploy"] },
+    { id: "comp-13", name: "PostgreSQL", type: "database", layer: "database", purpose: "Primary DB", connections: 8, status: "active", tags: ["sql", "relational"] },
+    { id: "comp-14", name: "Redis", type: "database", layer: "database", purpose: "Cache", connections: 4, status: "active", tags: ["cache", "memory"] },
+    { id: "comp-15", name: "Vercel", type: "infra", layer: "infra", purpose: "Deployment", connections: 2, status: "active", tags: ["hosting", "deploy"] },
   ];
 
   return {

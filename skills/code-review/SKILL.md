@@ -1,7 +1,7 @@
 ---
 name: code-review
 description: Use when user asks to review architecture, check connections, navgator review, is this safe to merge, what did I break, or when scan detects architectural drift. Architectural integrity review of system flow and connections.
-version: 0.4.0
+version: 0.9.1
 user-invocable: true
 ---
 
@@ -46,8 +46,8 @@ When scope is ambiguous, default to `git diff origin/main..HEAD`. If the branch 
 
 Before starting any phase:
 
-1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run `/navgator:scan` first.
-2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — consider running `/navgator:scan` first for accurate results."
+1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run the MCP `scan` tool or `navgator scan` CLI first. Claude users may also run `/navgator:scan`.
+2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — refresh it with the MCP `scan` tool or `navgator scan` before relying on the review."
 3. Load `.navgator/architecture/file_map.json` for file-to-component resolution.
 4. Load `.navgator/architecture/graph.json` for connection traversal.
 5. Check for `.navgator/lessons/lessons.json`. If missing, create it:
@@ -70,7 +70,7 @@ Do not proceed without architecture data. Proceeding on stale data is worse than
    - **New component** — file belongs to a component not previously in the graph
    - **Modified connection** — file is a connection point (API route, service interface, adapter)
    - **Config change** — environment config, deploy config, package.json
-   - **Documentation** — README, CLAUDE.md, skill files, comments only
+   - **Documentation** — README, AGENTS.md, CLAUDE.md, host manifests, skill files, comments only
 5. Identify which layers were touched: frontend, backend, database, infra, external.
 6. Flag any change that crosses more than one layer as **cross-layer** — these carry higher risk because they affect integration boundaries.
 7. Note any new files that do not resolve to any component in `file_map.json` — these may be untracked additions.
@@ -170,26 +170,29 @@ Output:
 **Goal:** Verify that docs reflect what the code actually does.
 
 1. Read `README.md`. For each CLI command or flag in the implementation, check that it appears in the README CLI Reference section. Run `node dist/cli/index.js --help` (or the equivalent for this project) and compare against what README documents.
-2. Read `CLAUDE.md`. Verify the command table is complete — all `/navgator:*` commands that exist in the implementation should be listed.
-3. List all directories under `skills/`. For each capability NavGator has, verify a skill file exists.
-4. Read `plugin.json` (or equivalent config). Verify all referenced directories and entry points exist on disk.
-5. For each new or modified capability identified in Phase 1, check whether it appears in:
-   - README (user-facing docs)
-   - CLAUDE.md (agent-facing docs)
-   - A skill file (agent discoverability)
+2. Read `AGENTS.md`. Verify the shared Claude/Codex contract matches the six skills, MCP tools, storage model, and current runtime behavior.
+3. Read `CLAUDE.md`. Verify the Claude-only command and subagent tables are complete — all `/navgator:*` commands and `agents/*.md` entries should be represented.
+4. List all directories under `skills/`. Verify each shared skill is valid for both hosts and does not require a Claude-only slash command without a CLI or MCP alternative.
+5. Read `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.mcp.json`, and `.codex-plugin/mcp.json`. Verify every referenced directory and process entry exists, and keep host-specific process resolution explicit.
+6. For each new or modified capability identified in Phase 1, check the applicable surfaces:
+   - README (user-facing installation and behavior)
+   - AGENTS.md (shared agent-facing contract)
+   - CLAUDE.md plus `commands/` and `agents/` (Claude-only discovery)
+   - `skills/` and MCP tools (portable Claude/Codex intersection)
+   - both host manifests and MCP configs (registration/runtime discovery)
 
-An agent-invisible feature is one that exists in code but does not appear in any agent-readable file (CLAUDE.md or skill files). These are the highest-priority documentation gaps — they silently degrade agent capability.
+An agent-invisible feature is one that exists in code but does not appear in the files its target host reads. These are the highest-priority documentation gaps because the capability cannot be discovered in that host.
 
 Output:
 ```
 ═══ PHASE 3: DOCUMENTATION DRIFT ═══
-  Undocumented: [capabilities not in README, CLAUDE.md, or skills/]
+  Undocumented: [capabilities missing from README or their applicable host surfaces]
   Stale: [docs referencing behavior that no longer matches implementation]
   Agent-invisible: [features an agent would not discover from available context]
 
-  [AGENT-INVISIBLE] --validate flag added to code-review but not in CLAUDE.md command table
-  [STALE] README references `navgator check` but command was renamed to `/navgator:check`
-  [UNDOCUMENTED] navgator coverage --typespec — no skill file, not in CLAUDE.md
+  [AGENT-INVISIBLE] shared skill requires a Claude slash command and gives Codex no CLI/MCP path
+  [STALE] README references `navgator scan --fast` but the CLI exposes `--quick`
+  [UNDOCUMENTED] navgator coverage --typespec — absent from README and AGENTS.md
 ```
 
 If no drift: report "Documentation matches implementation" — do not omit the section.
@@ -304,7 +307,7 @@ When the user runs a review with `learn "..."`:
    - `occurrences: 1`
    - `first_seen` and `last_seen` set to today
 4. Write to `.navgator/lessons/lessons.json`.
-5. Confirm: "Lesson recorded (id: XXXXXXXX). Run `/navgator:review --validate` to verify it against current best practice."
+5. Confirm: "Lesson recorded (id: XXXXXXXX). Run the review again with `--validate` to verify it against current best practice."
 
 Do not run the full 5-phase review for manual lesson entry — just record and confirm.
 
@@ -354,13 +357,12 @@ These are real architectural findings this skill is designed to surface:
 
 **Example 3 — Agent-invisible capability (pattern: doc drift)**
 ```
-[AGENT-INVISIBLE] Phase 3: navgator coverage --typespec added to CLI but absent from CLAUDE.md
-  File: src/cli/index.ts:203 (flag defined), CLAUDE.md (missing)
-  Why: Claude Code reads CLAUDE.md to discover available commands. A capability not
-       listed there will never be suggested or invoked by an agent, regardless of
-       how useful it is. The feature exists but is unreachable in agent-driven workflows.
-  Resolution: Add `navgator coverage --typespec` row to CLAUDE.md command table
-              with a one-line description of what it validates.
+[AGENT-INVISIBLE] Phase 3: navgator coverage --typespec added to CLI but absent from shared agent guidance
+  File: src/cli/index.ts:203 (flag defined), AGENTS.md (missing)
+  Why: Codex and other agents read AGENTS.md for the shared contract. A capability
+       documented only in Claude-specific commands is unreachable from those hosts.
+  Resolution: Add `navgator coverage --typespec` to README and AGENTS.md, then
+              expose a shared skill or MCP path when agent invocation is expected.
 ```
 
 ---

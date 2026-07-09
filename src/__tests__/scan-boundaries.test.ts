@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { registerScanCommand } from '../cli/commands/scan.js';
+import { loadTimeline } from '../diff.js';
 import { scanLockPath } from '../freshness/paths.js';
 import { handleToolCall } from '../mcp/tools.js';
 import { acquireScanLease, type ScanLease } from '../scan-lock.js';
@@ -65,6 +66,40 @@ describe.sequential('scan contention boundaries', () => {
       expect(text).not.toContain('Scan complete: 0 components');
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  it('lets an MCP scan promote a config change to a full rebuild', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-mcp-auto-'));
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({ name: 'mcp-auto-fixture', version: '0.0.0', dependencies: {} }, null, 2),
+    );
+    fs.writeFileSync(path.join(root, 'src', 'index.ts'), 'export const value = 1;\n');
+    process.chdir(root);
+
+    try {
+      const baseline = await handleToolCall('scan', {});
+      expect(baseline.isError).not.toBe(true);
+
+      fs.writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({
+          name: 'mcp-auto-fixture',
+          version: '0.0.0',
+          dependencies: { commander: '^14.0.0' },
+        }, null, 2),
+      );
+
+      const response = await handleToolCall('scan', {});
+      expect(response.isError).not.toBe(true);
+
+      const timeline = await loadTimeline(undefined, root);
+      expect(timeline.entries.at(-1)?.scan_type).toBe('full');
+    } finally {
+      process.chdir(originalCwd);
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

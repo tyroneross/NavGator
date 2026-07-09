@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { type FreshnessStamp } from '../../freshness/stamp.js';
 /** Testable core: append paths to the dirty ledger. */
-export declare function runMarkDirty(paths: string[], root: string): void;
+export declare function runMarkDirty(paths: string[], root: string): Promise<void>;
 /** Testable core: run a drain with the real scanner. */
 export declare function runDrain(root: string, minIntervalMs?: number): Promise<import("../../freshness/drainer.js").DrainResult>;
 /** Testable core: drain repeatedly until the ledger is empty (trailing-edge). */

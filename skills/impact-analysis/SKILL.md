@@ -1,7 +1,7 @@
 ---
 name: impact-analysis
 description: Use when user asks what breaks if I change X, impact of changing, what depends on, trace data flow, show connections, dependency graph, upstream/downstream, or safe to modify before refactoring.
-version: 0.4.0
+version: 0.9.1
 user-invocable: false
 ---
 

@@ -8,18 +8,20 @@ NavGator tracks architecture connections across your entire stack—packages, se
 
 ## Features
 
-- **Component Detection**: Packages (npm, pip, cargo, go, gem, composer), frameworks, databases, queues, infrastructure
+- **Component Detection**: Packages (npm, pip, SPM, Cargo), frameworks, databases, queues, infrastructure
 - **Source-Level Code Navigation**: Swift (types, protocol conformance, state/actor isolation, SwiftUI navigation) and Rust (modules, structs/enums/traits, trait impls, `use` graph, LLM calls) — mapped straight from source
 - **Connection Mapping**: API → Database, Frontend → API, Queue → Handler, Service calls
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: Hooks, skills, agents, and slash commands
-- **Codex Integration**: Skills, MCP tools, and native marketplace metadata
+- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and 10 MCP tools
+- **Codex Integration**: the same 6 skills and 10 MCP tools through a Codex-specific manifest
 
 ## Installation
 
 ### As a CLI Tool
+
+Requires Node.js 20.11 or newer.
 
 ```bash
 # Install globally
@@ -31,42 +33,50 @@ npx @tyroneross/navgator scan
 
 ### As a Claude Code Plugin
 
-Install the Claude surface directly from this repo:
+After installing the CLI package globally, materialize the package, register its local marketplace, and install it through the Claude Code plugin registry. The absolute package lookup makes these commands work outside the NavGator repository:
 
 ```bash
+NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
+
 # Install for all projects (user scope)
-bash scripts/install-plugin.sh --global
+bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --global
 
 # Install for current project only
-bash scripts/install-plugin.sh --project
+bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --project
 ```
 
-Or link manually:
+The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads all 13 `/navgator:*` commands, 4 subagents, 6 skills, and the MCP server.
 
-```bash
-ln -s $(npm root -g)/@tyroneross/navgator ~/.claude/plugins/navgator
-```
-
-Restart Claude Code after installing. All `/navgator:*` commands will be available.
+If the older `navgator@rosslabs-ai-toolkit` registry entry is still enabled, the installer stops before claiming success and prints the exact scoped `claude plugin disable` command. Disable the legacy entry and rerun so only one NavGator surface is active.
 
 ### As a Codex Plugin
 
-Install the Codex surface directly from this repo:
+After installing the CLI package globally, materialize the package and register a non-empty local marketplace source. The absolute package lookup makes these commands work outside the NavGator repository:
 
 ```bash
-# Install for your Codex user account
-bash scripts/install-codex-plugin.sh --user
+NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
 
-# Or refresh repo-local workspace metadata only
-bash scripts/install-codex-plugin.sh --workspace
+# Register in your personal marketplace
+bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
+
+# Or register in the current workspace marketplace
+bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-This repo now includes native Codex metadata in:
+The script installs the package plus runtime dependencies below the selected marketplace root and writes an idempotent `navgator` entry to `.agents/plugins/marketplace.json`. It rewrites the registration template to target Codex's deterministic versioned plugin cache with no fixed `cwd`. After browser installation, executable code comes from that cache while every tool analyzes the active task workspace; changing or deleting the registration source does not change the installed MCP server. The checked-in `.codex-plugin/mcp.json` is a package template, not a finished registration. Registration is not installation or enablement. After it finishes:
+
+1. Open the Codex plugin browser.
+2. Install and enable `navgator`.
+3. Disable the legacy `gator` plugin if it is present.
+4. Start a new task so the plugin capabilities are loaded.
+
+Codex reads these package surfaces:
 
 - `.codex-plugin/plugin.json`
-- `.agents/plugins/marketplace.json`
+- `.codex-plugin/mcp.json`
+- `skills/*/SKILL.md`
 
-Claude remains the authoritative host for slash commands and agent wiring. Hooks are disabled by default. Codex uses the additive plugin surface for skills and MCP tools.
+Claude remains the authoritative host for slash commands and subagent wiring. Codex does not load `commands/` or `agents/`; it loads the 6 shared skills and 10 MCP tools only. Hooks are disabled by default on both hosts. A source checkout is not a valid self-referential Codex marketplace until the installer materializes the package at a non-empty child path.
 
 ## Quick Start
 
@@ -205,8 +215,9 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 
 | Command | Description |
 |---------|-------------|
+| `/navgator:gator [intent]` | Route a free-form architecture request to the most specific NavGator command or skill |
 | `/navgator:map` | Map full architecture — components, connections, runtime topology, and LLM use cases |
-| `/navgator:plan "<intent>"` | Plan an architecture change or investigation. Delegates to the `architecture-planner` agent, which checks graph freshness, runs an incremental scan if stale, then dispatches the right read-only NavGator tools and aggregates findings |
+| `/navgator:plan "<intent>"` | Plan an architecture change or investigation. Delegates to the `architecture-planner` agent, which checks graph freshness, runs an auto-mode scan if stale, then dispatches the right read-only NavGator tools and aggregates findings |
 | `/navgator:scan` | Quick scan — refresh tracking data |
 | `/navgator:trace <component>` | Trace data flow through the system |
 | `/navgator:impact <component>` | Analyze what's affected by a change |
@@ -219,6 +230,7 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 | `/navgator:schema [model]` | Show database readers and writers |
 | `/navgator:dead` | Find orphaned components and dead code |
 | `/navgator:lessons` | Manage project and global architecture lessons |
+| `/navgator:promote-lesson` | Find recurring cross-project lesson patterns for promotion |
 
 ### Hooks
 
@@ -257,7 +269,7 @@ NavGator supports three scan modes. By default (`--auto`), the scanner picks one
 | `incremental` | a code file changed and none of the full-scan triggers fire | Walks only changed files plus their reverse-dependencies, merges results into the existing graph by stable_id, runs an integrity check |
 | `noop` | nothing changed since the last scan | Updates `last_scan`, writes a `noop` timeline entry, leaves the graph untouched |
 
-If an incremental scan fails its integrity check, NavGator automatically promotes it to a full scan and records `scan_type: 'incremental→full'` in the timeline. Atomic file writes ensure that a crashed scan leaves the prior `.navgator/architecture/` intact.
+If an incremental scan fails its integrity check, NavGator automatically promotes it to a full scan and records `scan_type: 'incremental→full'` in the timeline. Each architecture file is replaced atomically, but a scan is not yet a whole-generation transaction; interrupted scans can require a subsequent full refresh.
 
 The mode used for any given scan appears in `.navgator/architecture/timeline.json` under `scan_type`.
 
@@ -424,7 +436,7 @@ Extract a focused subgraph around a specific component.
 
 | Type | Examples |
 |------|----------|
-| **Packages** | npm, pip, cargo, go, gem, composer |
+| **Packages** | npm, pip, SPM, Cargo |
 | **Frameworks** | Next.js, React, Django, FastAPI, Express |
 | **Databases** | PostgreSQL, MongoDB, Redis, Supabase, Prisma |
 | **Queues** | BullMQ, Celery, SQS, RabbitMQ |
@@ -481,20 +493,23 @@ Data is stored in `.navgator/architecture/` within your project:
 
 ```
 .navgator/architecture/
-├── NAVSUMMARY.md           ← Hot context (read first)
-├── NAVSUMMARY_FULL.md      ← Full version if compressed
-├── components/           # Individual component JSON files
-│   ├── COMP_npm_react_a1b2.json
-│   └── COMP_service_stripe_c3d4.json
-├── connections/          # Connection records
-│   └── CONN_service_call_e5f6.json
-├── index.json           # Quick lookup index
-├── graph.json           # Full connection graph
-├── file_map.json        # File path → component ID lookup
-├── prompts.json         # AI prompt content + associations
-├── hashes.json          # File hashes for change detection
-└── snapshots/           # Point-in-time backups
+├── NAVSUMMARY.md              # Hot context (read first)
+├── NAVSUMMARY_FULL.md         # Full version if compressed
+├── components.full.jsonl      # Canonical complete component records
+├── connections.full.jsonl     # Canonical complete connection records
+├── index.json                 # Derived lookup index and counts
+├── graph.json                 # Derived graph projection (lossy)
+├── file_map.json              # Derived file path → component ID lookup
+├── connections.jsonl          # Compact connection projection (lossy)
+├── prompts.json               # AI prompt content + associations
+├── hashes.json                # File hashes for change detection
+├── timeline.json              # Scan history
+├── reverse-deps.json          # Derived file → importers index
+├── components/                # Optional per-component JSON (--per-entity-files)
+└── connections/               # Optional per-connection JSON (--per-entity-files)
 ```
+
+The complete record format uses schema version `1.1.0`. The two `*.full.jsonl` files are the canonical consolidated records. `graph.json`, `index.json`, `file_map.json`, and `connections.jsonl` are compact or indexed views and can omit record fields. Per-entity directories are disabled by default and duplicate the canonical records when explicitly enabled.
 
 ## AI Prompt Tracking
 
@@ -526,6 +541,8 @@ NavGator automatically categorizes prompts:
 - `translation` - Language translation
 
 ## AST-Based Scanning
+
+The required graph runtime is installed with the npm package: `graphology`, `graphology-communities-louvain`, and `graphology-metrics`. Keep production dependencies when copying or materializing NavGator.
 
 For more accurate connection detection, install `ts-morph`:
 
@@ -623,7 +640,7 @@ navgator impact "Supabase"
 
 ## License
 
-MIT
+Apache-2.0
 
 ## Contributing
 
@@ -631,31 +648,34 @@ Contributions welcome! Please read the contributing guidelines first.
 
 ## Links
 
-- [GitHub Repository](https://github.com/tyroneross/navgator)
-- [Issue Tracker](https://github.com/tyroneross/navgator/issues)
+- [GitHub Repository](https://github.com/tyroneross/NavGator)
+- [Issue Tracker](https://github.com/tyroneross/NavGator/issues)
 - [Claude Code](https://claude.ai/claude-code)
 
 ## Codex
 
-This package now ships an additive Codex plugin surface alongside the existing Claude Code package. Claude remains the authoritative runtime for slash commands and agents. Hooks are disabled by default. Codex support is explicit and parallel rather than inferred from the Claude surface.
+This package ships an additive Codex plugin surface alongside the Claude Code surface. Claude remains authoritative for slash commands and subagents. Hooks are disabled by default. Codex support is explicit and parallel rather than inferred from Claude configuration.
 
 Package root for Codex installs:
 - the repository root (`.`)
 
 Primary Codex surface:
 - manifest: `./.codex-plugin/plugin.json`
-- workspace marketplace metadata: `./.agents/plugins/marketplace.json`
 - skills from `./skills`
-- MCP config from `./.mcp.json`
+- MCP config from `./.codex-plugin/mcp.json`
+
+The installer generates marketplace metadata at user or workspace scope after materializing the package and its dependencies at a non-empty local source path. The repository does not advertise itself through an invalid self-referential marketplace entry.
 
 Recommended Codex flows:
 
 ```bash
-# user-wide install
-bash scripts/install-codex-plugin.sh --user
+NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
 
-# repo-local workspace metadata
-bash scripts/install-codex-plugin.sh --workspace
+# personal marketplace registration
+bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
+
+# current-workspace marketplace registration
+bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-The Codex package is additive only: Claude-specific slash commands and agent wiring remain unchanged for Claude Code.
+After registration, install and enable `navgator` in the Codex plugin browser, disable a legacy `gator` entry if present, and start a new task. Codex loads 6 skills and 10 MCP tools; Claude-specific slash commands and subagents remain Claude-only.

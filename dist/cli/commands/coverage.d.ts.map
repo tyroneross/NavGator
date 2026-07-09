@@ -1,1 +1,1 @@
-{"version":3,"file":"coverage.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/coverage.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AAOpC,wBAAgB,uBAAuB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAwF9D"}
+{"version":3,"file":"coverage.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/coverage.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AAIpC,OAAO,EAAyC,KAAK,cAAc,EAAE,MAAM,mBAAmB,CAAC;AAG/F,wBAAgB,sBAAsB,CAAC,MAAM,EAAE,cAAc;;;;;;;;;;;;;;;;;;;;;;;;;EAc5D;AAED,wBAAgB,uBAAuB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAwF9D"}

@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/navgator",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Architecture connection tracker for Claude Code and Codex - know your stack before you change it",
   "type": "module",
   "main": "dist/index.js",
@@ -24,20 +24,22 @@
   },
   "files": [
     "dist",
-    "web/.next/standalone",
-    "web/.next/static",
-    "web/public",
+    "web/server.cjs",
+    "web/runtime",
     "skills",
     "hooks",
+    "commands",
     "agents",
     ".claude-plugin",
     ".codex-plugin",
-    ".agents",
     ".mcp.json",
     "scripts/install-plugin.sh",
     "scripts/install-codex-plugin.sh",
+    "scripts/promote-lessons.py",
     "CLAUDE.md",
-    "README.md"
+    "README.md",
+    "AGENTS.md",
+    "VERSIONING.md"
   ],
   "publishConfig": {
     "access": "public",
@@ -47,16 +49,17 @@
     "build": "npm run build:cli && npm run build:web",
     "build:cli": "tsc && npm run build:fixshebang",
     "build:fixshebang": "node -e \"const fs=require('fs');const f='dist/cli/index.js';let c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!')){c='#!/usr/bin/env node\\n'+c;fs.writeFileSync(f,c);}\"",
-    "build:web": "cd web && npm run build && cd .. && npm run build:standalone",
-    "build:standalone": "cp -r web/.next/static web/.next/standalone/web/.next/static && test -d web/public && cp -r web/public web/.next/standalone/web/public || true",
+    "build:web": "npm --prefix web run build && npm run build:standalone",
+    "build:standalone": "node scripts/prepare-web-runtime.mjs",
     "dev": "tsc --watch",
     "dev:web": "cd web && next dev",
     "start": "node dist/cli/index.js",
     "test": "vitest run",
-    "test:release": "vitest run --exclude __tests__/scanner-audit.test.ts --exclude __tests__/scanner-characterization.test.ts --exclude __tests__/scanner-incremental.test.ts",
-    "lint": "eslint src/**/*.ts",
-    "clean": "rm -rf dist web/.next",
-    "prepublishOnly": "npm run clean && npm run build",
+    "test:release": "npm test",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p web/tsconfig.json --noEmit",
+    "verify:release": "node scripts/verify-release.mjs",
+    "clean": "rm -rf dist web/.next web/runtime web/server.js web/server.cjs",
+    "prepublishOnly": "npm run clean && npm run build && npm run verify:release",
     "link:local": "npm run build && npm link",
     "install:claude": "bash scripts/install-plugin.sh --global",
     "install:codex": "bash scripts/install-codex-plugin.sh --user",
@@ -85,7 +88,7 @@
     "url": "https://github.com/tyroneross/NavGator/issues"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.11.0"
   },
   "dependencies": {
     "commander": "^14.0.0",

@@ -501,7 +501,10 @@ export async function scan(
 ): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>> {
   const startTime = Date.now();
   const root = projectRoot || process.cwd();
-  const config = getConfig();
+  // Each scan owns its configuration snapshot. Call-level overrides must never
+  // mutate the cached process-wide config because a busy contender can overlap
+  // a winning scan in the same process.
+  const config: NavGatorConfig = { ...getConfig() };
 
   // R6 footprint fix: CLI/programmatic option overrides config flag.
   if (options.perEntityFiles !== undefined) {
@@ -530,9 +533,6 @@ export async function scan(
   if (options.verbose) {
     console.log(`Scanning project: ${root}`);
   }
-
-  // Ensure storage directories exist BEFORE we look at any prior state.
-  ensureStorageDirectories(config, root);
 
   // ==========================================================================
   // Phase 0.0: Concurrency lock (Run 1.6 — item #4)
@@ -572,6 +572,12 @@ export async function scan(
 
   try {
   await options._onLeaseAcquired?.();
+
+  // Storage initialization includes legacy-path migration and therefore must
+  // happen only while this scan owns the canonical writer lease. Lease
+  // acquisition itself creates only the lock parent directory.
+  ensureStorageDirectories(config, root);
+
   // ==========================================================================
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================

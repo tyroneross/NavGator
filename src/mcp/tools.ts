@@ -321,7 +321,7 @@ async function handleScan(
 
   const result = await scan(projectRoot, {
     quick,
-    incremental: !quick,
+    mode: "auto",
   });
 
   if (result.status === 'busy') {

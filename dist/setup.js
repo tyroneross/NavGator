@@ -9,9 +9,8 @@
  * The deep scan uses ts-morph AST analysis for accurate detection.
  */
 import * as fs from 'fs';
-import * as path from 'path';
 import { scan, quickScan } from './scanner.js';
-import { getConfig } from './config.js';
+import { getConfig, getIndexPath } from './config.js';
 import { generateMermaidDiagram, generateSummaryDiagram } from './diagram.js';
 import { loadGraph } from './storage.js';
 /**
@@ -41,6 +40,9 @@ export async function setup(options = {}) {
     const fastStart = Date.now();
     try {
         const fastResult = await quickScan(projectPath);
+        if (fastResult.status === 'busy') {
+            throw new Error(`Fast scan busy: ${fastResult.message}`);
+        }
         componentsFound = fastResult.components.length;
         connectionsFound = fastResult.connections.length;
         fastScanComplete = true;
@@ -56,12 +58,6 @@ export async function setup(options = {}) {
                 progress('FAST', 'Initial diagram generated');
             }
         }
-        // Create initial index to mark scan as complete
-        await markScanComplete(projectPath, {
-            totalComponents: componentsFound,
-            totalConnections: connectionsFound,
-            phase: 'fast',
-        });
     }
     catch (error) {
         const msg = error instanceof Error ? error.message : 'Fast scan failed';
@@ -76,11 +72,15 @@ export async function setup(options = {}) {
         const deepStart = Date.now();
         try {
             const deepResult = await scan(projectPath, {
+                mode: 'full',
                 connections: true,
                 prompts: true,
                 useAST: true,
                 verbose: options.verbose,
             });
+            if (deepResult.status === 'busy') {
+                throw new Error(`Deep scan busy: ${deepResult.message}`);
+            }
             componentsFound = deepResult.components.length;
             connectionsFound = deepResult.connections.length;
             promptsFound = deepResult.promptScan?.prompts.length || 0;
@@ -97,12 +97,6 @@ export async function setup(options = {}) {
                     progress('DEEP', 'Full diagram generated');
                 }
             }
-            // Mark deep scan complete
-            await markScanComplete(projectPath, {
-                totalComponents: componentsFound,
-                totalConnections: connectionsFound,
-                phase: 'deep',
-            });
         }
         catch (error) {
             const msg = error instanceof Error ? error.message : 'Deep scan failed';
@@ -153,7 +147,7 @@ export async function fullSetup(projectPath) {
  */
 export async function isSetupComplete(projectPath) {
     const root = projectPath || process.cwd();
-    const indexPath = path.join(root, '.claude', 'architecture', 'index.json');
+    const indexPath = getIndexPath(getConfig(), root);
     try {
         const content = await fs.promises.readFile(indexPath, 'utf-8');
         const index = JSON.parse(content);
@@ -162,7 +156,7 @@ export async function isSetupComplete(projectPath) {
         return {
             hasScanned: true,
             lastScan,
-            phase: index.version?.includes('deep') ? 'deep' : 'fast',
+            phase: (index.connections.by_type.imports?.length ?? 0) > 0 ? 'deep' : 'fast',
             stale: hoursSince > 24,
         };
     }
@@ -172,52 +166,6 @@ export async function isSetupComplete(projectPath) {
             stale: true,
         };
     }
-}
-/**
- * Mark scan as complete in the index
- */
-async function markScanComplete(projectPath, stats) {
-    const config = getConfig();
-    const archDir = path.join(projectPath, '.claude', 'architecture');
-    // Ensure directory exists
-    await fs.promises.mkdir(archDir, { recursive: true });
-    const indexPath = path.join(archDir, 'index.json');
-    let index;
-    try {
-        const content = await fs.promises.readFile(indexPath, 'utf-8');
-        index = JSON.parse(content);
-    }
-    catch {
-        index = {
-            version: '1.0.0',
-            last_scan: Date.now(),
-            project_path: projectPath,
-            components: {
-                by_name: {},
-                by_type: {},
-                by_layer: {},
-                by_status: {},
-            },
-            connections: {
-                by_type: {},
-                by_from: {},
-                by_to: {},
-            },
-            stats: {
-                total_components: 0,
-                total_connections: 0,
-                components_by_type: {},
-                connections_by_type: {},
-                outdated_count: 0,
-                vulnerable_count: 0,
-            },
-        };
-    }
-    index.last_scan = Date.now();
-    index.version = `1.0.0-${stats.phase}`;
-    index.stats.total_components = stats.totalComponents;
-    index.stats.total_connections = stats.totalConnections;
-    await fs.promises.writeFile(indexPath, JSON.stringify(index, null, 2));
 }
 /**
  * Get setup status for display

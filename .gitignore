@@ -33,6 +33,9 @@ coverage/
 .env.*.local
 web/node_modules/
 web/.next/
+web/runtime/
+web/server.js
+web/server.cjs
 
 # Bookmark snapshot data (.bookmark/ is where the plugin actually writes;
 # the earlier .claude/bookmarks/ pattern was a typo that never matched)
@@ -44,7 +47,26 @@ web/.next/
 .rally/
 .codex/
 .claude-code-debugger/
-.navgator/dirty.json
 
 # Generated .navgator state inside test fixtures
 __tests__/fixtures/**/.navgator/
+
+# >>> NavGator safety guard (auto-managed)
+# These files are regenerated from .env on every NavGator scan and contain
+# parsed hostnames/endpoints from your live environment. Credentials are
+# stripped by NavGator, but hostnames/project refs still leak infra identity.
+# Safe to delete this block if you want the files tracked — NavGator will
+# not re-add it while the markers below are missing.
+.navgator/architecture/components/COMP_config_*.json
+.navgator/architecture/components.full.jsonl
+.navgator/architecture/connections.full.jsonl
+.navgator/architecture/NAVSUMMARY.md
+.navgator/architecture/NAVSUMMARY_FULL.md
+.navgator/architecture/SUMMARY.md
+.navgator/architecture/SUMMARY_FULL.md
+.navgator/dirty.json
+.navgator/dirty.d/
+.navgator/dirty.lock*
+.navgator/scan.lock*
+.navgator/architecture/freshness.json.tmp*
+# <<< NavGator safety guard

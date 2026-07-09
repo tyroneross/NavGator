@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
+import { readFileSync } from "fs";
 import * as path from "path";
 import type { StatusApiResponse, ProjectStatus } from "@/lib/types";
 
@@ -107,9 +108,7 @@ function extractProjectName(projectPath: string): string {
   // Try to read package.json for a proper name
   try {
     const packageJsonPath = path.join(projectPath, "package.json");
-    // Use sync read since we're in a helper function
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const packageJson = require(packageJsonPath);
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
     if (packageJson.name) {
       return formatProjectName(packageJson.name);
     }

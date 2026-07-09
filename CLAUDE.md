@@ -1,4 +1,4 @@
-<!-- Plugin: navgator · Version: 0.6.1 · Source of truth: local (~/dev/git-folder/NavGator) -->
+<!-- Plugin: navgator · Version: 0.9.1 · Source of truth: checked-in package and host manifests -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # NavGator — Architecture Context for Claude
@@ -19,15 +19,17 @@ Read this first. It's a concise overview (~40-150 lines) with:
 
 If `NAVSUMMARY.md` was compressed (large projects), the full version is at `NAVSUMMARY_FULL.md`.
 
-**Tier 2 — Structured Index** (`index.json`, `graph.json`, `file_map.json`, `prompts.json`)
+**Tier 2 — Canonical Records and Structured Index** (`components.full.jsonl`, `connections.full.jsonl`, `index.json`, `graph.json`, `file_map.json`, `prompts.json`)
 Use for programmatic lookups:
+- `components.full.jsonl` — canonical complete component records
+- `connections.full.jsonl` — canonical complete connection records
 - `index.json` — component counts, types, layers, stats
-- `graph.json` — full connection graph for impact analysis
+- `graph.json` — derived graph projection for impact analysis; omits some record fields
 - `file_map.json` — maps file paths to component IDs (O(1) lookup)
 - `prompts.json` — full prompt content with LLM provider associations (scan with `--prompts`)
 
 **Tier 3 — Detail Files** (`components/COMP_*.json`, `connections/CONN_*.json`) *(opt-in since v0.9.0)*
-Off by default to keep the on-disk footprint small (~70MB → ~1MB on atomize-ai-scale projects). The consolidated `graph.json`, `index.json`, `file_map.json`, `connections.jsonl`, and `reverse-deps.json` carry the same information. Enable per-entity files when you need stable per-record paths (Obsidian linking, external indexers): run `navgator scan --per-entity-files` or set `NAVGATOR_PER_ENTITY_FILES=true`. When disabled, each scan idempotently removes any legacy per-entity files left over from earlier versions.
+Off by default to keep the on-disk footprint small. The canonical consolidated `components.full.jsonl` and `connections.full.jsonl` files retain complete records; `graph.json`, `index.json`, `file_map.json`, `connections.jsonl`, and `reverse-deps.json` are derived, potentially lossy views. Enable per-entity files when you need stable per-record paths (Obsidian linking, external indexers): run `navgator scan --per-entity-files` or set `NAVGATOR_PER_ENTITY_FILES=true`. When disabled, each scan idempotently removes any legacy per-entity files left over from earlier versions.
 
 ## When to Read Architecture Context
 
@@ -36,7 +38,7 @@ Off by default to keep the on-disk footprint small (~70MB → ~1MB on atomize-ai
 <project-root>/.navgator/architecture/NAVSUMMARY.md
 ```
 
-**Before editing tracked files:** If you're about to edit a file that belongs to a tracked component, read the component's detail file first. The architecture-check hook will remind you.
+**Before editing tracked files:** If you're about to edit a file that belongs to a tracked component, read the component detail when per-entity files are enabled, or use `navgator explore`. NavGator does not install an automatic reminder hook.
 
 **After dependency changes:** If you ran `npm install`, `pip install`, etc., architecture data may be stale. Run `/navgator:scan` to update.
 
@@ -72,9 +74,11 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | File | What it contains | When to read |
 |------|-----------------|-------------|
 | `NAVSUMMARY.md` | Hot context — component overview, AI routing, top connections | Session start, quick orientation |
+| `components.full.jsonl` | Canonical complete component records | Complete component retrieval |
+| `connections.full.jsonl` | Canonical complete connection records | Complete relationship retrieval |
 | `index.json` | Stats, component/connection counts by type | Programmatic lookups |
 | `file_map.json` | File path → component ID mapping | "What component owns this file?" |
-| `graph.json` | Full connection graph | Impact analysis, traversal |
+| `graph.json` | Derived graph projection (lossy) | Impact analysis, traversal |
 | `prompts.json` | AI prompt content + provider associations | LLM debugging, prompt review |
 | `components/COMP_*.json` | Full detail for one component *(opt-in: `--per-entity-files`)* | Deep dive on specific component |
 | `connections/CONN_*.json` | Full detail for one connection *(opt-in: `--per-entity-files`)* | Understanding a specific relationship |
@@ -87,7 +91,9 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 
 | Command | Purpose |
 |---------|---------|
+| `/navgator:gator [intent]` | Route a free-form architecture request to the most specific command or skill |
 | `/navgator:map` | Map full architecture — components, connections, topology, LLM use cases |
+| `/navgator:plan "<intent>"` | Delegate architecture-aware change planning to the planner agent |
 | `/navgator:scan` | Quick scan — refresh tracking data |
 | `/navgator:trace <component>` | Trace data flow through the system (cron → route → service → DB → queue → LLM) |
 | `/navgator:impact <component>` | What breaks if you change this? Blast radius analysis |
@@ -97,6 +103,8 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `/navgator:llm-map` | Map all LLM use cases by purpose (search, summarization, extraction, etc.) |
 | `/navgator:schema [model]` | Show readers vs writers per database model |
 | `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
+| `/navgator:lessons` | Manage project and global architecture lessons |
+| `/navgator:promote-lesson` | Find recurring cross-project lesson patterns for promotion |
 
 ### CLI Commands
 
@@ -126,7 +134,7 @@ All commands that support `--json` also support `--agent`, which wraps output in
 {
   "command": "scan",
   "data": { ... },
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "timestamp": 1234567890
 }
 ```
@@ -176,8 +184,10 @@ NavGator uses a three-tier data model so architecture details stay local to each
 repo while transferable patterns become shareable across projects.
 
 **Tier 1 — Per-project architecture** (`<project>/.navgator/architecture/`)
-Full scan output: `index.json`, `graph.json`, `file_map.json`, `prompts.json`,
-`connections.jsonl`, `reverse-deps.json`, `NAVSUMMARY.md`. With
+Full scan output includes canonical `components.full.jsonl` and
+`connections.full.jsonl` records plus derived `index.json`, `graph.json`,
+`file_map.json`, `prompts.json`, `connections.jsonl`, `reverse-deps.json`, and
+`NAVSUMMARY.md`. With
 `--per-entity-files`, also `components/` and `connections/`. Project-specific.
 Never shared.
 
@@ -221,7 +231,7 @@ All `lessons` subcommands support `--json` and the `--agent` envelope.
 
 ### Schema Version
 
-All JSON files (`index.json`, `graph.json`, `file_map.json`, `prompts.json`) include a `schema_version` field (currently `1.0.0`). The `file_map.json` is wrapped as `{ schema_version, generated_at, files: { ... } }`.
+Versioned JSON outputs use schema version `1.1.0`. The `file_map.json` is wrapped as `{ schema_version, generated_at, files: { ... } }`; each line in the canonical `*.full.jsonl` files is a complete architecture record.
 
 ### Branch Tracking
 
@@ -238,13 +248,15 @@ All data lives in `<project-root>/.navgator/architecture/`:
 .navgator/architecture/
 ├── NAVSUMMARY.md          ← Read this first (hot context)
 ├── NAVSUMMARY_FULL.md     ← Full version if compressed
-├── index.json          ← Master index
-├── graph.json          ← Connection graph
+├── components.full.jsonl  ← Canonical complete component records
+├── connections.full.jsonl ← Canonical complete connection records
+├── index.json          ← Derived index and counts
+├── graph.json          ← Derived connection graph (lossy)
 ├── file_map.json       ← File path → component ID lookup
 ├── prompts.json        ← Full prompt content + LLM associations
 ├── hashes.json         ← File change detection
 ├── timeline.json       ← Architecture change history (diffs between scans)
-├── connections.jsonl   ← All connections (one JSON object per line)
+├── connections.jsonl   ← Compact connection projection (lossy)
 ├── reverse-deps.json   ← Derived: file → importers index (fast incremental walk)
 ├── components/         ← One JSON per component (opt-in: --per-entity-files)
 └── connections/        ← One JSON per connection (opt-in: --per-entity-files)

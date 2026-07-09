@@ -6,31 +6,41 @@ drainer, and freshness stamp. It does not guarantee every read is fully current;
 it makes every read explicit about whether changes are still waiting to be
 drained.
 
-## Slice 1 Pipeline
+## Current pipeline
 
-1. An edit hook records changed files in `.navgator/dirty.json`.
-2. The dirty ledger stores a deduped, sorted set of paths changed since the last
-   clean drain.
-3. A background drainer takes `.navgator/scan.lock`, reads the dirty set, runs
-   NavGator's existing `scan()`, clears only the drained paths, and releases the
-   lock.
-4. The drainer writes `.navgator/architecture/freshness.json` with the scan
-   timestamp, git branch, commit sha, outstanding dirty files, dirty count, and
-   whether a scan is in flight.
+1. `navgator mark-dirty <paths...>` writes one immutable event under
+   `.navgator/dirty.d/`. `dirty.json` is retained only as a migration surface
+   for older installs.
+2. A drain captures the exact event filenames and normalized paths that existed
+   at its start, then asks the scanner to run in `auto` mode. Configuration and
+   manifest changes can therefore promote the work to a full scan.
+3. The scanner acquires the one canonical `.navgator/scan.lock` lease. Every
+   scan entrypoint uses this same owner-tokened lease, including incremental to
+   full promotion.
+4. Before releasing the lease, the scanner reconciles only the captured event
+   files and writes `.navgator/architecture/freshness.json`. Events created
+   during the scan—including another edit to the same source path—remain for
+   the next drain.
+5. Freshness reads overlay the durable event ledger on the persisted stamp, so
+   a failed advisory stamp refresh cannot report a dirty workspace as clean.
 
-The lock is a single-writer guard with PID and heartbeat stale detection. If a
-drainer crashes, a later drainer can steal the lock after the heartbeat expires
-or when the owner PID is gone.
+The single-writer lease records a PID, random owner token, heartbeat, and a
+best-effort process-start fingerprint. A successor can reclaim it when the PID
+is gone or the fingerprint proves PID reuse. Heartbeat age is diagnostic only:
+a valid live PID is not fenced merely because it is suspended or slow. Release
+removes only the current owner's lease.
 
 ## Triggers
 
-- Hook: `hooks/mark-dirty.sh` runs after `Write` and `Edit`. It records the file
-  and asks the CLI to spawn a detached drain, then exits immediately.
-- Session start: agents can call `navgator drain` at the start of a session to
-  refresh the graph before architecture reads.
-- Orchestrator: build or review flows can call `navgator drain` before relying on
-  graph data, then read `navgator freshness` to decide how trustworthy the view
-  is.
+- Explicit CLI: `navgator mark-dirty <paths...> --drain` records work and starts
+  a detached trailing-edge drain. `navgator drain --until-clean` can also be run
+  directly.
+- Architecture reads: the MCP `status` path can auto-refresh a stale graph; it
+  uses the same ledger snapshot and scanner-owned lease.
+- Orchestration: build or review flows can run `navgator drain`, then inspect
+  `navgator freshness` before relying on graph data.
+- Hooks: `hooks/hooks.json` is intentionally empty. NavGator does not install a
+  Write/Edit hook or change host trust automatically.
 
 ## Honesty Stamp
 
@@ -49,6 +59,10 @@ The stamp fields are:
 Consumers should treat `dirty_count: 0` and `scan_in_flight: false` as the clean
 read state. Non-zero dirty files or an in-flight scan means the graph may lag
 behind the working tree.
+
+The lease and individual architecture-file writes are atomic, but the complete
+multi-file architecture generation is not yet transactional. An interrupted
+generation can still require a later full refresh.
 
 ## Slice Roadmap
 

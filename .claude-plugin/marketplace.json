@@ -6,19 +6,19 @@
   },
   "metadata": {
     "description": "Architecture connection tracker — know your stack before you change it",
-    "version": "0.9.0"
+    "version": "0.9.1"
   },
   "plugins": [
     {
-      "name": "gator",
+      "name": "navgator",
       "source": "./",
-      "description": "Architecture connection tracker for Claude Code — know your stack before you change it",
-      "version": "0.9.0",
+      "description": "Architecture connection tracker for Claude Code and Codex — know your stack before you change it",
+      "version": "0.9.1",
       "author": {
         "name": "Tyrone Ross"
       },
-      "homepage": "https://github.com/tyroneross/navgator#readme",
-      "repository": "https://github.com/tyroneross/navgator",
+      "homepage": "https://github.com/tyroneross/NavGator#readme",
+      "repository": "https://github.com/tyroneross/NavGator",
       "license": "Apache-2.0",
       "keywords": [
         "architecture",

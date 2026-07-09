@@ -28,7 +28,7 @@
  * load-bearing).
  */
 export interface GitignoreGuardResult {
-    action: 'added' | 'already-present' | 'no-gitignore' | 'opt-out';
+    action: 'added' | 'updated' | 'already-present' | 'no-gitignore' | 'opt-out';
     gitignorePath: string;
 }
 /**

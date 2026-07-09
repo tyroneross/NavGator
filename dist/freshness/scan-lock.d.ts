@@ -1,8 +1,8 @@
-export declare const LOCK_TTL_MS = 60000;
-/** Try to take the lock. Returns true on success, false if a live lock exists. */
-export declare function acquireLock(root: string): boolean;
-/** Refresh the heartbeat mid-scan (call periodically for long scans). */
-export declare function touchLock(root: string): void;
-/** Release the lock if we own it. */
-export declare function releaseLock(root: string): void;
+/**
+ * Compatibility surface for freshness tests and callers.
+ *
+ * The implementation lives in `../scan-lock.ts`; the freshness drainer does
+ * not acquire a second lease. `scan()` is the sole production lease owner.
+ */
+export { acquireScanLease, readScanLease, HEARTBEAT_INTERVAL_MS, LOCK_TTL_MS, type ScanLease, type ScanLeaseOptions, type ScanLeaseRecord, type ScanLeaseResult, } from '../scan-lock.js';
 //# sourceMappingURL=scan-lock.d.ts.map

@@ -325,7 +325,8 @@ export interface AuditReport {
     defect_evidence?: AuditSampleEvidence[];
 }
 /**
- * Full connection graph (for visualization/analysis)
+ * Derived connection-graph projection for visualization and analysis.
+ * Complete connection records live in `connections.full.jsonl`.
  */
 export interface ConnectionGraph {
     schema_version?: string;
@@ -463,9 +464,9 @@ export interface NavGatorConfig {
     /**
      * When true, scan writes one JSON file per component and per connection
      * under `<storage>/components/` and `<storage>/connections/`. Default is
-     * `false` — the consolidated `graph.json`, `index.json`, `connections.jsonl`,
-     * and `reverse-deps.json` files are the source of truth and the per-entity
-     * files duplicate ~70MB of data on large projects (R6 fix).
+     * `false` — canonical records remain in `components.full.jsonl` and
+     * `connections.full.jsonl`; graph/index/compact files are derived views.
+     * Per-entity files duplicate substantial data on large projects.
      *
      * Override via env: `NAVGATOR_PER_ENTITY_FILES=true` or CLI:
      * `navgator scan --per-entity-files`.
@@ -666,6 +667,37 @@ export interface ExecutiveSummary {
     };
     components: CompactComponent[];
     connections: CompactConnection[];
+    rule_health: SummaryRuleHealth;
+    truncation: {
+        risks: AgentCollectionWindow;
+        blockers: AgentCollectionWindow;
+        next_actions: AgentCollectionWindow;
+        components: AgentCollectionWindow;
+        connections: AgentCollectionWindow;
+    };
+}
+/** Deterministic collection accounting for bounded machine-facing payloads. */
+export interface AgentCollectionWindow {
+    total: number;
+    returned: number;
+    truncated: boolean;
+    limit: number;
+}
+export interface SummaryRuleViolation {
+    rule_id: string;
+    severity: 'error' | 'warning' | 'info';
+    component?: string;
+    message: string;
+    suggestion?: string;
+}
+/** Architecture-rule health is always present in executive summaries. */
+export interface SummaryRuleHealth {
+    total: number;
+    errors: number;
+    warnings: number;
+    info: number;
+    violations: SummaryRuleViolation[];
+    truncation: AgentCollectionWindow;
 }
 export interface SummaryRisk {
     type: string;

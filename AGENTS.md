@@ -8,10 +8,10 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude Code and Codex. It maps dependencies, analyzes impact, and visualizes your stack before you make changes. It ships as an npm package plus explicit host surfaces for Claude and Codex.
 
-- **npm package:** `@tyroneross/navgator` (v0.9.0)
+- **npm package:** `@tyroneross/navgator` (v0.9.1 release target)
 - **Plugin name:** `navgator`
-- **Runtime:** Node.js >= 20.0.0, TypeScript (ES2022, NodeNext modules)
-- **License:** MIT
+- **Runtime:** Node.js >= 20.11.0, TypeScript (ES2022, NodeNext modules)
+- **License:** Apache-2.0
 
 ---
 
@@ -22,7 +22,7 @@ NavGator/
 ├── src/                        # TypeScript source
 │   ├── scanner.ts              # Top-level scan orchestrator
 │   ├── scanners/               # Detection modules
-│   │   ├── packages/           # npm/pip/cargo/etc. package detection
+│   │   ├── packages/           # npm/pip/SPM/Cargo package detection
 │   │   ├── connections/        # Connection inference
 │   │   ├── infrastructure/     # Env vars, queues, cron, deploy configs
 │   │   ├── prompts/            # LLM prompt extraction
@@ -49,7 +49,7 @@ NavGator/
 │   ├── navgator-setup/         # First-run setup guidance
 │   ├── impact-analysis/        # Impact query guidance
 │   ├── code-review/            # Architecture-aware review
-│   └── infrastructure-scanning.md  # Infrastructure detection skill
+│   └── infrastructure-scanning/   # Infrastructure detection skill
 ├── commands/                   # 13 slash command definitions
 │   ├── dead.md, gator.md, impact.md, lessons.md, llm-map.md
 │   ├── map.md, plan.md, promote-lesson.md, review.md
@@ -59,13 +59,13 @@ NavGator/
 ├── agents/
 │   ├── architecture-advisor.md     # Stack decisions + migration planning
 │   ├── architecture-investigator.md  # SRE-style read-only investigation
-│   └── architecture-planner.md     # Graph freshness + MCP-tool orchestration
+│   ├── architecture-planner.md     # Graph freshness + MCP-tool orchestration
+│   └── external-resolver.md        # External dependency freshness resolution
 ├── .claude-plugin/
 │   └── plugin.json             # Claude plugin manifest (name: navgator)
 ├── .codex-plugin/
-│   └── plugin.json             # Codex plugin manifest (name: navgator)
-├── .agents/plugins/
-│   └── marketplace.json        # Repo-local Codex marketplace metadata
+│   ├── plugin.json             # Codex plugin manifest (name: navgator)
+│   └── mcp.json                # Codex-relative MCP process config
 ├── web/                        # Optional Next.js UI
 ├── scripts/
 │   └── install-plugin.sh       # Global plugin installer
@@ -104,10 +104,25 @@ default-path discovery for runtime capabilities:
 - Hooks: `./hooks/hooks.json` (empty by default; do not redeclare in the manifest)
 - MCP servers: `./.mcp.json` (do not redeclare the default path in the manifest)
 
+`scripts/install-plugin.sh` materializes a dependency-complete package, adds
+that local directory as the `navgator` marketplace, installs and enables
+`navgator@navgator` through the Claude CLI, and verifies the installed cache's
+MCP process before reporting success. A filesystem symlink alone is not a
+registered Claude plugin.
+
 Codex surface (`.codex-plugin/plugin.json`) points to:
 - Skills: `./skills/`
-- MCP servers: `./.mcp.json`
+- MCP servers: `./.codex-plugin/mcp.json`
 - Interface metadata for Codex UI
+
+Codex does not discover Claude's `commands/` or `agents/` directories. Run
+`scripts/install-codex-plugin.sh` to materialize the npm package at a non-empty
+local marketplace path. The installer makes the MCP server entry absolute,
+targets Codex's deterministic versioned cache, and removes the package-relative
+`cwd`, so installed code is cache-owned while scan scope follows the active task
+workspace. The script registers the path; the user
+must still install/enable `navgator` in the Codex plugin browser and start a new
+task.
 
 ### MCP Server
 
@@ -156,13 +171,15 @@ Skills have different auto-trigger patterns — check each `SKILL.md` before mod
 
 `hooks/hooks.json` is intentionally empty. NavGator should be invoked explicitly through slash commands, MCP tools, or the CLI instead of adding automatic scan reminders to every session.
 
-### Agents (3)
+### Agents (4, Claude only)
 
 **`architecture-advisor`** — Stack decisions, migration planning, dependency compatibility. Tools: Bash, Read, Glob, Grep, WebSearch. Uses NavGator data to produce: Current State, Impact Analysis, Recommendation, Change Sequence, Verification.
 
 **`architecture-investigator`** — SRE-style read-only investigation across 5 phases: Overview, Identify, Trace, Rules, Synthesize. Read-only during phases 1–4. Every finding cites specific tool output. Tools: Bash, Read, Glob, Grep.
 
-**`architecture-planner`** — Graph freshness check + MCP-tool orchestration for architecture-aware questions. Reads `index.json` + `hashes.json`, runs an incremental scan if stale (`navgator scan --incremental` only write), then dispatches `impact`, `trace`, `connections`, `review`, `dead`, `rules` and returns a structured report. Triggers on phrasings like "review architecture for X", "blast radius of Y", "how does A connect to B".
+**`architecture-planner`** — Graph freshness check + MCP-tool orchestration for architecture-aware questions. Reads `index.json` + `hashes.json`, runs `navgator scan --auto` if stale so configuration changes can trigger a required full refresh, then dispatches `impact`, `trace`, `connections`, `review`, `dead`, `rules` and returns a structured report. Triggers on phrasings like "review architecture for X", "blast radius of Y", "how does A connect to B".
+
+**`external-resolver`** — Isolated external-boundary freshness resolver for packages and services. Updates NavGator's cache and returns structured drift evidence without mutating the architecture graph directly.
 
 ---
 
@@ -173,10 +190,10 @@ Architecture data lives in `<project-root>/.navgator/architecture/`.
 | Tier | Files | When to read |
 |------|-------|-------------|
 | Tier 1 — Hot | `NAVSUMMARY.md` (max ~150 lines) | Always first. Concise overview, AI routing table, delta |
-| Tier 2 — Index | `index.json`, `graph.json`, `file_map.json`, `prompts.json` | Programmatic lookups, impact traversal |
-| Tier 3 — Detail | `components/COMP_*.json`, `connections/CONN_*.json` | On-demand drill-down for a specific component or connection |
+| Tier 2 — Records and index | `components.full.jsonl`, `connections.full.jsonl`, `index.json`, `graph.json`, `file_map.json`, `prompts.json` | Complete records plus programmatic lookups and traversal |
+| Tier 3 — Optional detail | `components/COMP_*.json`, `connections/CONN_*.json` | Opt-in stable per-record paths for external tooling |
 
-All JSON files include `schema_version: "1.0.0"`. Agent-mode output (`--agent` flag) wraps responses in a stable envelope with `command`, `data`, `schema_version`, and `timestamp`.
+Versioned JSON outputs use `schema_version: "1.1.0"`. Agent-mode output (`--agent` flag) wraps responses in a stable envelope with `command`, `data`, `schema_version`, and `timestamp`.
 
 ### Full Storage Structure
 
@@ -184,15 +201,21 @@ All JSON files include `schema_version: "1.0.0"`. Agent-mode output (`--agent` f
 .navgator/architecture/
 ├── NAVSUMMARY.md          # Hot context — read first
 ├── NAVSUMMARY_FULL.md     # Full version if NAVSUMMARY was compressed
-├── index.json             # Component counts, types, layers, stats
-├── graph.json             # Full connection graph
-├── file_map.json          # file path → component ID (O(1) lookup)
+├── components.full.jsonl  # Canonical complete component records
+├── connections.full.jsonl # Canonical complete connection records
+├── index.json             # Derived component counts, types, layers, stats
+├── graph.json             # Derived graph projection (lossy)
+├── file_map.json          # Derived file path → component ID lookup
 ├── prompts.json           # LLM prompt content + provider associations
 ├── hashes.json            # File change detection
 ├── timeline.json          # Change history (diffs between scans)
-├── components/            # COMP_*.json — one per component
-└── connections/           # CONN_*.json — one per connection
+├── connections.jsonl      # Compact connection projection (lossy)
+├── reverse-deps.json      # Derived file → importers index
+├── components/            # Optional COMP_*.json (--per-entity-files)
+└── connections/           # Optional CONN_*.json (--per-entity-files)
 ```
+
+The `*.full.jsonl` files are the canonical consolidated store. Per-entity directories are disabled by default and duplicate those records when enabled. Graph and compact formats are derived views and may omit fields.
 
 Lessons accumulate in `.navgator/lessons/lessons.json`.
 
@@ -202,7 +225,7 @@ Lessons accumulate in `.navgator/lessons/lessons.json`.
 
 The scanner (`src/scanner.ts` + `src/scanners/`) detects:
 
-- **Packages:** npm, pip, cargo, go modules — dependency trees and version info
+- **Packages:** npm, pip, SPM, and Cargo — dependency trees and version info
 - **Prisma models:** schema parsing, relations, indexes, field-level usage
 - **Environment variables:** `.env` files and `process.env` references in source
 - **Queues:** BullMQ/Bull producers and consumers
@@ -255,5 +278,5 @@ NavGator annotates components with runtime identity: service names, connection e
 - **MCP tools are the preferred interface for agents** — use `scan`, `explore`, `trace`, `impact`, `rules` rather than reading JSON files directly.
 - **Storage path is `.navgator/`**, not `.claude/`. Migration logic exists for legacy paths.
 - **`--agent` flag** wraps any command output in a stable JSON envelope for machine consumption.
-- **Node.js >= 20.0.0 required.** TypeScript compiles to ES2022 with NodeNext module resolution.
+- **Node.js >= 20.11.0 required.** This is the tested compatibility floor and satisfies the packaged Next.js dashboard's Node 20.9+ requirement. TypeScript compiles to ES2022 with NodeNext module resolution.
 - **`ts-morph` is an optional dependency** — scanner functionality degrades gracefully without it.

@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 import { fileURLToPath } from 'url';
@@ -18,22 +17,25 @@ import { scan } from '../../scanner.js';
 export async function launchWebUI(options) {
     const port = options.port || 3000;
     const projectPath = options.projectPath || process.cwd();
-    // Resolve standalone server.js relative to package root
+    // Resolve the package-safe dashboard launcher relative to package root.
     const cliDir = path.dirname(fileURLToPath(import.meta.url));
     const packageRoot = path.resolve(cliDir, '..', '..', '..');
-    const serverJs = path.join(packageRoot, 'web', '.next', 'standalone', 'web', 'server.js');
-    if (!fs.existsSync(serverJs)) {
-        throw new Error(`Next.js standalone server not found at:\n  ${serverJs}\n\n` +
+    const serverJs = path.join(packageRoot, 'web', 'server.cjs');
+    const cliEntry = path.join(packageRoot, 'dist', 'cli', 'index.js');
+    if (!fs.existsSync(serverJs) || !fs.existsSync(cliEntry)) {
+        throw new Error(`NavGator dashboard server not found at:\n  ${serverJs}\n\n` +
             'Run `npm run build` from the NavGator root to build the web UI.');
     }
     const child = spawn('node', [serverJs], {
         env: {
             ...process.env,
+            NODE_ENV: 'production',
             PORT: String(port),
-            HOSTNAME: '0.0.0.0',
+            HOSTNAME: '127.0.0.1',
             NAVGATOR_PROJECT_PATH: projectPath,
+            NAVGATOR_CLI_ENTRY: cliEntry,
         },
-        cwd: path.dirname(serverJs),
+        cwd: packageRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
     });
     // Wait for "Ready" or listening message
@@ -99,8 +101,13 @@ async function runScan() {
         prompts: true,
         verbose: false,
     });
+    if (result.status === 'busy') {
+        console.error(`Scan busy: ${result.message}`);
+        process.exitCode = 2;
+        return;
+    }
     console.log('\n========================================');
-    console.log('SCAN COMPLETE');
+    console.log(result.status === 'noop' ? 'SCAN NO CHANGES' : 'SCAN COMPLETE');
     console.log('========================================\n');
     const byType = {};
     for (const c of result.components) {
@@ -208,51 +215,6 @@ export function registerSetupCommand(program) {
             console.log('🐊 NavGator - Architecture Connection Tracker');
             console.log('   Know your stack before you change it');
             console.log('');
-            // Offer to link as Claude Code plugin (skip in sandbox mode)
-            const claudeDir = path.join(os.homedir(), '.claude');
-            if (fs.existsSync(claudeDir) && !isSandboxMode()) {
-                const pluginDir = path.join(claudeDir, 'plugins');
-                const linkPath = path.join(pluginDir, 'navgator');
-                const packageRoot = path.resolve(import.meta.dirname, '..', '..', '..');
-                let alreadyLinked = false;
-                try {
-                    const existing = fs.readlinkSync(linkPath);
-                    if (existing === packageRoot)
-                        alreadyLinked = true;
-                }
-                catch { }
-                if (!alreadyLinked) {
-                    console.log('Claude Code detected.');
-                    console.log('NavGator can register as a Claude Code plugin by creating a symlink:');
-                    console.log(`  ${linkPath} -> ${packageRoot}`);
-                    console.log('This enables hooks, skills, and slash commands inside Claude Code.\n');
-                    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-                    const answer = await new Promise((resolve) => {
-                        rl.question('Link NavGator as a Claude Code plugin? (y/N) ', resolve);
-                    });
-                    rl.close();
-                    if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-                        try {
-                            fs.mkdirSync(pluginDir, { recursive: true });
-                            // Remove stale link if it points elsewhere
-                            try {
-                                fs.unlinkSync(linkPath);
-                            }
-                            catch { }
-                            fs.symlinkSync(packageRoot, linkPath, 'dir');
-                            console.log('Plugin linked successfully.\n');
-                        }
-                        catch (err) {
-                            console.log('Could not auto-link. Link manually:');
-                            console.log(`  ln -s ${packageRoot} ${linkPath}\n`);
-                        }
-                    }
-                    else {
-                        console.log('Skipped plugin linking. You can link manually later:');
-                        console.log(`  ln -s ${packageRoot} ${linkPath}\n`);
-                    }
-                }
-            }
             // Check if already set up
             const status = await isSetupComplete();
             if (status.hasScanned && !status.stale) {

@@ -8,8 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
+import { readFileSync } from "fs";
 import * as path from "path";
 import * as os from "os";
+import { rejectUnsafeMutation } from "@/lib/server/request-guard";
 
 // =============================================================================
 // TYPES
@@ -62,8 +64,7 @@ async function saveRegistry(registry: ProjectRegistry): Promise<void> {
 function extractProjectName(projectPath: string): string {
   try {
     const packageJsonPath = path.join(projectPath, "package.json");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const packageJson = require(packageJsonPath);
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
     if (packageJson.name) {
       return packageJson.name
         .replace(/[-_]/g, " ")
@@ -150,6 +151,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const rejected = rejectUnsafeMutation(request);
+    if (rejected) return rejected;
     const body = await request.json();
     const { action, path: projectPath } = body as { action: "add" | "remove"; path: string };
 

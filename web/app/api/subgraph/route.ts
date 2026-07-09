@@ -6,20 +6,21 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import * as fs from "fs/promises";
-import * as path from "path";
 import type { SubgraphApiResponse, SubgraphResult } from "@/lib/types";
+import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
+
+function boundedInteger(value: string | null, fallback: number, min: number, max: number): number {
+  const parsed = value === null ? fallback : Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? Math.min(Math.max(parsed, min), max) : fallback;
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const focus = searchParams.get("focus");
-  const depth = Math.min(parseInt(searchParams.get("depth") || "2", 10), 5);
+  const depth = boundedInteger(searchParams.get("depth"), 2, 0, 5);
   const layers = searchParams.get("layers");
   const classification = searchParams.get("classification") || undefined;
-  const maxNodes = Math.min(
-    parseInt(searchParams.get("maxNodes") || "50", 10),
-    200
-  );
+  const maxNodes = boundedInteger(searchParams.get("maxNodes"), 50, 1, 200);
   const projectPath = searchParams.get("path");
 
   try {
@@ -28,11 +29,7 @@ export async function GET(request: NextRequest) {
       process.env.NAVGATOR_PROJECT_PATH ||
       process.cwd().replace(/\/web$/, "");
 
-    const componentsDir = path.join(root, ".navgator", "architecture", "components");
-    const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
-
-    const components = await loadJsonDir(componentsDir);
-    const connections = await loadJsonDir(connectionsDir);
+    const { components, connections } = await loadArchitectureRecords(root);
 
     if (components.length === 0) {
       return NextResponse.json<SubgraphApiResponse>({
@@ -76,24 +73,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function loadJsonDir(dir: string): Promise<Record<string, unknown>[]> {
-  try {
-    const files = await fs.readdir(dir);
-    const results: Record<string, unknown>[] = [];
-    for (const file of files.filter((f) => f.endsWith(".json"))) {
-      try {
-        const content = await fs.readFile(path.join(dir, file), "utf-8");
-        results.push(JSON.parse(content));
-      } catch {
-        // Skip invalid files
-      }
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
 function getId(c: Record<string, unknown>): string {
   return String(c.component_id || "");
 }
@@ -116,7 +95,7 @@ function getConnId(c: Record<string, unknown>): string {
   return String(c.connection_id || "");
 }
 function getConnType(c: Record<string, unknown>): string {
-  return String(c.type || "");
+  return String(c.connection_type || c.type || "");
 }
 
 interface SubgraphOpts {
@@ -152,6 +131,7 @@ function extractSubgraphInline(
   }
 
   let filteredIds = new Set<string>();
+  const componentMap = new Map(allComponents.map((component) => [getId(component), component]));
 
   if (opts.focus.length > 0) {
     // Resolve focus names to component IDs
@@ -172,25 +152,35 @@ function extractSubgraphInline(
       };
     }
 
-    // BFS from focus components
+    // Build adjacency once so bounded traversal is O(V + E), not O(V * E).
+    const adjacency = new Map<string, string[]>();
+    for (const conn of connections) {
+      const fromId = getFromId(conn);
+      const toId = getToId(conn);
+      if (!componentMap.has(fromId) || !componentMap.has(toId)) continue;
+      if (!adjacency.has(fromId)) adjacency.set(fromId, []);
+      if (!adjacency.has(toId)) adjacency.set(toId, []);
+      adjacency.get(fromId)!.push(toId);
+      adjacency.get(toId)!.push(fromId);
+    }
+
+    // BFS from focus components, capped at the requested response size.
     const visited = new Set<string>(focusIds);
     let frontier = [...focusIds];
 
     for (let d = 0; d < opts.depth; d++) {
       const nextFrontier: string[] = [];
       for (const id of frontier) {
-        for (const conn of connections) {
-          if (getFromId(conn) === id && !visited.has(getToId(conn))) {
-            visited.add(getToId(conn));
-            nextFrontier.push(getToId(conn));
-          }
-          if (getToId(conn) === id && !visited.has(getFromId(conn))) {
-            visited.add(getFromId(conn));
-            nextFrontier.push(getFromId(conn));
-          }
+        for (const neighbor of adjacency.get(id) || []) {
+          if (visited.has(neighbor)) continue;
+          if (visited.size >= opts.maxNodes) break;
+          visited.add(neighbor);
+          nextFrontier.push(neighbor);
         }
+        if (visited.size >= opts.maxNodes) break;
       }
       frontier = nextFrontier;
+      if (frontier.length === 0 || visited.size >= opts.maxNodes) break;
     }
 
     filteredIds = visited;
@@ -202,7 +192,7 @@ function extractSubgraphInline(
   if (opts.layers.length > 0) {
     const layerSet = new Set(opts.layers);
     for (const id of [...filteredIds]) {
-      const comp = allComponents.find((c) => getId(c) === id);
+      const comp = componentMap.get(id);
       if (comp && !layerSet.has(getLayer(comp))) {
         filteredIds.delete(id);
       }

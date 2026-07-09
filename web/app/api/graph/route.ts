@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { loadArchitectureRecords, type ArchitectureRecord } from "@/lib/server/architecture-storage";
 
 const graphCache = new Map<string, { data: unknown; timestamp: number }>();
 const CACHE_TTL = 60000;
@@ -35,14 +36,12 @@ interface GraphEdge {
   label?: string;
 }
 
-// Derive inter-node flow edges from connection files
+// Derive inter-node flow edges from full connection records.
 // The raw graph.json edges use FILE:... sources that don't match node IDs.
-// This reads CONN_service-call_*.json files and maps FILE: sources to
-// their closest parent component node using path heuristics.
-async function deriveFlowEdges(
-  connectionsDir: string,
+function deriveFlowEdges(
+  connections: ArchitectureRecord[],
   nodes: GraphNode[],
-): Promise<GraphEdge[]> {
+): GraphEdge[] {
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   // Path-to-layer heuristic
   function fileToLayer(filePath: string): string {
@@ -68,55 +67,39 @@ async function deriveFlowEdges(
     }
   }
 
-  try {
-    const files = await fs.readdir(connectionsDir);
-    const connFiles = files.filter((f) => f.startsWith("CONN_") && f.endsWith(".json"));
+  const edgeSet = new Map<string, { source: string; target: string; type: string; count: number }>();
+  for (const connection of connections) {
+    const from = connection.from as ArchitectureRecord | undefined;
+    const to = connection.to as ArchitectureRecord | undefined;
+    const targetId = typeof to?.component_id === "string" ? to.component_id : "";
+    if (!targetId || !nodeById.has(targetId)) continue;
 
-    // Aggregate: deduplicate by (sourceNodeId, targetNodeId)
-    const edgeSet = new Map<string, { source: string; target: string; type: string; count: number }>();
-
-    for (const file of connFiles) {
-      try {
-        const content = await fs.readFile(path.join(connectionsDir, file), "utf-8");
-        const conn = JSON.parse(content);
-        const targetId = conn.to?.component_id;
-        if (!targetId || !nodeById.has(targetId)) continue;
-
-        // Map FILE: source to a layer representative node
-        const srcFile = (conn.from?.component_id || "").replace("FILE:", "");
-        const layer = fileToLayer(srcFile);
-        const sourceId = layerReps.get(layer) || null;
-
-        if (sourceId && sourceId !== targetId && nodeById.has(sourceId)) {
-          const connType = conn.connection_type || "service-call";
-          const key = `${sourceId}->${targetId}`;
-          const existing = edgeSet.get(key);
-          if (existing) {
-            existing.count++;
-          } else {
-            edgeSet.set(key, { source: sourceId, target: targetId, type: connType, count: 1 });
-          }
-        }
-      } catch {
-        // Skip invalid connection files
-      }
+    const fromId = typeof from?.component_id === "string" ? from.component_id : "";
+    if (!fromId.startsWith("FILE:")) continue;
+    const layer = fileToLayer(fromId.slice(5));
+    const sourceId = layerReps.get(layer) || null;
+    if (sourceId && sourceId !== targetId && nodeById.has(sourceId)) {
+      const connType = typeof connection.connection_type === "string"
+        ? connection.connection_type
+        : "service-call";
+      const key = `${sourceId}->${targetId}`;
+      const existing = edgeSet.get(key);
+      if (existing) existing.count++;
+      else edgeSet.set(key, { source: sourceId, target: targetId, type: connType, count: 1 });
     }
-
-    // Convert to GraphEdge array
-    const edges: GraphEdge[] = [];
-    edgeSet.forEach((e, _key) => {
-      edges.push({
-        id: `flow-${edges.length}`,
-        source: e.source,
-        target: e.target,
-        type: e.type,
-        label: e.count > 1 ? `${e.count} calls` : undefined,
-      });
-    });
-    return edges;
-  } catch {
-    return [];
   }
+
+  const edges: GraphEdge[] = [];
+  edgeSet.forEach((edge) => {
+    edges.push({
+      id: `flow-${edges.length}`,
+      source: edge.source,
+      target: edge.target,
+      type: edge.type,
+      label: edge.count > 1 ? `${edge.count} calls` : undefined,
+    });
+  });
+  return edges;
 }
 
 // Infer hosting relationships between infra and services
@@ -179,43 +162,34 @@ export async function GET(request: NextRequest) {
       || process.env.NAVGATOR_PROJECT_PATH
       || process.cwd();
     const graphPath = path.join(basePath, ".navgator", "architecture", "graph.json");
-    const componentsDir = path.join(basePath, ".navgator", "architecture", "components");
 
     const content = await fs.readFile(graphPath, "utf-8");
     const graph = JSON.parse(content);
-
-    // Enrich nodes with component details
-    const enrichedNodes: GraphNode[] = await Promise.all(
-      (graph.nodes as GraphNode[]).map(async (node) => {
-        try {
-          const files = await fs.readdir(componentsDir);
-          const compFile = files.find((f) => f.startsWith(node.id) && f.endsWith(".json"));
-          if (compFile) {
-            const compContent = await fs.readFile(path.join(componentsDir, compFile), "utf-8");
-            const comp = JSON.parse(compContent);
-            return {
-              ...node,
-              version: comp.version || undefined,
-              purpose: comp.role?.purpose || undefined,
-              configFiles: comp.source?.config_files || undefined,
-              tags: comp.tags || undefined,
-              connectsTo: comp.connects_to || undefined,
-              connectedFrom: comp.connected_from || undefined,
-            };
-          }
-        } catch {
-          // Component file not found, use base node
-        }
-        return node;
-      })
+    const records = await loadArchitectureRecords(basePath);
+    const componentsById = new Map(
+      records.components.map((component) => [String(component.component_id || component.id || ""), component]),
     );
+
+    const enrichedNodes: GraphNode[] = (graph.nodes as GraphNode[]).map((node) => {
+      const component = componentsById.get(node.id);
+      if (!component) return node;
+      const role = component.role as ArchitectureRecord | undefined;
+      const source = component.source as ArchitectureRecord | undefined;
+      return {
+        ...node,
+        version: typeof component.version === "string" ? component.version : undefined,
+        purpose: typeof role?.purpose === "string" ? role.purpose : undefined,
+        configFiles: Array.isArray(source?.config_files) ? source.config_files.map(String) : undefined,
+        tags: Array.isArray(component.tags) ? component.tags.map(String) : undefined,
+        connectsTo: Array.isArray(component.connects_to) ? component.connects_to.map(String) : undefined,
+        connectedFrom: Array.isArray(component.connected_from) ? component.connected_from.map(String) : undefined,
+      };
+    });
 
     // Infer hosting relationships
     inferHosting(enrichedNodes, graph.edges);
 
-    // Derive inter-node flow edges from connection files
-    const connectionsDir = path.join(basePath, ".navgator", "architecture", "connections");
-    const flowEdges = await deriveFlowEdges(connectionsDir, enrichedNodes);
+    const flowEdges = deriveFlowEdges(records.connections, enrichedNodes);
 
     const data = {
       nodes: enrichedNodes,

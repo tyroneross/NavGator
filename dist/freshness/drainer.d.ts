@@ -1,3 +1,14 @@
+/**
+ * The background drainer. Coalesces the dirty set and runs one incremental scan
+ * through scan()'s single-writer lease, then writes an honest stamp. Designed to be
+ * invoked repeatedly and cheaply (by the hook, the orchestrator, or a timer):
+ *  - busy      -> scan() could not acquire the shared lease; dirty work stays.
+ *  - debounced -> a drain ran within minIntervalMs; skipped (dirty set kept).
+ *  - clean     -> nothing dirty; stamp refreshed only.
+ *  - drained   -> scanned, cleared the drained subset, stamp updated.
+ *  - error     -> scan threw; dirty set left intact for a retry.
+ */
+import { type DirtyLedgerSnapshot } from './dirty-ledger.js';
 export type DrainStatus = 'busy' | 'debounced' | 'clean' | 'drained' | 'error';
 export interface DrainResult {
     status: DrainStatus;
@@ -5,11 +16,27 @@ export interface DrainResult {
     error?: string;
 }
 export interface DrainOptions {
-    /** Injected scanner. Production passes a wrapper over NavGator `scan()`. */
-    scanFn: (root: string, changed: string[]) => Promise<void>;
+    /** Injected scanner. `scan()` itself is the sole scan-lease owner. */
+    scanFn: (root: string, changed: string[], lifecycle: DrainScanLifecycle) => Promise<DrainScanOutcome>;
     /** Skip if the last stamp was generated within this window (default 3000ms). */
     minIntervalMs?: number;
+    /** Test-only seam for an edit arriving after an empty snapshot. */
+    _afterEmptySnapshot?: () => void;
 }
+export type DrainScanOutcome = {
+    status: 'completed' | 'noop';
+    retryable?: false;
+} | {
+    status: 'busy';
+    retryable: true;
+    message: string;
+};
+export interface DrainScanLifecycle {
+    onLeaseAcquired: () => Promise<void>;
+    beforeLeaseRelease: () => Promise<void>;
+    onLeaseFailureBeforeRelease: () => Promise<void>;
+}
+export { captureDirtySnapshot, type DirtyLedgerSnapshot } from './dirty-ledger.js';
 export declare function drain(root: string, opts: DrainOptions): Promise<DrainResult>;
 export interface DrainUntilCleanOptions extends DrainOptions {
     /** Max drain attempts before giving up (default 12). Bounds worst-case time. */
@@ -27,12 +54,10 @@ export interface DrainUntilCleanOptions extends DrainOptions {
  */
 export declare function drainUntilClean(root: string, opts: DrainUntilCleanOptions): Promise<DrainResult[]>;
 /**
- * Stamp coherence for out-of-band scans. NavGator's existing `autoRefreshIfStale`
- * backstop runs an incremental scan WITHOUT going through the drainer, which
- * would leave the dirty ledger and stamp stale — making the stamp lie (report
- * dirty when the graph is actually current). Call this after any such scan to
- * reconcile: the incremental scan already covered every changed file via hashes,
- * so the whole ledger is safely cleared and a clean stamp written. Best-effort.
+ * Stamp coherence for scans that do not originate in the drainer. For example,
+ * `autoRefreshIfStale` captures this snapshot, forces its paths into an auto-mode
+ * scan, then reconciles before releasing the scan lease. Only the captured
+ * immutable events are cleared; events arriving during the scan remain dirty.
  */
-export declare function reconcileClean(root: string): Promise<void>;
+export declare function reconcileClean(root: string, snapshot?: DirtyLedgerSnapshot): Promise<void>;
 //# sourceMappingURL=drainer.d.ts.map

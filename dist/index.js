@@ -22,7 +22,7 @@ export { getGitInfo } from './git.js';
 // Impact analysis
 export { computeImpact, computeSeverity } from './impact.js';
 // Agent output
-export { wrapInEnvelope, buildExecutiveSummary } from './agent-output.js';
+export { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope, buildExecutiveSummary, } from './agent-output.js';
 // Compact serialization utilities
 export { toCompactComponent, toCompactConnection } from './types.js';
 // Resolve

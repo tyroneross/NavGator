@@ -5,9 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import * as fs from "fs/promises";
-import * as path from "path";
 import type { RulesApiResponse, RuleViolation } from "@/lib/types";
+import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
 
 /**
  * GET /api/rules
@@ -22,12 +21,7 @@ export async function GET(request: NextRequest) {
       process.env.NAVGATOR_PROJECT_PATH ||
       process.cwd().replace(/\/web$/, "");
 
-    const componentsDir = path.join(root, ".navgator", "architecture", "components");
-    const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
-
-    // Load components
-    const components = await loadJsonDir(componentsDir);
-    const connections = await loadJsonDir(connectionsDir);
+    const { components, connections } = await loadArchitectureRecords(root);
 
     if (components.length === 0) {
       return NextResponse.json<RulesApiResponse>({
@@ -70,28 +64,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function loadJsonDir(dir: string): Promise<Record<string, unknown>[]> {
-  try {
-    const files = await fs.readdir(dir);
-    const results: Record<string, unknown>[] = [];
-    for (const file of files.filter((f) => f.endsWith(".json"))) {
-      try {
-        const content = await fs.readFile(path.join(dir, file), "utf-8");
-        results.push(JSON.parse(content));
-      } catch {
-        // Skip invalid files
-      }
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
 /**
- * Run built-in rules against raw component/connection JSON.
- * This mirrors the rules in src/rules.ts but works on raw JSON objects
- * so we don't need to import from the CLI build.
+ * Run the dashboard's basic rule subset against raw architecture records.
+ * The CLI/MCP `rules` command remains authoritative for the full built-in set.
  */
 function runBuiltinRules(
   components: Record<string, unknown>[],

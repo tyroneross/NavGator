@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { rejectUnsafeMutation } from "@/lib/server/request-guard";
 
 interface SettingsData {
   scan: {
@@ -157,6 +158,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const rejected = rejectUnsafeMutation(request);
+    if (rejected) return rejected;
     const body = await request.json();
     const projectPath = body.projectPath || null;
     const settingsPath = getSettingsPath(projectPath);

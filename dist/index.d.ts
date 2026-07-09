@@ -14,8 +14,8 @@ export { computeArchitectureDiff, classifySignificance, loadTimeline, saveTimeli
 export { registerProject, listProjects, formatProjectsList, type ProjectEntry, } from './projects.js';
 export { getGitInfo } from './git.js';
 export { computeImpact, computeSeverity } from './impact.js';
-export { wrapInEnvelope, buildExecutiveSummary } from './agent-output.js';
-export type { ArchitectureComponent, ArchitectureConnection, ConnectionGraph, ArchitectureIndex, ArchitectureLayer, ComponentType, ConnectionType, ScanResult, ScanWarning, Snapshot, SnapshotComponent, SnapshotConnection, DiffResult, DiffSignificance, DiffTrigger, TimelineEntry, Timeline, ComponentChange, ComponentModification, ConnectionChange, GitInfo, ImpactSeverity, ImpactAnalysis, AffectedComponent, AgentEnvelope, ExecutiveSummary, SummaryRisk, SummaryBlocker, SummaryAction, CompactComponent, CompactConnection, } from './types.js';
+export { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope, buildExecutiveSummary, } from './agent-output.js';
+export type { ArchitectureComponent, ArchitectureConnection, ConnectionGraph, ArchitectureIndex, ArchitectureLayer, ComponentType, ConnectionType, ScanResult, ArchitectureScanStatus, ArchitectureScanStats, ArchitectureScanPayload, ArchitectureScanOutcome, ScanWarning, Snapshot, SnapshotComponent, SnapshotConnection, DiffResult, DiffSignificance, DiffTrigger, TimelineEntry, Timeline, ComponentChange, ComponentModification, ConnectionChange, GitInfo, ImpactSeverity, ImpactAnalysis, AffectedComponent, AgentEnvelope, ExecutiveSummary, AgentCollectionWindow, SummaryRuleHealth, SummaryRuleViolation, SummaryRisk, SummaryBlocker, SummaryAction, CompactComponent, CompactConnection, } from './types.js';
 export { toCompactComponent, toCompactConnection } from './types.js';
 export { resolveComponent, findCandidates } from './resolve.js';
 export { resolveFileConnections, looksLikeFilePath, formatFileImpact, formatFileConnections } from './file-resolve.js';

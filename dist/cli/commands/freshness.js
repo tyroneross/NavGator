@@ -1,14 +1,22 @@
 import { spawn } from 'child_process';
-import { markDirty } from '../../freshness/dirty-ledger.js';
+import { markDirty, readDirty } from '../../freshness/dirty-ledger.js';
 import { drain, drainUntilClean } from '../../freshness/drainer.js';
 import { computeStamp, readStamp } from '../../freshness/stamp.js';
 import { scan } from '../../scanner.js';
-/** Production scanFn: run the real incremental scan; it persists everything. */
-const realScan = async (root) => {
-    await scan(root, {});
-};
+import { ensureSafeGitignore } from '../../gitignore-safety.js';
+/** Production scanFn: reconcile the dirty snapshot before releasing the scan lease. */
+const realScan = async (root, changed, lifecycle) => scan(root, {
+    // Auto preserves full-scan triggers for manifests/configuration while still
+    // selecting the incremental fast path for ordinary source edits.
+    mode: 'auto',
+    _forcedChangedFiles: changed,
+    _onLeaseAcquired: lifecycle.onLeaseAcquired,
+    _beforeLeaseRelease: lifecycle.beforeLeaseRelease,
+    _onLeaseFailureBeforeRelease: lifecycle.onLeaseFailureBeforeRelease,
+});
 /** Testable core: append paths to the dirty ledger. */
-export function runMarkDirty(paths, root) {
+export async function runMarkDirty(paths, root) {
+    await ensureSafeGitignore(root);
     markDirty(paths, root);
 }
 /** Testable core: run a drain with the real scanner. */
@@ -21,7 +29,16 @@ export async function runDrainUntilClean(root, minIntervalMs) {
 }
 /** Testable core: return the current stamp (computing a transient one if none). */
 export async function runFreshness(root) {
-    return readStamp(root) ?? (await computeStamp(root, { inFlight: false }));
+    const stamp = readStamp(root) ?? (await computeStamp(root, { inFlight: false }));
+    // The immutable ledger is canonical. A marker can exit/crash after committing
+    // its event but before its best-effort stamp refresh, so never trust persisted
+    // dirty fields without overlaying the live event set at the read boundary.
+    const dirty = readDirty(root);
+    return {
+        ...stamp,
+        dirty_files: dirty,
+        dirty_count: dirty.length,
+    };
 }
 /**
  * Testable core: populate the enrichment cache by resolving boundary nodes
@@ -43,9 +60,9 @@ export function registerFreshnessCommands(program) {
         .command('mark-dirty <paths...>')
         .description('Append changed file paths to the dirty-set ledger (used by the PostToolUse hook)')
         .option('--drain', 'Spawn a detached background drain after marking')
-        .action((paths, options) => {
+        .action(async (paths, options) => {
         const root = process.cwd();
-        runMarkDirty(paths, root);
+        await runMarkDirty(paths, root);
         if (options.drain) {
             // Detached + unref so the hook returns immediately (non-blocking). Uses
             // --until-clean so the trailing edits of a burst still get drained.

@@ -5,9 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import * as fs from "fs/promises";
-import * as path from "path";
 import type { Connection, ConnectionsApiResponse, ConnectionsSummary } from "@/lib/types";
+import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
 
 // Cache for connection data (keyed by project path)
 const connectionsCache = new Map<string, { data: ConnectionsApiResponse["data"]; timestamp: number }>();
@@ -107,36 +106,12 @@ async function loadConnectionData(
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
 
-  // Try to load from NavGator storage
-  const connectionsDir = path.join(root, ".navgator", "architecture", "connections");
-
-  try {
-    const files = await fs.readdir(connectionsDir);
-    const connectionFiles = files.filter((f) => f.endsWith(".json"));
-
-    if (connectionFiles.length === 0) return null;
-
-    const connections: Connection[] = [];
-
-    for (const file of connectionFiles) {
-      try {
-        const content = await fs.readFile(path.join(connectionsDir, file), "utf-8");
-        const raw = JSON.parse(content);
-        connections.push(transformConnection(raw));
-      } catch {
-        // Skip invalid files
-      }
-    }
-
-    if (connections.length === 0) return null;
-
-    return {
-      connections,
-      summary: buildSummary(connections),
-    };
-  } catch {
-    return null;
-  }
+  const records = await loadArchitectureRecords(root);
+  if (records.connections.length === 0) return null;
+  const connections = records.connections.map(transformConnection);
+  const summary = buildSummary(connections);
+  if (records.generatedAt) summary.lastScanned = new Date(records.generatedAt).toISOString();
+  return { connections, summary };
 }
 
 function transformConnection(raw: Record<string, unknown>): Connection {
@@ -168,16 +143,26 @@ function mapConnectionType(type: string): Connection["type"] {
     "queue-triggers": "queue-triggers",
     "imports": "imports",
     "prompt-usage": "prompt-usage",
-    "prompt-location": "prompt-usage",
+    "prompt-location": "prompt-location",
     "deploys-to": "deploys-to",
+    "env-dependency": "env-dependency",
+    "schema-relation": "schema-relation",
+    "cron-triggers": "cron-triggers",
+    "queue-produces": "queue-produces",
+    "queue-consumes": "queue-consumes",
     "observes": "observes",
     "conforms-to": "conforms-to",
     "notifies": "notifies",
     "stores": "stores",
     "navigates-to": "navigates-to",
+    "presents": "presents",
     "requires-entitlement": "requires-entitlement",
     "target-contains": "target-contains",
+    "build-phase-includes": "build-phase-includes",
     "generates": "generates",
+    "field-reference": "field-reference",
+    "runtime-binding": "runtime-binding",
+    "queue-uses-cache": "queue-uses-cache",
     "uses-package": "uses-package",
     "other": "other",
   };

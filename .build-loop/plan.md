@@ -1,97 +1,220 @@
-# Plan — NavGator Run 3 (Scanner Precision Fixes)
+# Plan — NavGator 0.9.1 dual-host reliability
 
-Date: 2026-04-24
-Branch: salvage/audit-improvements (continues Run 2)
-Builds on: 3fb8204
+⚠ Plan gaps: 2 — CI activation pending (surfaced; workflow-contract test before Report), lease-heartbeat activation pending (surfaced; fake-timer/cross-process tests before Report). All critic and caller-scope findings are resolved.
 
-## Goal
-Reduce atomize-ai audit defect rate from 4.21% (16/380) to ≤2% (≤8/380), achieving `verdict: accept`.
+Status: accepted for execution
+Run: `bl-20260709T190008Z-codex-487183`
+North star: one release artifact, trustworthy graph semantics, honest host capabilities.
 
-## Diagnosis (from defect_evidence on atomize-ai)
+parallel_batch: scan-correctness, graph-trust, host-package-parity
 
-### D1 — HALLUCINATED_COMPONENT (8 defects)
-Root cause: `env-scanner.ts:417` emits `config_files: ['runtime-injected']` (a literal placeholder string) for env vars referenced only in source. The audit verifier checks file existence on disk and the placeholder isn't a real file → defect.
+## Research Context
 
-Examples: QUERY_ARTICLE, GROQ_API_KEY_BACKUP, TREND_ANALYSIS_PROMPT, PRISMA_CONNECTION_TIMEOUT, KG_BACKFILL_SKIP_RECENT, BACKUP_GCS_BUCKET, OTEL_API_KEY_STAGING, TEST_RUN_ID.
+- Depth: standard
+- Packet: `.build-loop/research/2026-07-09-implement-audited-navgator-correctness-packaging-installation-cross-host.md` — exists
+- Source policy: live repository and host CLIs first; official OpenAI documentation for current Codex plugin behavior; local official Claude plugin-dev guidance for Claude behavior.
+- Final claims blocked until the packed-artifact and current-host probes pass.
 
-**Fix (Option A)**: Don't emit components for source-only env vars. Keep the ScanWarning. Drop the env-dependency connections that target them. No downstream consumer depends on these phantom nodes (verified: dead.ts and status.ts only iterate `definedIn>0` cases).
+## Approach Lenses
 
-Why not Option B: source-only env vars carry no graph signal once their `env-dependency` connections are dropped. Option B (mark `confidence: low` + verifier change) adds code surface for visibility that the warning already provides.
+### Clean-sheet best approach
 
-### D2 — WRONG_ENDPOINT (8 defects)
-Two root causes:
+Use immutable scan generations behind an atomic `current.json` pointer. Keep one engine and two thin host adapters: Claude exposes commands, subagents, skills, and MCP; Codex exposes skills and MCP through a marketplace. Every mutating scan returns a discriminated result and runs under one owner-tokened lease.
 
-**(a) Verifier regex bug — `\b` fails on path-style symbols (6 defects).** All 6 import-stratum defects use path-style symbols (`./entity-analysis-service`, `./test-utilities`, `../fixtures/factories`, `./classify-model`, `./article-volume-chart`, `./ui`).
+### Current-constraints approach
 
-`verifiers.ts:251` builds `new RegExp('\\b' + escapeRegex(symbol) + '\\b')`. The `\b` token is a word-boundary; `.` and `/` are non-word characters, so `\b./entity-analysis-service\b` fails to match `'./entity-analysis-service'` even though `content.includes(symbol)` returns true.
+Preserve schema `1.0.0`, current file locations, CLI names, and the 493-test behavior baseline. Fix consolidated incremental semantics in memory, replace both lock implementations with one lease, add an additive scan status, and use separate MCP config files where the hosts resolve process paths differently.
 
-Verified empirically:
+### Bridge/backcast
+
+This release introduces the typed scan outcome, single writer lease, semantic incremental parity, and packed-artifact verifier. A separate storage migration will stage complete generations and atomically move a pointer; until then, documentation will say individual files are atomic and will not claim transaction-level atomicity.
+
+### Recommendation
+
+Execute the current-constraints patch now. It closes user-visible correctness and installation failures without coupling a high-risk storage migration to the host-parity release.
+
+## Depends-on (reads-from)
+
+- `src/scanner.ts` scan phases, walk-set, promotion path, and derived-write order — verified
+- `src/storage.ts` canonical consolidated readers and stable-id merge — verified
+- `.navgator/architecture/components.full.jsonl` and `connections.full.jsonl` as default canonical entity stores — verified
+- `src/freshness/dirty-ledger.ts` late-arrival-preserving clear contract — verified
+- `src/rules.ts` connection direction `from -> to` — verified
+- nearest `tsconfig.json`/`jsconfig.json` `compilerOptions.baseUrl` and `paths` — verified by `web/tsconfig.json` and fixtures
+- file-map keys as project-relative or absolute file paths — verified by storage builder and live output
+- Claude default discovery under `commands/`, `agents/`, `skills/`, `hooks/hooks.json`, `.mcp.json` — verified by official local plugin-dev guidance and live validation
+- Codex manifest, marketplace, MCP, and new-task activation contract — verified by official current docs and live CLI
+- npm packed-file inventory as the release source of truth — verified by `npm pack --dry-run --json`
+
+## Activation Map
+
+- Packed-artifact release verifier — trigger: existing `.github/workflows/publish.yml` `push.tags: v*` or `workflow_dispatch` job step — verified-live: yes (the existing publish trigger shipped 0.9.0; a manifest-contract test will assert the job invokes `npm run verify:release`).
+- Pull-request release contract — trigger: new `.github/workflows/ci.yml` `pull_request` and `push` to `main` jobs — verified-live: pending (workflow-contract test must prove both host events reach the full test, typecheck, build, and packed-artifact verifier steps before Report).
+- Scan lease heartbeat — trigger: successful canonical lease acquisition inside `scan()` — verified-live: pending (fake-timer and cross-process tests must prove periodic owner-token refresh, no refresh after release/error, and no stale-owner unlink before Report).
+- Plugin runtime hooks — trigger: none; `hooks/hooks.json` remains empty — verified-live: yes (release verifier asserts the empty hook object).
+
+## Capability Gap Map
+
+| Capability | Current source of truth | Target | Gap | Build action | Owner/files | Validation |
+|---|---|---|---|---|---|---|
+| Incremental deletion | scanner + consolidated JSONL | Removed code removes graph state | Per-entity deletion is a no-op in default mode | Partition prior in-memory state by walk-set before merge | scan-correctness | mutation parity tests in both modes |
+| Writer exclusion | two lock modules | One owner-safe lease | Different paths and unsafe stale/release behavior | Canonical lease with O_EXCL, heartbeat, owner token, lease reuse | scan-correctness | contention/heartbeat/promotion tests |
+| Busy behavior | empty successful result | Explicit retryable busy | Callers clear ledgers and report zero graph | Add discriminated scan status and handle at every boundary | scan-correctness + integration | CLI/MCP/auto-refresh/drainer tests |
+| Dead reachability | undirected BFS | Directed reachability | Reverse traversal hides dead nodes | Traverse forward only; tighten entrypoint matching | graph-trust | chain and disconnected-cycle tests |
+| TS aliases | root config only | nearest config and arbitrary paths | `web/@/*` produces no edges | Config discovery/cache and config-relative targets | graph-trust | nested/arbitrary alias tests + live probe |
+| Coverage | raw file-map key count | discovered-source intersection | Non-source keys inflate numerator | Normalize and intersect once | graph-trust | hermetic mixed-key fixture |
+| Agent orientation | full graph, package health only | bounded, rule-aware view | Errors hidden; 200KB payload | Rule-health totals/top items and bounded entity samples | integration | synthetic size/total tests |
+| Claude package | npm files list | 13 commands + 4 agents + 6 skills + MCP | commands and script omitted | Correct package inventory and namespace/metadata | host-package-parity | packed inventory + Claude validation |
+| Codex package | shared Claude MCP path + invalid root marketplace | 6 skills + ready MCP via supported marketplace | path expansion, root source, and install claims fail | Codex MCP config, valid marketplace/installer semantics | host-package-parity | isolated marketplace/MCP smoke |
+| Dashboard | stripped standalone dependencies | packed HTTP-ready runtime | npm strips nested node_modules | Normalize traced runtime modules to package-safe directory | host-package-parity | install tarball, start, probe, stop |
+| Release gate | tests/build scattered | one reproducible verifier | source tree can pass while tarball fails | `verify:release` plus publish-workflow integration | integration | clean verifier run |
+
+## Single-Shot Build Guardrails
+
+| Guardrail | Prevents | Evidence |
+|---|---|---|
+| Semantic parity before persistence | stale edges and partial default merges | F1 regression compares incremental and full normalized graphs |
+| One lease, one owner token | concurrent writers and stolen releases | lock race, heartbeat, owner-safe release tests |
+| Busy is data, not emptiness | dirty-ledger loss and false success | busy CLI/MCP/drainer/auto-refresh tests |
+| Additive typed contracts | silent caller breakage | TypeScript caller audit and full build |
+| Host capabilities stay truthful | advertising Claude-only surfaces in Codex | manifest contract test and docs assertions |
+| Verify the tarball | source-only success | isolated install, MCP initialize/tools-list, dashboard HTTP probe |
+| Verify host discovery | MCP process-only success | packed Claude inventory plus isolated Codex `plugin/list`, install/enable, new-task skills, and MCP-ready probes under existing permission_tier T3 |
+| No runtime dependency addition | supply-chain drift | package diff and locked-dependency inventory |
+| Hooks remain empty | surprise session behavior | `hooks/hooks.json` assertion |
+| No whole-generation atomicity claim | misleading durability promise | docs grep and explicit follow-up issue |
+
+## Threat Model
+
+- Assets: source repository, `.navgator/` architecture data, user-level plugin configuration, and the installed npm/plugin cache.
+- Trust boundaries: host -> stdio MCP process; marketplace -> installed plugin cache; scanner -> selected project root; installer -> user marketplace JSON.
+- Threats: path traversal outside the selected project, shell interpolation through MCP args, unsafe concurrent writes, untrusted automatic hooks, dependency omission/substitution in the package, and installer prose causing users to trust a plugin that is only registered.
+- Mitigations: fixed argv with no shell, project-root normalization and existing sandbox/approval enforcement, one owner-tokened writer lease, empty hooks, packed dependency/runtime inventory checks, manifest path validation, and truthful registration/install messaging.
+- Permission tier: T3 for the existing local scan write; read-only MCP tools remain T0-T2. No network, authentication, secrets, external communication, or destructive repository operation is added.
+- Residual risk: plugin code runs with the host's granted filesystem permissions. The release verifier proves expected package contents and MCP startup but cannot replace host sandbox policy or user trust review.
+
+## Read-Before-Edit Map
+
+| Work item | Read first | Why | Then edit |
+|---|---|---|---|
+| Scan correctness | `src/scanner.ts`, both lock modules, storage readers/writers, drainer and auto-refresh tests | Preserve promotion, dirty-ledger, and storage-mode contracts | scanner/storage/lock/freshness sources and targeted tests |
+| Graph trust | rules, import scanner, `web/tsconfig.json`, coverage builder/tests | Verify edge direction, config ownership, and numerator inputs | rules/import/coverage sources and tests |
+| Host/package | official host docs, manifests, installers, `package.json`, web standalone output, skills, identity docs | Target real discovery/package semantics | manifests/installers/package/build script/skill path/web type fix/docs |
+| Agent integration | `types.ts`, agent-output, CLI rules/coverage/scan, MCP handlers, all call sites | Keep additions compatible and bound every machine-facing path | types/agent output/CLI/MCP/tests |
+| Release verification | `npm pack` JSON, MCP JSON-RPC protocol, publish workflow | Make final evidence consume the built tarball | verifier script/package scripts/publish workflow |
+
+## Dependency graph and integration points
+
+```text
+typed-contract-seed -> scan-correctness ----\
+                       graph-trust ----------> agent-and-boundary-integration -> release-verification -> independent-review
+                       host-package-parity --/
 ```
-/\b\.\/entity-analysis-service\b/.test("from './entity-analysis-service'") → false
-"from './entity-analysis-service'".includes("./entity-analysis-service") → true
+
+- Root first seeds the additive `ArchitectureScanOutcome` in `src/types.ts`; the same root owner later adds ExecutiveSummary fields in that file.
+- Scan lane consumes that type and publishes the canonical lease API. `scan()` is the sole lease owner; freshness drains do not pre-acquire and instead preserve the ledger when the scan callback returns `busy`.
+- Graph lane publishes directed rules, alias resolver behavior, and corrected coverage totals without editing shared output types or the scan orchestrator. The scan lane owns nested-config hash discovery in `src/scanner.ts`.
+- Host lane publishes manifests/build artifacts/install messaging without editing engine code.
+- Root integration owns `src/types.ts`, `package.json`, `package-lock.json`, root `tsconfig.json`, CLI/MCP version constants, machine-facing adapters, workflows, and the final verifier. Host/package parity owns host manifests, marketplaces, installers, skills, web-runtime preparation, and identity documentation.
+
+## Implementation tasks and commit plan
+
+### Prerequisite — Seed the typed scan contract
+
+- Owner: root integration
+- Intent: give every scan caller one additive, discriminated contract without repurposing the widely shared per-scanner `ScanResult`.
+- Files: `src/types.ts` only.
+- Design: define a dedicated top-level architecture scan result/status type while preserving the existing component, connection, warning, and stats fields.
+- modifies_api: yes — additive public type only.
+- Acceptance: TypeScript build before parallel dispatch.
+
+### Commit 1 — Fix scan state and writer semantics
+
+- Owner: scan-correctness lane
+- Intent: graph mutations must never retain deleted state or lose dirty work under contention.
+- Files: `src/scanner.ts` (including nested tsconfig/jsconfig change discovery), `src/storage.ts`, `src/scan-lock.ts`, `src/freshness/scan-lock.ts`, `src/freshness/paths.ts`, `src/freshness/drainer.ts`, scanner/consolidated/auto-refresh/freshness-lock/freshness-path/freshness-drainer tests, and the stale incremental issue note.
+- Design: typed Path B contract — `completed | noop | busy`; `scan()` alone acquires the canonical `.navgator/scan.lock`; drainer callbacks interpret status without pre-acquiring; reuse one lease through incremental-to-full promotion. The integration owner wires boundary presentation after this lane lands.
+- modifies_api: yes — `scan()`, lock acquisition, and drainer scan callback result.
+- Acceptance: F1-F3, Q2.
+
+### Commit 2 — Correct graph trust signals
+
+- Owner: graph-trust lane
+- Intent: architecture advice must reflect actual dependency direction, config scope, and source coverage.
+- Files: `src/rules.ts`, `src/scanners/connections/import-scanner.ts`, `src/coverage.ts`, and focused tests. This lane does not edit `src/scanner.ts`.
+- modifies_api: no — observable results change; public function signatures stay compatible.
+- Acceptance: F4-F6.
+
+### Commit 3 — Make host adapters real on both hosts
+
+- Owner: host-package-parity lane
+- Intent: the released bytes, not the checkout, must load the supported host surfaces.
+- Files: Claude/Codex manifests and marketplaces, `.mcp.json`, Codex-specific MCP config, installers, package-safe web-runtime build helper, skill path, command namespace text, web type error, README/CLAUDE/AGENTS/VERSIONING. This lane does not edit `package.json`, `package-lock.json`, root `tsconfig.json`, CLI/MCP version constants, workflows, or release-verifier files.
+- Design: host adapter Path B contract — explicit Claude and Codex config plus a package doctor, not shared-path assumptions or install-success prose.
+- modifies_api: no — packaging and host adapters only.
+- Acceptance: F8-F9, Q1, Q4-Q6.
+
+### Commit 4 — Bound agent output and integrate typed boundaries
+
+- Owner: root integration
+- Intent: agents see the highest-risk truth first within a predictable payload.
+- permission_tier: T3 — the existing MCP scan tool writes only the selected project's `.navgator/` data under the host sandbox/approval policy; read-only tools remain lower privilege. No new tool or external action is added.
+- Files: `src/types.ts`, `src/index.ts`, `src/setup.ts`, `src/agent-output.ts`, `src/cli/index.ts`, `src/mcp/server.ts`, `src/cli/commands/scan.ts`, `src/cli/commands/rules.ts`, `src/cli/commands/coverage.ts`, `src/cli/commands/freshness.ts`, `src/cli/commands/status.ts`, `src/cli/commands/misc.ts`, `src/mcp/tools.ts`, `src/__tests__/setup.test.ts`, `src/__tests__/freshness/cli-freshness.test.ts`, `src/__tests__/agent-output.test.ts`, and new CLI/MCP/agent-boundary execution tests. Auto-refresh and drainer behavior tests stay with the scan-correctness owner.
+- modifies_api: yes — additive result status, rule-health, and truncation metadata.
+- Acceptance: F2, F7, Q2-Q3.
+
+### Commit 5 — Enforce the release contract
+
+- Owner: root integration
+- Intent: make every future release prove both host surfaces from the packed artifact.
+- Files: `package.json`, `package-lock.json`, root `tsconfig.json`, release verifier, new PR/push CI workflow, existing publish workflow, manifest/workflow contract tests, `.build-loop/issues/atomic-scan-generation.md`, and `.build-loop/issues/eslint-adoption.md`.
+- Release behavior: remove the invalid `eslint`-based `lint` script (ESLint is not installed), add a no-network `typecheck` script, and record proper ESLint adoption as a dependency-governed follow-up. CI/publish run the full suite including F1-F7; no release-specific exclusion may omit scan correctness tests.
+- Identity behavior: compare package/lockfile, Claude/Codex manifests and marketplaces, CLI `--version`, and MCP `serverInfo.version` from one 0.9.1 source of truth.
+- modifies_api: no.
+- Acceptance: all F and Q criteria plus full suite/build/typecheck.
+
+## F/Q acceptance criteria
+
+The binding criteria are `.build-loop/acceptance-probes.md` F1-F9 and Q1-Q6. No task is complete from narrative evidence alone; each row maps to a deterministic test or runtime probe.
+
+## Scope exclusions and follow-up
+
+- Immutable generation directories plus atomic `current.json` pointer are excluded from 0.9.1 because they require every reader and writer to migrate together. Record the complete design and failure-injection acceptance test in `.build-loop/issues/atomic-scan-generation.md`.
+- No npm/GitHub publish, tag, push, or global plugin mutation.
+- No hook activation.
+
+## Verification sequence
+
+1. Focused tests per lane.
+2. Root TypeScript build and web typecheck.
+3. Full 493+ test suite, with F1-F7 present in the non-excluded release path.
+4. Full production build.
+5. Packed Claude discovery/inventory smoke plus isolated Codex marketplace `plugin/list`, install/enable, new-task skill discovery, and MCP-ready smoke under the existing permission_tier T3 host policy.
+6. Live self-scan and bounded summary/rules/coverage probes.
+7. Confirm the self-scan changed no tracked/package inputs; then run `npm run verify:release` against a freshly packed tarball as the final post-mutation success check.
+8. Independent read-only review of the final diff and evidence.
+
+## Plan verification record
+
+- plan-verify: clean — zero deterministic findings after the activation-map revision.
+- plan-critic: six WARNs plus a second fast-pass three WARNs; package ownership, full CI/release coverage, lease activation, lint-command disposition, host discovery depth, and final post-scan verification are resolved above.
+- scope-auditor: `scope_clear` after all named production callers, boundary tests, and ownership conflicts were absorbed.
+
+## Caller Audit (Scope Auditor)
+
+```json
+{
+  "initial_verdict": "scope_gap_found",
+  "resolved_in_plan": [
+    "src/setup.ts busy setup behavior",
+    "src/cli/commands/misc.ts runScan, summary, and setup messaging",
+    "src/cli/commands/status.ts refresh-busy behavior",
+    "src/index.ts public type exports",
+    "src/scanner.ts quickScan and autoRefreshIfStale",
+    "setup, MCP, CLI, freshness, auto-refresh, and agent-boundary execution tests",
+    "single owner for src/types.ts and src/cli/commands/misc.ts",
+    "scan-only lock ownership to prevent drainer self-contention"
+  ],
+  "remaining": "none; independent re-audit returned scope_clear"
+}
 ```
-
-**Fix at verifier (preferred, surgical):** when symbol contains non-identifier chars (`.`, `/`, `-`, `@`, `$`), drop the `\b` and use `content.includes(symbol)`. When symbol is a pure identifier, keep `\b` for false-positive resistance against keywords like `import`, `default`.
-
-**(b) Scanner symbol case-mismatch — prisma-calls (2 defects).** `prisma-calls.ts:169` stores `symbol: \`prisma.${modelKey}\`` where `modelKey = call.modelName.toLowerCase()`. So `prisma.articleEmbedding` from source becomes `prisma.articleembedding` in graph. The lowercased symbol can't be found in the source.
-
-Verified: source has `prisma.articleEmbedding`. Stored symbol `prisma.articleembedding` (lowercase). targetName `ArticleEmbedding` not in source either (camelCase model name in code is `articleEmbedding`).
-
-**Fix at scanner (preserve fidelity):** store the original case-preserved model name in `code_reference.symbol`. Track first-seen original casing per model. Keep lowercased lookups for `modelMap` (existing logic at line 138, line 128).
-
-## Deliverables
-
-### D1 — env-scanner.ts
-Modify `src/scanners/infrastructure/env-scanner.ts`:
-- When `envVar.definedIn.length === 0`: skip component creation entirely.
-- Skip `env-dependency` connections targeting that env var (they have no target component).
-- Keep the existing ScanWarning at line 487 (already surfaces these).
-- Add header comment block documenting the rationale.
-
-Test: `src/__tests__/env-scanner.test.ts` — add 1 test asserting source-only env vars produce no component, no env-dependency connection, but do produce a warning.
-
-### D2a — verifiers.ts WRONG_ENDPOINT regex
-Modify `src/audit/verifiers.ts:218-277`:
-- Add `isIdentifierLike(s)`: returns true if `s` matches `^[A-Za-z_$][\w$]*$`.
-- For symbol matching: if identifier-like, keep `\b...\b`. Else use `content.includes(symbol)`.
-- Same logic for targetName matching.
-
-Tests in `src/__tests__/audit-verifiers.test.ts`:
-- Path-style symbol `'./foo-bar'` passes when present in source.
-- Identifier symbol `foo` keeps `\b` guarding — `foobar` content does NOT match `foo` symbol.
-
-### D2b — prisma-calls.ts symbol fidelity
-Modify `src/scanners/connections/prisma-calls.ts`:
-- Track first-seen original casing per model in the loop at line 109-121: `originalCase = match[1]` (already captured from regex; just remember it).
-- At line 169, use the original case-preserved name for the symbol, not the lowercased key.
-
-Test: extend `src/__tests__/scanner-integration.test.ts` or add a focused test asserting `code_reference.symbol` for a `prisma.articleEmbedding` call preserves source casing.
-
-### D3 — atomize-ai re-scan
-After D1+D2 ship and tests pass, run full scan. Capture new audit block. Target: `defect_rate ≤ 0.02`, `verdict: 'accept'`.
-
-### D4 — All existing tests pass
-393 → 393+3-5 tests.
-
-## Hard constraints
-1. Zero new runtime npm deps.
-2. No external LLM API.
-3. Audit infrastructure (sampler, spc, audit/index) untouched. Only verifiers (one regex fn) + scanners (env, prisma) change.
-4. Characterization test (bench-repo) may need a one-line update for env-scanner change. Document in commit.
-5. No regression on Run 1.x / Run 2.
-6. No scope creep.
-
-## Execution dependency graph
-
-D1 (env-scanner), D2a (verifier), D2b (prisma-calls) are independent — different files, different tests. Phase 3 dispatches three subagents in parallel.
-
-## Risks
-- Bench-repo characterization snapshot may need update for env-scanner change. If asserts on counts: update; if asserts on content shape only: no change.
-- D2a regex change could over-match if path-style symbols share substrings. Mitigation: negative-case tests.
-- D2b: deterministic first-seen-wins for casing. Acceptable.
-
-## Done criteria
-- [ ] All 393+ tests green.
-- [ ] `npm run build:cli` exit 0.
-- [ ] atomize-ai full-scan: `defect_rate ≤ 0.02`, `verdict: 'accept'`, HALLUCINATED_COMPONENT ≤ 2, WRONG_ENDPOINT ≤ 2.
-- [ ] No DEDUP_COLLISION or HALLUCINATED_EDGE regression.

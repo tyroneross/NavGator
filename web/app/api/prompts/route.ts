@@ -6,18 +6,16 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { runNavGatorCli } from "@/lib/server/navgator-cli";
+import { rejectUnsafeMutation } from "@/lib/server/request-guard";
 import {
   transformScanResultWithDefaults,
   generateDemoData,
   type PromptScanResult,
 } from "@/lib/transform";
 import type { PromptsApiResponse } from "@/lib/types";
-
-const execAsync = promisify(exec);
 
 // Cache for scan results (keyed by project path)
 const promptsCache = new Map<string, { data: PromptsApiResponse["data"]; timestamp: number }>();
@@ -134,6 +132,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const rejected = rejectUnsafeMutation(request);
+    if (rejected) return rejected;
     const body = await request.json();
     const projectPath = body.path;
 
@@ -235,26 +235,16 @@ async function runNavGatorScan(
     process.env.NAVGATOR_PROJECT_PATH ||
     process.cwd().replace(/\/web$/, "");
 
-  // Validate path to prevent command injection
-  if (!/^[a-zA-Z0-9._\s\/~-]+$/.test(root)) {
-    console.warn("Invalid project path, skipping CLI scan");
-    return null;
-  }
-
   try {
-    // Try running navgator CLI
-    const { stdout } = await execAsync(
-      `cd "${root}" && npx navgator prompts --json`,
-      { timeout: 30000 }
+    const { stdout } = await runNavGatorCli(
+      ["prompts", "--json"],
+      path.resolve(root),
+      30000,
     );
 
     return JSON.parse(stdout);
   } catch (error) {
-    console.warn("NavGator CLI not available, trying direct scan...");
-
-    // Direct scan via built scanner is not available in Next.js context
-    // The scanner must be run via CLI: `navgator scan --prompts`
-    console.warn("Direct scan not available in web context. Use CLI: navgator scan --prompts");
+    console.warn("Packaged NavGator prompt scan failed:", error);
     return null;
   }
 }
