@@ -160,7 +160,7 @@ export async function GET(request: NextRequest) {
   try {
     const basePath = projectPath
       || process.env.NAVGATOR_PROJECT_PATH
-      || process.cwd();
+      || process.cwd().replace(/\/web$/, "");
     const graphPath = path.join(basePath, ".navgator", "architecture", "graph.json");
 
     const content = await fs.readFile(graphPath, "utf-8");

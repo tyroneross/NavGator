@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     if (rejected) return rejected;
     const body = await request.json().catch(() => ({}));
     const projectPath = path.resolve(
-      /* turbopackIgnore: true */ body.path || process.env.NAVGATOR_PROJECT_PATH || process.cwd(),
+      /* turbopackIgnore: true */ body.path || process.env.NAVGATOR_PROJECT_PATH || process.cwd().replace(/\/web$/, ""),
     );
     const includePrompts = body.prompts !== false;
 
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   try {
     const projectPath = path.resolve(
-      /* turbopackIgnore: true */ process.env.NAVGATOR_PROJECT_PATH || process.cwd(),
+      /* turbopackIgnore: true */ process.env.NAVGATOR_PROJECT_PATH || process.cwd().replace(/\/web$/, ""),
     );
 
     const { stdout } = await runNavGatorCli(["--version"], projectPath, 10000);
