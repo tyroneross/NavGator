@@ -1,192 +1,170 @@
 # NavGator 0.9.1 implementation handoff
 
-Status: **all blockers closed + release gates green; committed locally; DO NOT push/publish without authorization**  
-Updated: 2026-07-09  
+Status: **local release candidate; do not push, tag, or publish without user authorization**
+
+Updated: 2026-07-09
+
+Branch: `bl/run-487183`
+
 Build Loop run: `bl-20260709T190008Z-codex-487183`
 
-## Completion update (2026-07-09, claude_code:599bfe6c takeover — Codex low on tokens)
+## Outcome
 
-All four blockers below are closed and independently verified:
+NavGator 0.9.1 now has one package contract for Claude Code and Codex, a race-safe scanner boundary, a portable loopback dashboard, and an exact-artifact release pipeline. The implementation has passed the source, type, build, package, dashboard, Claude, and Codex checks listed below.
 
-- **Blockers 1–3 (scan/dirty-ledger/acquisition-gate races):** fixed and committed by Codex in `550af2f` ("fix: make scan freshness race-safe"). Independently confirmed CLOSED by build-loop `independent-auditor` (verdict *yay*, path:line evidence) and static review; regressions present in `src/__tests__/freshness/{scan-lock,drainer,dirty-ledger}.test.ts` (incl. real multiprocess `spawn`).
-- **Blocker 4 (final artifact proof):** DONE. Clean build (`npm run clean && npm run build`) — `dist/__tests__` absent, packable web runtime regenerated. Full suite **555/555** (isolated run — the lease/drainer concurrency tests are load-sensitive and flake only under competing runners; fail-closed, not a real race). Authoritative packed verifier `REQUIRE_CLAUDE_VALIDATION=1 REQUIRE_CODEX_VALIDATION=1 npm run verify:release` — **PASS** ("release contract passed for @tyroneross/navgator@0.9.1"), covering Claude clean-`CLAUDE_CONFIG_DIR` install idempotency/enabled/version, Codex user+workspace install, MCP (10 tools), and the packed dashboard.
-- **Remaining before any push:** whole-diff *host-lane* independent adversarial review (installer/manifest/skill/doc/web surfaces) — the scan lane is reviewed; the host lane is not yet. Reversible commit is safe; treat this as the gate before push.
+Nothing from this run has been pushed, tagged, published, or installed into the user's real Claude/Codex configuration.
 
-3 LOW auditor findings queued in `.build-loop/followup/`.
+## Assessment
 
-## Outcome and current assessment
+The release approach is sound:
 
-The implementation is substantially complete but is not release-ready. Three commits are stable, host registration is repaired, and release gates are stronger; the remaining design risk is isolated to scan/dirty-ledger concurrency. The core approach is sound:
+- scans return typed `completed | noop | busy` outcomes and use one owner-safe writer lease;
+- lease ownership covers legacy migration, setup scans, MCP scans, and freshness reconciliation;
+- the default graph uses complete consolidated records while derived compact views stay explicitly lossy;
+- Claude receives 13 commands, 4 subagents, 6 skills, and 10 MCP tools;
+- Codex receives the portable intersection: 6 skills and 10 MCP tools;
+- Codex executes its versioned installed cache, not a mutable registration source, while scanning the active task workspace;
+- the packaged dashboard reads consolidated data, bounds graph traversal, rejects cross-origin/host attacks, denies framing, and forces loopback binding even when launched directly;
+- CI and publishing audit production dependencies, pin Actions by commit, verify one tarball, hash it, and pass only that artifact into the credentialed publish job.
 
-- scanner contention is represented as typed `completed | noop | busy` data instead of empty success;
-- graph rules and coverage now use trustworthy direction, alias scope, and set arithmetic;
-- Claude and Codex use separate host adapters where their process-path semantics differ;
-- agent-facing output is bounded and exposes totals, truncation, and architecture-rule errors;
-- the npm artifact is being made the release authority, with an executable packed-artifact verifier.
+## Commits on the run branch
 
-Remaining risk is concentrated in the dirty-ledger/scan lifecycle and the final combined build/tarball proof. The original Claude registration failure is fixed and passed isolated user/project lifecycle checks, but the root packed verifier has not yet rerun after that change. The host/package lane must still be included in the whole-diff independent review because its original dedicated reviewer stalled.
+| Commit | Outcome |
+|---|---|
+| `2546f73` | Added the typed top-level scan outcome contract. |
+| `1d2f395` | Corrected directed reachability, nested aliases, and coverage arithmetic. |
+| `75a1cde` | Added bounded, rule-aware agent output and truthful CLI/MCP boundaries. |
+| `550af2f` | Made scan freshness, lease publication, dirty reconciliation, and stamp ordering race-safe. |
+| `4b55830` | Integrated dual-host packaging, dashboard runtime, installers, documentation, and release gates. |
+| `41a4845` | Closed final review findings for setup phase, atomic ignore writes, and direct-launch loopback enforcement. |
 
-## Current blockers
+The final review follow-up is committed in `41a4845`; this document is the remaining local handoff record.
 
-1. **Dirty-ledger compare/clear race.** A same-path edit can land between snapshot read/stat or fingerprint compare/clear and be erased. Ledger reconciliation needs atomic generation/CAS, rotation, or equivalent mutation serialization with deterministic interleaving tests.
-2. **Late-content/hash race.** A file can change after the scanner reads it but before final hashes are saved, leaving an old graph with a new hash. Forced dirty paths and scan-start/consumed hashes must guarantee the next drain really rereads the file.
-3. **Acquisition-gate recovery and stamp honesty.** A process killed while holding the auxiliary acquisition gate can wedge all future scans, and a busy attempt must never leave `scan_in_flight: true`. Both need owner-safe lifecycle recovery and regressions.
-4. **Final artifact proof not run.** A clean build, required-host packed verifier, and whole-diff independent review must pass after the last mutation.
+## Implemented behavior
 
-Until all four are closed, this branch is not release-ready.
+### Scanner and storage trust
 
-## Working location
+- Default incremental results match a subsequent full scan after removals.
+- One `.navgator/scan.lock` lease uses complete atomic publication, owner tokens, heartbeat, process identity, and owner-safe release.
+- Storage creation and legacy migration occur only after lease acquisition.
+- Each scan receives an isolated config snapshot; a busy contender cannot mutate the winner's settings.
+- Dirty events are immutable and reconciled by exact generation so late edits survive a drain.
+- MCP scans use automatic mode, allowing manifest and nested config changes to promote to full scans.
+- Setup forces its deep scan, records `fast | deep` in the canonical index under the lease, and creates no legacy `.claude/architecture` state.
+- Freshness/lease files are ignored through the project `.gitignore` or Git's private exclude file. Symlinked ignore targets are not followed; updates use an exclusive temporary file plus atomic rename.
 
-- Repository: `/Users/tyroneross/dev/git-folder/NavGator`
-- Isolated worktree: `/Users/tyroneross/dev/git-folder/NavGator/.build-loop/worktrees/run-487183`
-- Branch: `bl/run-487183`
-- Base behavior before changes: 44 test files, 493 tests passing; root TypeScript build passing
-- Do not edit or commit from the canonical checkout for this run.
+### Claude and Codex host surfaces
 
-## Commits already landed on the run branch
+- Package identity is `navgator` / `@tyroneross/navgator` version `0.9.1`, Apache-2.0.
+- Claude installation uses the Claude marketplace/install/update/enable lifecycle and verifies the exact enabled version plus cached MCP dependencies.
+- Codex registration materializes a non-empty marketplace source and points the MCP executable at the deterministic versioned Codex cache.
+- User and workspace installers reject symlinked destination components and keep marketplace/config writes inside the selected root.
+- Codex cache tests mutate and delete the registration source, then prove the installed MCP still initializes and scans a new active workspace.
+- Hooks remain empty on both hosts.
 
-| Commit | Scope | Evidence |
-|---|---|---|
-| `2546f73` | Additive `ArchitectureScanOutcome` contract | `npm run build:cli` passed |
-| `1d2f395` | Directed reachability, nested aliases, corrected coverage math | focused graph tests passed; live web alias smoke resolved 175 `@/` edges |
-| `75a1cde` | Typed CLI/MCP boundaries and bounded, rule-aware agent output | root typecheck and 31 focused boundary tests passed |
+### Dashboard and package
 
-These commits are local only. Nothing from this run has been pushed, published, tagged, or installed globally.
+- Next.js is pinned to `16.2.10`; root and web production audits report zero vulnerabilities.
+- Dashboard APIs share one consolidated storage loader with complete JSONL and compact fallbacks.
+- `/api/scan` parses typed `--json` output and preserves `completed`, `noop`, and retryable `busy` states.
+- Trace and subgraph traversal have bounded depth, queue/expansion, path, and node limits.
+- The package contains a platform-neutral standalone runtime without nested `node_modules`, symlinks, native binaries, compiled tests, or local build paths.
+- The direct package launcher forces `127.0.0.1`; request guards reject DNS-rebinding hosts and unsafe mutations; CSP and `X-Frame-Options` prevent framing.
 
-## Implemented but not yet committed
+### Release pipeline
 
-### Scan correctness and lease lane
+- Pull-request/push CI runs the full suite, root/web typechecks, production audits, build, and packed verifier.
+- Host CI installs pinned Claude/Codex CLI versions and requires both lifecycle checks.
+- Publish builds and verifies without write credentials, packs once, verifies that exact tarball, hashes/uploads it, then publishes only the downloaded hash-checked artifact.
+- GitHub Actions are pinned to commit SHAs.
+- Tag/package version mismatch blocks publishing.
 
-Owned surfaces include `src/scanner.ts`, `src/storage.ts`, the canonical scan lease, freshness drainer/path logic, focused tests, and the stale incremental issue note.
+## Verification evidence
 
-Implemented behavior:
+Final post-mutation evidence:
 
-- one canonical `.navgator/scan.lock` lease;
-- complete-record atomic lease publication, owner token, heartbeat, process-start fingerprint, owner-safe release retry;
-- operational acquisition failures throw; only a live owner maps to retryable `busy`;
-- `scan()` and `quickScan()` retain the typed top-level result;
-- incremental-to-full promotion reuses the same lease;
-- consolidated incremental state is partitioned in memory before merge so deleted edges do not reload from canonical JSONL;
-- drainer outcomes are strict, preserve the dirty ledger on busy/error, and use unique atomic stamp candidates;
-- busy-drainer stamp ordering is monotonic so a losing drainer cannot resurrect `scan_in_flight: true` after the winner finishes.
+| Check | Result |
+|---|---|
+| Focused release/storage/scan/setup/ignore tests | 7 files, 75 tests passed before the final hardening; final focused setup/ignore/release set: 3 files, 22 passed |
+| Setup/scanner/boundary regression set | 3 files, 54 tests passed |
+| TypeScript | `npm run typecheck` passed for root, tests, and web |
+| Final full suite | 49 files, 558 tests passed after all setup, launcher, and gitignore hardening |
+| Production dependency audit | Root: 0 vulnerabilities; web: 0 vulnerabilities |
+| Clean production build | Passed with Next 16.2.10; one non-fatal dynamic file-tracing warning remains because dashboard routes read user-selected project paths |
+| Required host verifier | Final run passed with Claude plus bundled Codex 0.144, including user/workspace registration, cache independence, 6 Codex skills, 10 tools, direct-launch loopback, dashboard security, and runtime probes |
+| Self-scan | 339 components, 820 connections, 0 warnings |
+| Bounded agent output | Summary 53,059 bytes; rules returned 50 of 386; coverage returned 50 of 222 with explicit truncation metadata |
+| Build Loop advisory contracts | Skill resolution, manifest, trigger, and bridge tests passed; MCP tests skipped where the Build Loop manifest intentionally declares no inline server |
+| Build Loop learn pass | Accruing: 1 of 3 recorded runs; recurrence detector found no patterns and created no experimental artifacts |
+| Independent review | Cross-vendor Claude Opus approved conditionally; final whole-diff code review is clean; final security review is clean with no critical/high findings |
 
-Current evidence before the newest fixes: 99 focused tests and CLI build passed. The fresh independent review then found the three scan blockers listed above plus a stale in-flight stamp edge case, so the lane remains unapproved. A new test-typecheck gate also caught one test-only child-process typing error. All must be fixed and independently rereviewed before commit.
+One full-suite attempt during simultaneous independent audit scans hit six five-second high-load timeouts. The isolated post-review rerun passed all 558 tests and is the release evidence.
 
-### Claude and Codex host parity lane
+## Reproducible closeout sequence
 
-Implemented behavior:
-
-- canonical plugin identity is `navgator`, version target `0.9.1`, Apache-2.0;
-- Claude retains 13 commands, 4 subagents, 6 skills, empty hooks, and root `.mcp.json`;
-- Codex advertises only 6 skills plus MCP through `.codex-plugin/mcp.json`;
-- Codex no longer relies on literal `${CLAUDE_PLUGIN_ROOT}` expansion for MCP startup;
-- invalid repo-self `.agents/plugins/marketplace.json` was removed;
-- the Codex installer materializes a dependency-complete child runtime, generates a non-empty local marketplace source, and truthfully leaves browser install/enable plus new-task activation to the user;
-- the loose infrastructure skill is now a discoverable directory skill;
-- the web route TypeScript error is fixed;
-- the prepared dashboard uses `web/server.cjs`, contains no nested `node_modules`, symlinks, TypeScript, Sharp, `@img`, native binaries, or platform-specific SWC packages.
-
-Current evidence:
-
-- Claude's original raw-symlink install failed clean-registry discovery; the repaired installer now uses marketplace add plus install/update/enable and refuses success without the exact enabled version;
-- isolated clean user and project installs, idempotent rerun, disabled-state recovery, cached dependency check, MCP startup, and all 10 MCP tools passed without touching real user state;
-- inventory is 13 commands, 4 Claude subagents, 6 skills, empty hooks;
-- Codex MCP initialized all 10 tools;
-- isolated Codex `plugin/list`, `plugin/install`, enabled state, and fresh-app-server discovery of all 6 skills passed;
-- web typecheck and production build passed;
-- the portable dashboard runtime is about 26 MB unpacked and returned HTTP 200 for the main page, four API routes, and a static image.
-
-The lane's dedicated review agent stalled. Include all host, installer, manifest, skill, documentation, and web-runtime surfaces in the mandatory whole-diff review.
-
-### Release integration
-
-Prepared but not yet committed:
-
-- package version/lockfile target `0.9.1`;
-- package file inventory includes commands, agents, six skills, promotion script, host manifests, and portable dashboard runtime;
-- root build excludes `src/__tests__/**` from `dist`;
-- invalid ESLint command removed; no-network root+web `typecheck` added;
-- PR/push CI and publish gates run the full suite, typecheck, build, and packed verifier;
-- runtime CLI and MCP versions read from `package.json`;
-- `scripts/verify-release.mjs` packs, installs, inventories, initializes both MCP configs, exercises isolated host lifecycles, rejects native binaries/compiled tests, and starts the packed dashboard through the CLI helper;
-- all 7 release-contract tests pass;
-- whole-generation atomicity and ESLint adoption are recorded as separate follow-ups;
-- the CLI now launches the packaged `web/server.cjs` entry, binds the unauthenticated dashboard to loopback, and no longer offers the invalid raw Claude symlink during `navgator setup`;
-- Node's public floor is aligned to the tested `>=20.11.0` contract with a minimum-version CI lane;
-- CI and publish install pinned Claude/Codex CLIs and require live lifecycle validation; publish also rejects tag/package version mismatches;
-- the verifier now covers Claude clean-registry install, Codex user plus workspace registration, the exported dashboard launcher and representative APIs; runtime preparation rejects symlinks;
-- source tests have a separate no-emit TypeScript configuration so excluding them from `dist` does not remove type safety.
-
-Current dry-pack evidence: the intended host inventory is present (13 commands, 4 Claude agents, 6 shared skills) with no packaged `node_modules` paths or native `.node` binaries. The dirty worktree still contains 184 stale compiled test artifacts under `dist/__tests__` from pre-exclusion builds. This is expected to disappear only after `npm run clean && npm run build`; the final verifier must reject the artifact if any compiled tests remain.
-
-## Explicitly deferred or excluded
-
-- Whole-generation transactional storage is not part of 0.9.1. Individual files are atomic and scans use one writer lease; interrupted multi-file generations can still require a full refresh.
-- Proper ESLint adoption requires a separately reviewed dependency and configuration change.
-- Do not update the external RossLabs marketplace until 0.9.1 is actually published under separate authorization.
-- Do not push, tag, publish, or mutate the user's global Claude/Codex installation as part of this run.
-- Hooks remain empty and require no trust change.
-
-## Required next steps
-
-1. **Close the remaining scan races.** Make ledger reconciliation atomic, ensure forced dirty files cannot be masked by late hash persistence, reclaim a killed acquisition gate owner-safely, and make in-flight stamps acquisition-owned. Add deterministic real-scanner and multiprocess regressions, rerun the focused suite plus test typecheck, and require a fresh independent reviewer to return clean.
-2. **Review and commit the host lane.** Inspect every host-owned diff, rerun JSON/shell syntax, clean-registry Claude user/project installation, web typecheck/build, isolated Codex user/workspace discovery/install/new-task checks, and HTTP probes.
-3. **Commit the approved scan lane.** Commit only after the fresh reviewer is clean, using the lane-owned files plus the root freshness caller integration.
-4. **Finish release integration.** Confirm `web/server.cjs` everywhere, update release-contract assertions if needed, and run `git diff --check` plus root/web typechecks.
-5. **Run the full suite.** `npm test` must include all scan correctness regressions; no release exclusion may omit them.
-6. **Run a clean production build.** `npm run clean && npm run build`. Confirm `dist/__tests__` is absent and the portable web runtime is regenerated.
-7. **Run the live self-scan before the final verifier.** Exercise bounded summary/rules/coverage output, then confirm the self-scan changed no tracked or package input files.
-8. **Run the final packed proof after the last mutation.** Use `REQUIRE_CLAUDE_VALIDATION=1 REQUIRE_CODEX_VALIDATION=1 npm run verify:release`. This must be the last success check that can validate the tarball.
-9. **Run Build Loop Phase 4 review and Phase 5 iteration.** Include correctness, mock-data leakage, security, host/package parity, workflow, and documentation claims. Fix every blocker and rerun affected gates.
-10. **Finalize this handoff and commit release records.** Record final commit hashes and exact test counts. Remove transient dependency symlinks before declaring the worktree clean.
-
-## Verification commands
-
-Run from the isolated worktree:
+The following sequence passed from the repository root after the final code mutation:
 
 ```bash
-cd /Users/tyroneross/dev/git-folder/NavGator/.build-loop/worktrees/run-487183
-
 npm test
 npm run typecheck
+npm audit --omit=dev --audit-level=moderate
+npm --prefix web audit --omit=dev --audit-level=moderate
 npm run clean
 npm run build
 
-# Self-scan and bounded output checks happen here, before the final packed proof.
-
+PATH=/Applications/Codex.app/Contents/Resources:$PATH \
 REQUIRE_CLAUDE_VALIDATION=1 \
 REQUIRE_CODEX_VALIDATION=1 \
 npm run verify:release
-```
 
-Before the final status claim:
-
-```bash
-git status --short
 git diff --check
-git log --oneline --decorate -8
 ```
 
-## Loaded agents, plugins, and reasons
+Remaining handoff actions:
 
-### Agents
+1. Keep the branch local until the user explicitly requests push, PR, tag, or publish.
+2. Let clean CI prove pinned Codex `0.130.0`; local validation used the healthy bundled Codex `0.144.0-alpha.4`.
+3. After an authorized 0.9.1 publication, update the external RossLabs marketplace as a separate action.
 
-| Agent | Why it was loaded | Current result |
+## Residual and deferred work
+
+- Whole-generation transactional storage is deferred. Individual files are atomic and one writer is enforced, but an interrupted multi-file generation can still require a full refresh.
+- A hung but live scan owner can retain the lease indefinitely. This favors split-brain prevention over automatic recovery.
+- The dashboard exposes a documented six-rule subset; the CLI/MCP rule engine remains authoritative for all fourteen rules.
+- Codex's deterministic cache layout is a host contract. Bundled 0.144 passed locally; pinned 0.130 remains a clean-CI gate.
+- Workspace installers intentionally create `.claude/`, `.codex/`, or `.agents/` runtime metadata in the selected workspace.
+- The dashboard has no authentication because it is forced to loopback. Any tunnel or reverse proxy requires a separate authentication boundary.
+
+## Local Codex CLI incident
+
+The Homebrew wrapper at `/opt/homebrew/bin/codex` currently lacks its expected native 0.130 executable. During the review, a temporary pinned binary was hard-linked to that global native file; later temporary cleanup and timeout experiments correlated with the global file disappearing. That coupling is the leading cause, although exact causality was not proven.
+
+No repair was attempted because global tool repair was outside the repository task and requires user authorization. The healthy bundled Codex executable under the Codex application was used for all final local host checks. The next owner should ask the user before reinstalling or repairing the Homebrew Codex CLI.
+
+## Agents loaded and why
+
+| Agent | Why loaded | Result |
 |---|---|---|
-| Root Build Loop orchestrator | Own the acceptance contract, isolated worktree, integration, final verification, and commit boundary | Active |
-| Graph trust implementer | Independently correct directed reachability, nested alias resolution, and coverage arithmetic | Completed and committed as `1d2f395` |
-| Scan correctness implementer | Isolate the high-risk incremental-state, lease, and freshness-drainer work | Active; addressing three P1 findings plus stamp honesty |
-| Scan-lane independent reviewer | Try to break lease/reconciliation behavior before commit | Found the current blockers; another fresh review is required after fixes |
-| Host parity implementer | Own Claude/Codex manifests, installers, skills, docs, and portable dashboard packaging | Completed implementation and isolated lifecycle proof; whole-diff review remains |
-| Release/handoff auditor | Independently fact-check package inventory, CI, verifier, and this handoff | Completed; findings integrated into current blockers and release gates |
+| Root Build Loop orchestrator | Own scope, integration, verification, commits, and handoff | Active through closeout |
+| Graph trust implementer/reviewer | Correct direction, alias, and coverage semantics | Landed in `1d2f395` |
+| Scan correctness implementer/reviewers | Break and repair incremental, lease, dirty-ledger, and setup behavior | Landed through `550af2f` plus final setup follow-up |
+| Host parity implementer/reviewer | Separate Claude and Codex discovery/process contracts | Integrated in `4b55830` |
+| Plan critic and scope auditor | Find missing callers, activation gaps, and ownership conflicts before edits | Plan accepted after findings were absorbed |
+| Whole-diff auditor | Independently test the combined implementation | Code contract clean; required this handoff rewrite |
+| Security auditor | Review dependency, host, installer, dashboard, and publish boundaries | Clean; no critical/high findings |
+| Fact/mock/privacy auditor | Check package claims, mock labeling, and local-path leakage | Findings closed in docs/runtime verifier |
+| Installer-security implementer | Make Codex cache source-independent and installers symlink-safe | Required-host verifier passed |
+| Documentation accuracy implementer | Align storage schema, scanner claims, and non-repo install instructions | Completed |
+| Claude Opus cross-vendor reviewer | Review the same diff with another vendor/model | Approved subject to executable gates |
 
-### Plugins and skills
+## Plugins and skills loaded and why
 
-| Capability | Why it was loaded | Scope used |
+| Capability | Why loaded | Action taken |
 |---|---|---|
-| `build-loop:build-loop` | Explicitly requested by the user for multi-step implementation discipline | Goal/plan/probes, worktree isolation, delegated lanes, reviews, verification, local commits |
-| Plugin Builder guidance | Validate Claude package discovery and manifest/installer structure | Claude commands, agents, skills, hooks, MCP, marketplace/install lifecycle |
-| OpenAI plugin guidance | Validate current Codex plugin semantics rather than copying Claude assumptions | `.codex-plugin` manifest, skills/MCP exposure, marketplace/install/new-task activation |
-| Repository test/build toolchain | Prove source, package, and dashboard behavior from the actual artifact | Vitest, TypeScript, Next.js build, MCP initialization, HTTP probes, packed install |
+| `build-loop:build-loop` | Explicit user request; multi-step implementation needed gated planning, delegated review, and proof | Used the isolated run branch, phase gates, independent reviews, and closeout records |
+| `build-loop:self-improve` | Mandatory Build Loop learn phase | Run-record and recurrence scan at closeout; no cross-project promotion without user approval |
+| Claude plugin lifecycle | Validate Claude's actual registry/cache behavior | Used only inside isolated temporary homes |
+| Codex plugin lifecycle | Validate marketplace, install, new-task skills, cache MCP, and active-workspace behavior | Used only inside isolated temporary homes with the bundled Codex binary |
+| NavGator CLI/MCP/dashboard | Test the product from its packed artifact | Self-scan, bounded output, 10-tool MCP initialization, and dashboard HTTP/security probes |
 
-No connector plugin or external app is needed for this repository-local implementation, and none was installed. NavGator itself is the plugin being built; its Claude-specific commands/subagents remain Claude-only, while its six skills and MCP server form the portable Claude/Codex intersection.
+No connector app plugin was relevant, and none was installed. NavGator itself was tested as the plugin under construction; the user's real global Claude/Codex plugin state was not changed.
