@@ -91,7 +91,7 @@ This runs the initial scan and then you can install the Claude or Codex surface 
 ### 2. Scan Your Project
 
 ```bash
-# Full scan (packages + connections)
+# Automatic scan (full or incremental based on what changed)
 navgator scan
 
 # Quick scan (packages only, faster)

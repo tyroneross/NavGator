@@ -237,6 +237,8 @@ export interface ArchitectureIndex {
      * (currently 20). Reset to 0 on every full or 'incremental→full' scan.
      */
     incrementals_since_full?: number;
+    /** Last completed setup phase, written by setup scans under the writer lease. */
+    setup_phase?: 'fast' | 'deep';
     project_path: string;
     project?: ProjectMetadata;
     components: {

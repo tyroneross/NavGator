@@ -1652,6 +1652,7 @@ export async function scan(projectRoot, options = {}) {
                 }
                 // Always set schema_version to current build's version.
                 freshIndex.schema_version = SCHEMA_VERSION;
+                freshIndex.setup_phase = options._setupPhase ?? priorIndex?.setup_phase;
                 // Run 2 — D5: persist EWMA + audit history bookkeeping.
                 if (auditReport) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any

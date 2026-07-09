@@ -156,4 +156,16 @@ describe('ensureSafeGitignore', () => {
     ).trim();
     expect(fs.readFileSync(exclude, 'utf8')).toContain('.navgator/dirty.d/');
   });
+
+  it('refuses a symlinked project gitignore without changing its target', async () => {
+    const victim = path.join(tmp, 'victim-ignore');
+    fs.writeFileSync(victim, 'sentinel\n');
+    fs.symlinkSync(victim, gitignore);
+
+    const result = await ensureSafeGitignore(tmp);
+
+    expect(result.action).toBe('no-gitignore');
+    expect(fs.readFileSync(victim, 'utf8')).toBe('sentinel\n');
+    expect(fs.lstatSync(gitignore).isSymbolicLink()).toBe(true);
+  });
 });

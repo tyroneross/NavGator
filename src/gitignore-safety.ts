@@ -30,6 +30,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
 
 const MARKER_START = '# >>> NavGator safety guard (auto-managed)';
@@ -78,7 +79,9 @@ export interface GitignoreGuardResult {
 
 function ignoreTarget(projectRoot: string): string | null {
   const projectGitignore = path.join(projectRoot, '.gitignore');
-  if (fs.existsSync(projectGitignore)) return projectGitignore;
+  if (fs.existsSync(projectGitignore)) {
+    if (!fs.lstatSync(projectGitignore).isSymbolicLink()) return projectGitignore;
+  }
 
   try {
     const resolved = execFileSync(
@@ -86,9 +89,25 @@ function ignoreTarget(projectRoot: string): string | null {
       ['-C', projectRoot, 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
-    return resolved || null;
+    if (!resolved) return null;
+    if (fs.existsSync(resolved) && fs.lstatSync(resolved).isSymbolicLink()) return null;
+    return resolved;
   } catch {
     return null;
+  }
+}
+
+async function writeIgnoreFile(target: string, content: string): Promise<void> {
+  await fs.promises.mkdir(path.dirname(target), { recursive: true });
+  const candidate = path.join(
+    path.dirname(target),
+    `.${path.basename(target)}.${process.pid}.${crypto.randomUUID()}.tmp`,
+  );
+  try {
+    await fs.promises.writeFile(candidate, content, { encoding: 'utf8', flag: 'wx' });
+    await fs.promises.rename(candidate, target);
+  } finally {
+    await fs.promises.rm(candidate, { force: true });
   }
 }
 
@@ -99,16 +118,17 @@ function ignoreTarget(projectRoot: string): string | null {
  * can log if they want to surface the behavior.
  */
 export async function ensureSafeGitignore(projectRoot: string): Promise<GitignoreGuardResult> {
-  const gitignorePath = ignoreTarget(projectRoot) ?? path.join(projectRoot, '.gitignore');
+  const projectGitignore = path.join(projectRoot, '.gitignore');
+  const gitignorePath = ignoreTarget(projectRoot);
 
   // Opt-out via env var
   if (process.env.NAVGATOR_SKIP_GITIGNORE_GUARD === '1') {
-    return { action: 'opt-out', gitignorePath };
+    return { action: 'opt-out', gitignorePath: gitignorePath ?? projectGitignore };
   }
 
   // Outside a Git worktree, do not create a project file solely for the guard.
-  if (!fs.existsSync(gitignorePath) && gitignorePath === path.join(projectRoot, '.gitignore')) {
-    return { action: 'no-gitignore', gitignorePath };
+  if (!gitignorePath) {
+    return { action: 'no-gitignore', gitignorePath: projectGitignore };
   }
 
   let content = '';
@@ -131,8 +151,7 @@ export async function ensureSafeGitignore(projectRoot: string): Promise<Gitignor
       return { action: 'already-present', gitignorePath };
     }
     const updated = `${content.slice(0, markerStart)}${MANAGED_BLOCK}${content.slice(blockEnd)}`;
-    await fs.promises.mkdir(path.dirname(gitignorePath), { recursive: true });
-    await fs.promises.writeFile(gitignorePath, updated, 'utf-8');
+    await writeIgnoreFile(gitignorePath, updated);
     return { action: 'updated', gitignorePath };
   }
 
@@ -149,8 +168,7 @@ export async function ensureSafeGitignore(projectRoot: string): Promise<Gitignor
   // Append the managed block
   const needsTrailingNewline = content.length > 0 && !content.endsWith('\n');
   const newContent = content + (needsTrailingNewline ? '\n' : '') + BLOCK;
-  await fs.promises.mkdir(path.dirname(gitignorePath), { recursive: true });
-  await fs.promises.writeFile(gitignorePath, newContent, 'utf-8');
+  await writeIgnoreFile(gitignorePath, newContent);
 
   return { action: 'added', gitignorePath };
 }

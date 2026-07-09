@@ -191,6 +191,8 @@ export interface ScanOptions {
   _onLeaseFailureBeforeRelease?: () => Promise<void>;
   /** Internal-only dirty-ledger paths that must be included in this walk. */
   _forcedChangedFiles?: string[];
+  /** Internal-only setup lifecycle marker persisted with the canonical index. */
+  _setupPhase?: 'fast' | 'deep';
   /** Test seam for a mutation after scanner reads but before hash persistence. */
   _beforeHashSave?: () => Promise<void>;
   /** Run 2 — D4: skip the SQC audit pass entirely. */
@@ -1897,6 +1899,7 @@ export async function scan(
       }
       // Always set schema_version to current build's version.
       freshIndex.schema_version = SCHEMA_VERSION;
+      freshIndex.setup_phase = options._setupPhase ?? priorIndex?.setup_phase;
 
       // Run 2 — D5: persist EWMA + audit history bookkeeping.
       if (auditReport) {

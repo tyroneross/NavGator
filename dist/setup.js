@@ -9,7 +9,7 @@
  * The deep scan uses ts-morph AST analysis for accurate detection.
  */
 import * as fs from 'fs';
-import { scan, quickScan } from './scanner.js';
+import { scan } from './scanner.js';
 import { getConfig, getIndexPath } from './config.js';
 import { generateMermaidDiagram, generateSummaryDiagram } from './diagram.js';
 import { loadGraph } from './storage.js';
@@ -39,7 +39,10 @@ export async function setup(options = {}) {
     progress('FAST', 'Starting fast scan...');
     const fastStart = Date.now();
     try {
-        const fastResult = await quickScan(projectPath);
+        const fastResult = await scan(projectPath, {
+            quick: true,
+            _setupPhase: 'fast',
+        });
         if (fastResult.status === 'busy') {
             throw new Error(`Fast scan busy: ${fastResult.message}`);
         }
@@ -77,6 +80,7 @@ export async function setup(options = {}) {
                 prompts: true,
                 useAST: true,
                 verbose: options.verbose,
+                _setupPhase: 'deep',
             });
             if (deepResult.status === 'busy') {
                 throw new Error(`Deep scan busy: ${deepResult.message}`);
@@ -156,7 +160,7 @@ export async function isSetupComplete(projectPath) {
         return {
             hasScanned: true,
             lastScan,
-            phase: (index.connections.by_type.imports?.length ?? 0) > 0 ? 'deep' : 'fast',
+            phase: index.setup_phase ?? ((index.connections.by_type.imports?.length ?? 0) > 0 ? 'deep' : 'fast'),
             stale: hoursSince > 24,
         };
     }

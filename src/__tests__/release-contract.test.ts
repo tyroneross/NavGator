@@ -78,12 +78,14 @@ describe('release contract', () => {
 
   it('launches the packaged dashboard on loopback', () => {
     const misc = text('src/cli/commands/misc.ts');
+    const runtimeBuilder = text('scripts/prepare-web-runtime.mjs');
 
     expect(misc).toContain("path.join(packageRoot, 'web', 'server.cjs')");
     expect(misc).toContain("NODE_ENV: 'production'");
     expect(misc).toContain("HOSTNAME: '127.0.0.1'");
     expect(misc).not.toContain("'web', '.next', 'standalone'");
     expect(misc).not.toContain("HOSTNAME: '0.0.0.0'");
+    expect(runtimeBuilder).toContain("process.env.HOSTNAME = '127.0.0.1'");
   });
 
   it('does not claim a raw Claude symlink is a registered plugin', () => {

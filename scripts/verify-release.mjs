@@ -97,6 +97,8 @@ async function runtimeFiles(root) {
 
 async function verifyDashboardPayload(packageDir) {
   const runtimeRoot = path.join(packageDir, 'web', 'runtime')
+  const launcher = await readFile(path.join(packageDir, 'web', 'server.cjs'), 'utf8')
+  assert.match(launcher, /HOSTNAME = '127\.0\.0\.1'/, 'packed dashboard direct launcher forces loopback')
   const nextPackage = await readJson(path.join(runtimeRoot, 'packages', 'next', 'package.json'))
   assert.ok(versionAtLeast(nextPackage.version, '16.2.10'), 'packed dashboard uses patched Next >=16.2.10')
 
@@ -276,6 +278,55 @@ async function rawHttpRequest(url, options = {}) {
   })
 }
 
+async function probeDirectDashboardLoopback(packageDir, projectPath) {
+  const port = await freePort()
+  const child = spawn(process.execPath, [path.join(packageDir, 'web', 'server.cjs')], {
+    cwd: packageDir,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOSTNAME: '0.0.0.0',
+      NAVGATOR_PROJECT_PATH: projectPath,
+      NAVGATOR_CLI_ENTRY: path.join(packageDir, 'dist', 'cli', 'index.js'),
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let output = ''
+  child.stdout.on('data', (chunk) => { output += chunk })
+  child.stderr.on('data', (chunk) => { output += chunk })
+
+  try {
+    let healthy = false
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/`, {
+          signal: AbortSignal.timeout(500),
+        })
+        if (response.status === 200) {
+          healthy = true
+          break
+        }
+      } catch {
+        // Server is still starting.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    assert.equal(healthy, true, `direct packed dashboard launcher becomes healthy: ${output}`)
+
+    const external = Object.values(os.networkInterfaces())
+      .flatMap((entries) => entries ?? [])
+      .find((entry) => entry.family === 'IPv4' && !entry.internal)
+    if (external) {
+      await assert.rejects(
+        fetch(`http://${external.address}:${port}/`, { signal: AbortSignal.timeout(750) }),
+        'direct packed dashboard rejects non-loopback connections even with ambient HOSTNAME=0.0.0.0',
+      )
+    }
+  } finally {
+    child.kill('SIGTERM')
+  }
+}
+
 async function probeDashboard(packageDir, tempRoot) {
   const port = await freePort()
   const expectedVersion = (await readJson(path.join(packageDir, 'package.json'))).version
@@ -423,6 +474,7 @@ async function probeDashboard(packageDir, tempRoot) {
     path.join(traceStressDir, 'connections.full.jsonl'),
     `${traceStressConnections.map((record) => JSON.stringify(record)).join('\n')}\n`,
   )
+  await probeDirectDashboardLoopback(packageDir, dashboardProject)
   const priorHome = process.env.HOME
   let launched
   try {

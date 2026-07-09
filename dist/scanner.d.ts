@@ -51,6 +51,8 @@ export interface ScanOptions {
     _onLeaseFailureBeforeRelease?: () => Promise<void>;
     /** Internal-only dirty-ledger paths that must be included in this walk. */
     _forcedChangedFiles?: string[];
+    /** Internal-only setup lifecycle marker persisted with the canonical index. */
+    _setupPhase?: 'fast' | 'deep';
     /** Test seam for a mutation after scanner reads but before hash persistence. */
     _beforeHashSave?: () => Promise<void>;
     /** Run 2 — D4: skip the SQC audit pass entirely. */

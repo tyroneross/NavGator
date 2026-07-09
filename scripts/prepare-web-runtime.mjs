@@ -326,7 +326,7 @@ async function main() {
   await rm(path.join(webRoot, 'server.js'), { force: true })
   await writeFile(
     path.join(webRoot, 'server.cjs'),
-    "require('./runtime/server.cjs')\n",
+    "process.env.HOSTNAME = '127.0.0.1'\nrequire('./runtime/server.cjs')\n",
   )
 
   process.stdout.write('Prepared package-safe dashboard runtime at web/server.cjs + web/runtime/.\n')
