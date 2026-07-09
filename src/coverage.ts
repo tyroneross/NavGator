@@ -3,7 +3,6 @@
  * Measures architecture tracking coverage and identifies gaps
  */
 
-import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
 import { ArchitectureComponent, ArchitectureConnection, ArchitectureLayer } from './types.js';
@@ -40,10 +39,18 @@ export async function computeCoverage(
 ): Promise<CoverageReport> {
   // Count project source files
   const sourceFiles = await discoverSourceFiles(projectRoot);
-  const totalFiles = sourceFiles.length;
+  const sourcePathSet = new Set(
+    sourceFiles.map(file => normalizeSourcePath(projectRoot, file))
+  );
+  const totalFiles = sourcePathSet.size;
 
-  // Count mapped files
-  const mappedFiles = fileMap ? Object.keys(fileMap).length : 0;
+  // Count only unique mapped paths that are part of the source population.
+  // file_map can contain stale, generated, absolute, or duplicate path forms;
+  // none of those should inflate coverage beyond the files being measured.
+  const mappedPathSet = new Set(
+    Object.keys(fileMap || {}).map(file => normalizeSourcePath(projectRoot, file))
+  );
+  const mappedFiles = [...mappedPathSet].filter(file => sourcePathSet.has(file)).length;
   const coveragePercent = totalFiles > 0 ? Math.round((mappedFiles / totalFiles) * 100) : 0;
 
   // Connection confidence breakdown
@@ -66,12 +73,8 @@ export async function computeCoverage(
 
   // Unmapped files (sample up to 20)
   if (fileMap) {
-    const mappedSet = new Set(Object.keys(fileMap).map(f => f.toLowerCase()));
-    let unmappedCount = 0;
-    for (const file of sourceFiles) {
-      const relPath = path.relative(projectRoot, file);
-      if (!mappedSet.has(relPath.toLowerCase())) {
-        unmappedCount++;
+    for (const relPath of sourcePathSet) {
+      if (!mappedPathSet.has(relPath)) {
         if (gaps.filter(g => g.type === 'unmapped-file').length < 20) {
           gaps.push({
             type: 'unmapped-file',
@@ -202,6 +205,14 @@ export function formatCoverageOutput(report: CoverageReport, gapsOnly: boolean =
   }
 
   return lines.join('\n');
+}
+
+function normalizeSourcePath(projectRoot: string, file: string): string {
+  const normalizedSeparators = file.replace(/[\\/]/g, path.sep);
+  const absolutePath = path.isAbsolute(normalizedSeparators)
+    ? path.normalize(normalizedSeparators)
+    : path.resolve(projectRoot, normalizedSeparators);
+  return path.relative(projectRoot, absolutePath).split(path.sep).join('/');
 }
 
 async function discoverSourceFiles(projectRoot: string): Promise<string[]> {

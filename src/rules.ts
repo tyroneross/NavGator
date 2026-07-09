@@ -363,21 +363,19 @@ function checkTransitivelyDead(
 ): RuleViolation[] {
   if (components.length === 0) return [];
 
-  // Build adjacency list (both directions for reachability)
+  // Build directed adjacency in dependency direction. A connection from A to B
+  // means A can reach/use B; the inverse does not make A reachable from B.
   const adj = new Map<string, Set<string>>();
   for (const c of components) {
     adj.set(c.component_id, new Set());
   }
   for (const conn of connections) {
-    // Forward edges
     adj.get(conn.from.component_id)?.add(conn.to.component_id);
-    // Reverse edges: if B depends on A, A is reachable from B's perspective
-    adj.get(conn.to.component_id)?.add(conn.from.component_id);
   }
 
   // Identify entry points
   const entryPointTypes = new Set(['api-endpoint', 'worker', 'cron', 'xcode-target']);
-  const entryPointNamePatterns = /App$|AppDelegate|@main|ContentView|SceneDelegate|Main/i;
+  const entryPointNamePatterns = /App$|AppDelegate|@main|ContentView|SceneDelegate|(?:^|[\/\\.:#\s_-])Main(?:$|[\/\\.:#\s_-])/i;
   const excludedTypes = new Set(['npm', 'pip', 'spm', 'cargo', 'go', 'gem', 'composer', 'infra', 'config']);
 
   const entryPoints = new Set<string>();

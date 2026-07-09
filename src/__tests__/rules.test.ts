@@ -302,6 +302,50 @@ describe('Architecture Rules', () => {
     });
   });
 
+  describe('transitively-dead', () => {
+    it('follows dependency edges forward without letting a live dependency rescue dead dependents', () => {
+      const mainApp = createComponent({ name: 'MainApp', type: 'component', file: 'src/MainApp.ts' });
+      const shared = createComponent({ name: 'Shared', type: 'component', file: 'src/Shared.ts' });
+      const deadFeature = createComponent({ name: 'DeadFeature', type: 'component', file: 'src/DeadFeature.ts' });
+
+      const rule = getBuiltinRules().find(r => r.id === 'transitively-dead')!;
+      const violations = rule.check(
+        [mainApp, shared, deadFeature],
+        [
+          createConnection(mainApp, shared, { connection_type: 'imports' }),
+          createConnection(deadFeature, shared, { connection_type: 'imports' }),
+        ]
+      );
+
+      expect(violations.map(v => v.component)).toEqual(['DeadFeature']);
+    });
+
+    it('keeps disconnected cycles dead and does not treat incidental Main substrings as roots', () => {
+      const mainApp = createComponent({ name: 'MainApp', type: 'component', file: 'src/MainApp.ts' });
+      const shared = createComponent({ name: 'Shared', type: 'component', file: 'src/Shared.ts' });
+      const explicitMain = createComponent({ name: 'cli/Main', type: 'component', file: 'src/cli/Main.ts' });
+      const mainDependency = createComponent({ name: 'MainDependency', type: 'component', file: 'src/MainDependency.ts' });
+      const domainMainHelper = createComponent({ name: 'DomainMainHelper', type: 'component', file: 'src/DomainMainHelper.ts' });
+      const deadCyclePeer = createComponent({ name: 'DeadCyclePeer', type: 'component', file: 'src/DeadCyclePeer.ts' });
+
+      const rule = getBuiltinRules().find(r => r.id === 'transitively-dead')!;
+      const violations = rule.check(
+        [mainApp, shared, explicitMain, mainDependency, domainMainHelper, deadCyclePeer],
+        [
+          createConnection(mainApp, shared, { connection_type: 'imports' }),
+          createConnection(explicitMain, mainDependency, { connection_type: 'imports' }),
+          createConnection(domainMainHelper, deadCyclePeer, { connection_type: 'imports' }),
+          createConnection(deadCyclePeer, domainMainHelper, { connection_type: 'imports' }),
+        ]
+      );
+
+      expect(violations.map(v => v.component).sort()).toEqual([
+        'DeadCyclePeer',
+        'DomainMainHelper',
+      ]);
+    });
+  });
+
   describe('checkRules', () => {
     it('should run all rules and return combined violations', () => {
       const orphan = createComponent({ name: 'Orphan', layer: 'frontend' });

@@ -6,6 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { computeCoverage, formatCoverageOutput, CoverageReport } from '../coverage.js';
 import { createMockComponent, createMockConnection } from './helpers.js';
 import { ArchitectureComponent, ArchitectureConnection } from '../types.js';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 describe('coverage', () => {
@@ -23,8 +25,8 @@ describe('coverage', () => {
   ];
 
   const mockFileMap = {
-    'src/api/server.ts': 'comp-1',
-    'src/orphan.ts': 'comp-4',
+    'src/coverage.ts': 'comp-1',
+    'src/rules.ts': 'comp-4',
   };
 
   it('calculates coverage with known component/connection counts', async () => {
@@ -34,6 +36,38 @@ describe('coverage', () => {
     expect(report.component_coverage.files_mapped_to_components).toBe(2);
     expect(report.connection_coverage.total_connections).toBe(3);
     expect(report.overall_confidence).toBeGreaterThan(0);
+  });
+
+  it('counts the unique intersection of normalized mapped paths and source files', async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-coverage-'));
+    try {
+      fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(projectRoot, 'src', 'mapped.ts'), 'export const mapped = true;\n');
+      fs.writeFileSync(path.join(projectRoot, 'src', 'unmapped.ts'), 'export const unmapped = true;\n');
+
+      const absoluteDuplicate = path.join(projectRoot, 'src', 'mapped.ts');
+      const report = await computeCoverage(mockComponents, mockConnections, projectRoot, {
+        'src/mapped.ts': 'comp-1',
+        './src/mapped.ts': 'comp-1',
+        [absoluteDuplicate]: 'comp-1',
+        'generated/not-a-source.ts': 'comp-2',
+      });
+
+      expect(report.component_coverage).toEqual({
+        total_files_in_project: 2,
+        files_mapped_to_components: 1,
+        coverage_percent: 50,
+      });
+      expect(report.component_coverage.files_mapped_to_components)
+        .toBeLessThanOrEqual(report.component_coverage.total_files_in_project);
+      expect(report.gaps).toContainEqual({
+        type: 'unmapped-file',
+        target: 'src/unmapped.ts',
+        message: 'src/unmapped.ts is not tracked by any component',
+      });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('detects zero-consumer components', async () => {

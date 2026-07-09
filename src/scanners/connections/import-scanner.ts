@@ -18,18 +18,12 @@ import {
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 
-// Regex patterns — match relative imports AND path alias imports
-const IMPORT_PATH = `(?:\\.\\.\\/[^'"]+|@\\/[^'"]+|~\\/[^'"]+)`;
-const ES_IMPORT_RE = new RegExp(`(?:import\\s+(?:[\\s\\S]*?\\s+from\\s+)?['\"](${IMPORT_PATH})['\"])`, 'g');
-const ES_REEXPORT_RE = new RegExp(`export\\s+(?:\\{[^}]*\\}|\\*)\\s+from\\s+['\"](${IMPORT_PATH})['\"]`, 'g');
-const REQUIRE_RE = new RegExp(`require\\s*\\(\\s*['\"](${IMPORT_PATH})['\"]\\s*\\)`, 'g');
-const DYNAMIC_IMPORT_RE = new RegExp(`import\\s*\\(\\s*['\"](${IMPORT_PATH})['\"]\\s*\\)`, 'g');
-
-// Also match ./ imports (the original patterns)
-const ES_IMPORT_REL_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"](\.\/[^'"]+)['"])/g;
-const ES_REEXPORT_REL_RE = /export\s+(?:\{[^}]*\}|\*)\s+from\s+['"](\.\/[^'"]+)['"]/g;
-const REQUIRE_REL_RE = /require\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
-const DYNAMIC_IMPORT_REL_RE = /import\s*\(\s*['"](\.\/[^'"]+)['"]\s*\)/g;
+// Module specifier patterns. Candidates are filtered to relative paths or
+// aliases configured by the nearest owning tsconfig/jsconfig.
+const ES_IMPORT_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"])/g;
+const ES_REEXPORT_RE = /export\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+['"]([^'"]+)['"]/g;
+const REQUIRE_RE = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+const DYNAMIC_IMPORT_RE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 // Bare specifier patterns — npm package imports (NOT relative, NOT alias).
 // Captures anything not starting with ./ ../ @/ ~/ — includes @scope/name and bare names.
@@ -49,6 +43,47 @@ const JS_TO_TS: [string, string][] = [
   ['.jsx', '.ts'],
 ];
 
+interface PathAlias {
+  pattern: string;
+  absoluteTargets: string[];
+}
+
+function normalizeProjectPath(file: string): string {
+  return file.split(path.sep).join('/');
+}
+
+function isOutsideProject(relativePath: string): boolean {
+  return relativePath === '..' ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath);
+}
+
+function matchPathAlias(specifier: string, pattern: string): string | null {
+  const wildcardIndex = pattern.indexOf('*');
+  if (wildcardIndex === -1) {
+    return specifier === pattern ? '' : null;
+  }
+
+  const prefix = pattern.slice(0, wildcardIndex);
+  const suffix = pattern.slice(wildcardIndex + 1);
+  if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix)) return null;
+  if (specifier.length < prefix.length + suffix.length) return null;
+  return specifier.slice(prefix.length, specifier.length - suffix.length);
+}
+
+function resolveAliasTargets(specifier: string, pathAliases: PathAlias[]): string[] {
+  for (const alias of pathAliases) {
+    const wildcardValue = matchPathAlias(specifier, alias.pattern);
+    if (wildcardValue === null) continue;
+    return alias.absoluteTargets.map(target => target.replace('*', wildcardValue));
+  }
+  return [];
+}
+
+function isConfiguredAlias(specifier: string, pathAliases: PathAlias[]): boolean {
+  return pathAliases.some(alias => matchPathAlias(specifier, alias.pattern) !== null);
+}
+
 /**
  * Resolve a relative import specifier to an actual file path.
  * Uses a known-files set for fast validation instead of fs.existsSync.
@@ -58,130 +93,161 @@ function resolveImport(
   importerDir: string,
   projectRoot: string,
   knownFiles: Set<string>,
-  pathAliases?: Map<string, string>
+  pathAliases: PathAlias[] = []
 ): string | null {
-  let resolvedSpecifier = specifier;
+  const absoluteTargets = specifier.startsWith('.')
+    ? [path.resolve(importerDir, specifier)]
+    : resolveAliasTargets(specifier, pathAliases);
 
-  // Resolve path aliases (@/, ~/, or tsconfig paths)
-  if (pathAliases) {
-    for (const [alias, target] of pathAliases) {
-      if (specifier.startsWith(alias)) {
-        resolvedSpecifier = specifier.replace(alias, target);
-        break;
+  for (const absTarget of absoluteTargets) {
+    const relativeTarget = path.relative(projectRoot, absTarget);
+
+    // Don't resolve outside project.
+    if (isOutsideProject(relativeTarget)) continue;
+    const relTarget = normalizeProjectPath(relativeTarget);
+
+    // Try exact path.
+    if (knownFiles.has(relTarget)) return relTarget;
+
+    // Try .js → .ts mapping (TS convention: import './foo.js' → ./foo.ts).
+    for (const [jsExt, tsExt] of JS_TO_TS) {
+      if (relTarget.endsWith(jsExt)) {
+        const candidate = relTarget.slice(0, -jsExt.length) + tsExt;
+        if (knownFiles.has(candidate)) return candidate;
       }
     }
-  }
 
-  // For alias-resolved paths, resolve from project root
-  const absTarget = resolvedSpecifier.startsWith('.')
-    ? path.resolve(importerDir, resolvedSpecifier)
-    : path.resolve(projectRoot, resolvedSpecifier);
-  const relTarget = path.relative(projectRoot, absTarget);
-
-  // Don't resolve outside project
-  if (relTarget.startsWith('..')) return null;
-
-  // Try exact path
-  if (knownFiles.has(relTarget)) return relTarget;
-
-  // Try .js → .ts mapping (TS convention: import './foo.js' → ./foo.ts)
-  for (const [jsExt, tsExt] of JS_TO_TS) {
-    if (relTarget.endsWith(jsExt)) {
-      const candidate = relTarget.slice(0, -jsExt.length) + tsExt;
+    // Try adding extensions.
+    for (const ext of RESOLVE_EXTENSIONS) {
+      const candidate = relTarget + ext;
       if (knownFiles.has(candidate)) return candidate;
     }
-  }
 
-  // Try adding extensions
-  for (const ext of RESOLVE_EXTENSIONS) {
-    const candidate = relTarget + ext;
-    if (knownFiles.has(candidate)) return candidate;
-  }
-
-  // Try as directory with index file
-  for (const indexFile of INDEX_FILES) {
-    const candidate = path.join(relTarget, indexFile);
-    if (knownFiles.has(candidate)) return candidate;
+    // Try as directory with index file.
+    for (const indexFile of INDEX_FILES) {
+      const candidate = normalizeProjectPath(path.join(relTarget, indexFile));
+      if (knownFiles.has(candidate)) return candidate;
+    }
   }
 
   return null;
 }
 
 /**
- * Load path aliases from tsconfig.json.
- * Handles: @/* → src/*, @/* → ./* (Next.js convention), ~/* → src/*
+ * Load aliases from one owning tsconfig/jsconfig. Targets are made absolute
+ * relative to that config's baseUrl (or config directory by default).
  */
-function loadPathAliases(projectRoot: string): Map<string, string> {
-  const aliases = new Map<string, string>();
-
-  // Try tsconfig.json
-  for (const configFile of ['tsconfig.json', 'jsconfig.json']) {
-    const configPath = path.join(projectRoot, configFile);
+function loadPathAliasesFromConfig(configPath: string): PathAlias[] {
+  const configDir = path.dirname(configPath);
+  try {
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    let config;
     try {
-      const raw = fs.readFileSync(configPath, 'utf-8');
-      // Parse JSON — try as-is first (handles standard tsconfig),
-      // fall back to stripping full-line comments only (not // inside strings)
-      let config;
-      try {
-        config = JSON.parse(raw);
-      } catch {
-        const stripped = raw
-          .replace(/^\s*\/\/.*$/gm, '')           // full-line comments only
-          .replace(/\/\*[\s\S]*?\*\//g, '')       // block comments
-          .replace(/,\s*([}\]])/g, '$1');          // trailing commas
-        config = JSON.parse(stripped);
-      }
-      const paths = config?.compilerOptions?.paths;
-      const baseUrl = config?.compilerOptions?.baseUrl || '.';
-
-      if (paths) {
-        for (const [alias, targets] of Object.entries(paths)) {
-          if (!Array.isArray(targets) || targets.length === 0) continue;
-          const target = (targets as string[])[0];
-          // Convert: "@/*" → "@/", "./src/*" → "src/"
-          const aliasPrefix = alias.replace(/\*$/, '');
-          const targetPrefix = target.replace(/\*$/, '');
-          // Resolve relative to baseUrl
-          const resolvedTarget = path.join(baseUrl, targetPrefix).replace(/^\.\//, '');
-          aliases.set(aliasPrefix, resolvedTarget);
-        }
-      }
-      break; // Use first config found
+      config = JSON.parse(raw);
     } catch {
-      // Config doesn't exist or can't be parsed
+      const stripped = raw
+        .replace(/^\s*\/\/.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/,\s*([}\]])/g, '$1');
+      config = JSON.parse(stripped);
     }
+
+    const paths = config?.compilerOptions?.paths;
+    const baseUrl = typeof config?.compilerOptions?.baseUrl === 'string'
+      ? config.compilerOptions.baseUrl
+      : '.';
+    const baseDir = path.resolve(configDir, baseUrl);
+    const aliases: PathAlias[] = [];
+
+    if (paths && typeof paths === 'object') {
+      for (const [pattern, targets] of Object.entries(paths)) {
+        if (!Array.isArray(targets) || targets.length === 0) continue;
+        const absoluteTargets = (targets as unknown[])
+          .filter((target): target is string => typeof target === 'string')
+          .map(target => path.resolve(baseDir, target));
+        if (absoluteTargets.length > 0) aliases.push({ pattern, absoluteTargets });
+      }
+    }
+
+    if (aliases.length > 0) {
+      return aliases.sort((a, b) => {
+        const aSpecificity = a.pattern.replace('*', '').length;
+        const bSpecificity = b.pattern.replace('*', '').length;
+        if (aSpecificity !== bSpecificity) return bSpecificity - aSpecificity;
+        return Number(a.pattern.includes('*')) - Number(b.pattern.includes('*'));
+      });
+    }
+  } catch {
+    return [];
   }
 
-  // Fallback: if no aliases found, add common Next.js convention
-  if (aliases.size === 0) {
-    // Check if this looks like a Next.js project
-    const nextConfigExists = fs.existsSync(path.join(projectRoot, 'next.config.js')) ||
-      fs.existsSync(path.join(projectRoot, 'next.config.mjs')) ||
-      fs.existsSync(path.join(projectRoot, 'next.config.ts'));
-    if (nextConfigExists) {
-      aliases.set('@/', './');
+  // Preserve the Next.js @/ convention when a local config has no paths.
+  const nextConfigExists = ['next.config.js', 'next.config.mjs', 'next.config.ts']
+    .some(file => fs.existsSync(path.join(configDir, file)));
+  return nextConfigExists
+    ? [{ pattern: '@/*', absoluteTargets: [path.join(configDir, '*')] }]
+    : [];
+}
+
+function loadPathAliasesForImporter(
+  importerFile: string,
+  projectRoot: string,
+  cache: Map<string, PathAlias[]>
+): PathAlias[] {
+  const root = path.resolve(projectRoot);
+  let currentDir = path.dirname(path.resolve(projectRoot, importerFile));
+  const visited: string[] = [];
+
+  while (true) {
+    const cached = cache.get(currentDir);
+    if (cached) {
+      for (const dir of visited) cache.set(dir, cached);
+      return cached;
     }
+    visited.push(currentDir);
+
+    const configPath = ['tsconfig.json', 'jsconfig.json']
+      .map(file => path.join(currentDir, file))
+      .find(file => fs.existsSync(file));
+    if (configPath) {
+      const aliases = loadPathAliasesFromConfig(configPath);
+      for (const dir of visited) cache.set(dir, aliases);
+      return aliases;
+    }
+
+    if (currentDir === root) break;
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir || isOutsideProject(path.relative(root, parentDir))) break;
+    currentDir = parentDir;
   }
 
-  return aliases;
+  const fallback = ['next.config.js', 'next.config.mjs', 'next.config.ts']
+    .some(file => fs.existsSync(path.join(root, file)))
+    ? [{ pattern: '@/*', absoluteTargets: [path.join(root, '*')] }]
+    : [];
+  for (const dir of visited) cache.set(dir, fallback);
+  return fallback;
 }
 
 /**
  * Extract import specifiers from file content.
- * Captures ./ ../ @/ ~/ imports — skips bare node_modules packages.
+ * Captures relative imports and aliases from the owning project config while
+ * skipping package imports.
  */
-function extractImports(content: string): string[] {
+function extractImports(content: string, pathAliases: PathAlias[]): string[] {
   const specifiers: string[] = [];
   const patterns = [
     ES_IMPORT_RE, ES_REEXPORT_RE, REQUIRE_RE, DYNAMIC_IMPORT_RE,
-    ES_IMPORT_REL_RE, ES_REEXPORT_REL_RE, REQUIRE_REL_RE, DYNAMIC_IMPORT_REL_RE,
   ];
 
   for (const pattern of patterns) {
     pattern.lastIndex = 0;
     let match;
     while ((match = pattern.exec(content)) !== null) {
-      if (match[1]) specifiers.push(match[1]);
+      const specifier = match[1];
+      if (specifier && (specifier.startsWith('.') || isConfiguredAlias(specifier, pathAliases))) {
+        specifiers.push(specifier);
+      }
     }
   }
 
@@ -327,11 +393,15 @@ export async function scanImports(
   // Filter to TS/JS files only
   let files: string[];
   if (sourceFiles) {
-    files = sourceFiles.filter(f =>
+    files = sourceFiles
+      .map(file => path.isAbsolute(file)
+        ? normalizeProjectPath(path.relative(projectRoot, file))
+        : file.replace(/\\/g, '/'))
+      .filter(f =>
       f.endsWith('.ts') || f.endsWith('.tsx') ||
       f.endsWith('.js') || f.endsWith('.jsx') ||
       f.endsWith('.mjs') || f.endsWith('.cjs')
-    );
+      );
     // Exclude .d.ts files
     files = files.filter(f => !f.endsWith('.d.ts'));
   } else {
@@ -346,11 +416,9 @@ export async function scanImports(
     });
   }
 
-  // Load path aliases from tsconfig.json (Next.js @/ convention, etc.)
-  const pathAliases = loadPathAliases(projectRoot);
-
   // Build a Set of known files for O(1) resolution lookups
   const knownFiles = new Set(files);
+  const pathAliasCache = new Map<string, PathAlias[]>();
   const now = Date.now();
   const componentIdByFile = new Map<string, string>();
 
@@ -394,7 +462,8 @@ export async function scanImports(
 
       const { file, content } = result;
       const importerDir = path.dirname(path.join(projectRoot, file));
-      const specifiers = extractImports(content);
+      const pathAliases = loadPathAliasesForImporter(file, projectRoot, pathAliasCache);
+      const specifiers = extractImports(content, pathAliases);
 
       for (const spec of specifiers) {
         const resolved = resolveImport(spec, importerDir, projectRoot, knownFiles, pathAliases);
@@ -433,6 +502,9 @@ export async function scanImports(
         const bareSpecs = extractBareImports(content);
         const emitted = new Set<string>(); // dedupe per-file: one edge per package
         for (const rawSpec of bareSpecs) {
+          // TypeScript path aliases take precedence over packages with the same
+          // leading segment.
+          if (isConfiguredAlias(rawSpec, pathAliases)) continue;
           const pkgName = stripSubpath(rawSpec);
           const targetId = packageIdByName.get(pkgName);
           if (!targetId) continue;
