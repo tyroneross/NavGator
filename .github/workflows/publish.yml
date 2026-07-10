@@ -134,6 +134,11 @@ jobs:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Ensure npm supports trusted publishing (OIDC)
+        # Trusted publishing needs npm >= 11.5.1. Node 24 ships a recent npm but
+        # pin explicitly so OIDC auth is available regardless of runner drift.
+        run: npm install -g npm@latest
+
       - name: Check npmjs version
         id: npmjs
         run: |
@@ -143,11 +148,12 @@ jobs:
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Publish to npmjs (with provenance)
+      - name: Publish to npmjs (OIDC trusted publishing)
+        # No NODE_AUTH_TOKEN: authentication is via the job's OIDC id-token
+        # (permissions.id-token: write). npm >= 11.5.1 attaches provenance
+        # automatically, so --provenance is not passed.
         if: steps.npmjs.outputs.exists != 'true'
-        run: npm publish "${{ steps.artifact.outputs.file }}" --ignore-scripts --registry https://registry.npmjs.org --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "${{ steps.artifact.outputs.file }}" --ignore-scripts --registry https://registry.npmjs.org --access public
 
       - name: Setup Node.js for GitHub Packages
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
