@@ -39,6 +39,7 @@ export type ComponentType =
   | 'prompt'         // AI prompts (Claude, OpenAI)
   | 'worker'         // Queue workers/handlers
   | 'component'      // UI components (React, Vue)
+  | 'document'       // Markdown/content document
   | 'xcode-target'   // Xcode build targets
   | 'other';
 
@@ -51,6 +52,7 @@ export type ArchitectureLayer =
   | 'database'
   | 'queue'
   | 'infra'
+  | 'content'
   | 'external';
 
 /**
@@ -207,6 +209,9 @@ export type ConnectionType =
   | 'prompt-location'     // AI prompt definition location
   | 'prompt-usage'        // Code uses an AI prompt
   | 'uses-package'        // Code uses a package
+  | 'wikilink'            // Markdown/Obsidian document → linked document
+  | 'markdown-link'       // Markdown document → relative Markdown target
+  | 'typed-relationship'  // Frontmatter relationship field → target document
   // Apple platform connections
   | 'observes'            // View ↔ @Published/@Observable state
   | 'conforms-to'         // Type conforms to protocol
@@ -569,7 +574,7 @@ export type ArchitectureScanOutcome<
     });
 
 export interface ScanWarning {
-  type: 'missing_file' | 'parse_error' | 'low_confidence' | 'deprecated';
+  type: 'missing_file' | 'parse_error' | 'low_confidence' | 'deprecated' | 'unresolved_link';
   message: string;
   file?: string;
   line?: number;

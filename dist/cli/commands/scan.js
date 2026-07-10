@@ -7,6 +7,7 @@ export function registerScanCommand(program) {
         .option('-q, --quick', 'Quick scan (packages only, no code analysis)')
         .option('-c, --connections', 'Focus on connection detection')
         .option('-p, --prompts', 'Enhanced AI prompt scanning with full content')
+        .option('--content', 'Scan Markdown documents, wikilinks, internal Markdown links, and typed frontmatter relationships')
         .option('-v, --verbose', 'Show detailed output')
         .option('--clear', 'Clear existing data before scanning (alias for --full)')
         .option('--full', 'Force a full scan (clear all and rebuild)')
@@ -46,6 +47,7 @@ export function registerScanCommand(program) {
                 quick: options.quick,
                 connections: options.connections,
                 prompts: options.prompts,
+                content: options.content === true,
                 verbose: options.verbose,
                 clearFirst: options.clear,
                 mode,

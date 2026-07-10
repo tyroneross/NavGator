@@ -6,11 +6,11 @@ import type { ExternalEnrichment } from './enrich/external-enrichment.types.js';
 /**
  * Types of architecture components that NavGator tracks
  */
-export type ComponentType = 'npm' | 'pip' | 'spm' | 'cargo' | 'go' | 'gem' | 'composer' | 'framework' | 'database' | 'queue' | 'infra' | 'service' | 'llm' | 'config' | 'cron' | 'api-endpoint' | 'db-table' | 'prompt' | 'worker' | 'component' | 'xcode-target' | 'other';
+export type ComponentType = 'npm' | 'pip' | 'spm' | 'cargo' | 'go' | 'gem' | 'composer' | 'framework' | 'database' | 'queue' | 'infra' | 'service' | 'llm' | 'config' | 'cron' | 'api-endpoint' | 'db-table' | 'prompt' | 'worker' | 'component' | 'document' | 'xcode-target' | 'other';
 /**
  * Architecture layer classification
  */
-export type ArchitectureLayer = 'frontend' | 'backend' | 'database' | 'queue' | 'infra' | 'external';
+export type ArchitectureLayer = 'frontend' | 'backend' | 'database' | 'queue' | 'infra' | 'content' | 'external';
 /**
  * Component status
  */
@@ -109,7 +109,7 @@ export interface RuntimeIdentity {
 /**
  * Types of connections between components
  */
-export type ConnectionType = 'api-calls-db' | 'frontend-calls-api' | 'queue-triggers' | 'service-call' | 'imports' | 'deploys-to' | 'env-dependency' | 'schema-relation' | 'cron-triggers' | 'queue-produces' | 'queue-consumes' | 'prompt-location' | 'prompt-usage' | 'uses-package' | 'observes' | 'conforms-to' | 'notifies' | 'stores' | 'navigates-to' | 'presents' | 'requires-entitlement' | 'target-contains' | 'build-phase-includes' | 'generates' | 'field-reference' | 'runtime-binding' | 'queue-uses-cache' | 'other';
+export type ConnectionType = 'api-calls-db' | 'frontend-calls-api' | 'queue-triggers' | 'service-call' | 'imports' | 'deploys-to' | 'env-dependency' | 'schema-relation' | 'cron-triggers' | 'queue-produces' | 'queue-consumes' | 'prompt-location' | 'prompt-usage' | 'uses-package' | 'wikilink' | 'markdown-link' | 'typed-relationship' | 'observes' | 'conforms-to' | 'notifies' | 'stores' | 'navigates-to' | 'presents' | 'requires-entitlement' | 'target-contains' | 'build-phase-includes' | 'generates' | 'field-reference' | 'runtime-binding' | 'queue-uses-cache' | 'other';
 /**
  * Code location reference
  */
@@ -409,7 +409,7 @@ export type ArchitectureScanOutcome<TPromptScan = unknown, TFieldUsageReport = u
     message: string;
 });
 export interface ScanWarning {
-    type: 'missing_file' | 'parse_error' | 'low_confidence' | 'deprecated';
+    type: 'missing_file' | 'parse_error' | 'low_confidence' | 'deprecated' | 'unresolved_link';
     message: string;
     file?: string;
     line?: number;

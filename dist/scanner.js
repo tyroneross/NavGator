@@ -71,6 +71,7 @@ import { traceLLMCalls } from './scanners/connections/llm-call-tracer.js';
 import { scanSwiftCode } from './scanners/swift/code-scanner.js';
 import { scanRustCode } from './scanners/rust/code-scanner.js';
 import { scanImports } from './scanners/connections/import-scanner.js';
+import { scanMarkdownContent } from './scanners/content/markdown-scanner.js';
 import { storeComponents, storeConnections, migratePerEntityFiles, buildIndex, buildGraph, buildFileMap, buildSummary, savePromptScan, clearStorage, clearForFiles, loadIndex, loadAllComponents, loadAllConnections, loadReverseDeps, runIntegrityCheck, mergeByStableId, normalizeTrackedPath, partitionPriorStateForFiles, atomicWriteJSON, ensureStableIdPublic, buildReverseDepsIndex, buildDerivedManifest, createSnapshot, computeFileHashes, saveHashes, detectFileChanges, formatFileChangeSummary, } from './storage.js';
 import { getConfig, ensureStorageDirectories, getIndexPath, SCHEMA_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
 import { acquireScanLease } from './scan-lock.js';
@@ -92,7 +93,7 @@ function stripInternals(report) {
     return clean;
 }
 import { classifyAllConnections } from './classify.js';
-import { isSandboxMode } from './sandbox.js';
+import { detectSandbox } from './sandbox.js';
 import { ensureSafeGitignore } from './gitignore-safety.js';
 // =============================================================================
 // MULTI-STACK ROOT DISCOVERY
@@ -341,8 +342,14 @@ export async function scan(projectRoot, options = {}) {
     if (options.perEntityFiles !== undefined) {
         config.perEntityFiles = options.perEntityFiles;
     }
-    // Sandbox mode: restrict scan behavior
-    if (isSandboxMode()) {
+    // Degrade scan behavior only in a genuinely RESTRICTED sandbox (Codex-style:
+    // no child processes / read-only fs). A permissive-but-detected environment
+    // like CI (`CI=true` sets sandbox.enabled but leaves every restriction false)
+    // is fully capable and MUST run a complete scan — otherwise AST-derived
+    // source components and child-process indexers silently vanish, which is
+    // exactly the code CI needs to exercise.
+    const sandbox = detectSandbox();
+    if (sandbox.enabled && (sandbox.restrictions.noChildProcess || sandbox.restrictions.readOnlyFs)) {
         options.quick = true;
         options.prompts = false;
         options.useAST = false;
@@ -410,6 +417,11 @@ export async function scan(projectRoot, options = {}) {
             cwd: root,
             ignore: getIgnorePatterns(root),
         });
+        const contentEnabled = options.content === true || process.env['NAVGATOR_CONTENT'] === '1';
+        const markdownFiles = contentEnabled
+            ? await glob('**/*.md', { cwd: root, ignore: getIgnorePatterns(root) })
+            : [];
+        const scannableFiles = [...sourceFiles, ...markdownFiles];
         // For change detection, also include manifest files at the project root
         // (and a few well-known nested ones). selectScanMode consults these to
         // decide whether to force a full scan. Manifests are NOT scanned by the
@@ -463,7 +475,7 @@ export async function scan(projectRoot, options = {}) {
             if (!manifestFiles.includes(file))
                 manifestFiles.push(file);
         }
-        const filesForChangeDetection = [...sourceFiles, ...manifestFiles];
+        const filesForChangeDetection = [...scannableFiles, ...manifestFiles];
         // Detect file changes using prior hashes BEFORE any clearing.
         // (Used by mode selection AND timeline summary even on full scans.)
         let fileChanges;
@@ -680,6 +692,20 @@ export async function scan(projectRoot, options = {}) {
                 }
             }
             await Promise.all(packageTasks);
+        }
+        // ==========================================================================
+        // Phase 1.5: Markdown content graph (opt-in)
+        // ==========================================================================
+        if (contentEnabled) {
+            if (options.verbose)
+                console.log('Phase 1.5: Scanning Markdown content links...');
+            const contentResult = await scanMarkdownContent(root, markdownFiles, incWalkSet);
+            allComponents.push(...contentResult.components);
+            allConnections.push(...contentResult.connections);
+            allWarnings.push(...contentResult.warnings);
+            if (options.verbose) {
+                console.log(`    Documents: ${contentResult.components.length}, links: ${contentResult.connections.length}, unresolved: ${contentResult.warnings.filter(w => w.type === 'unresolved_link').length}`);
+            }
         }
         // ==========================================================================
         // Phase 2: Infrastructure Detection
@@ -1568,17 +1594,17 @@ export async function scan(projectRoot, options = {}) {
                 // Run 1.7 — Problem A: the recursive-re-entry promote runs as a true
                 // full scan (walkSet empty). Reporting `walkSet.size = 0` would be
                 // dishonest — the inner scan really did walk every source file.
-                // Report `sourceFiles.length` in that case. Run 1.6 #3 still holds:
+                // Report `scannableFiles.length` in that case. Run 1.6 #3 still holds:
                 // any future in-place promote path (walkSet populated under
                 // 'incremental→full') reports walk-set size.
                 // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
                 // (the user-visible label). On the recursive-re-entry promote (Run 1.7
                 // Problem A), decision.mode='full' even though scanType='incremental→full',
                 // and walkSet may be populated by the still-modified file — but the inner
-                // scan walked the full source tree, so files_scanned must be sourceFiles.length.
+                // scan walked the full source tree, so files_scanned must be scannableFiles.length.
                 files_scanned: decision.mode === 'incremental' && walkSet.size > 0
                     ? walkSet.size
-                    : sourceFiles.length,
+                    : scannableFiles.length,
                 // Run 2 — D4: audit report (when produced).
                 ...(auditReport ? { audit: stripInternals(auditReport) } : {}),
             };
@@ -1789,12 +1815,12 @@ export async function scan(projectRoot, options = {}) {
         const duration = Date.now() - startTime;
         const filesChanged = fileChanges
             ? fileChanges.added.length + fileChanges.modified.length + fileChanges.removed.length
-            : sourceFiles.length;
+            : scannableFiles.length;
         if (options.verbose) {
             console.log(`\nScan complete in ${duration}ms`);
             console.log(`  Components: ${finalComponents.length}`);
             console.log(`  Connections: ${finalConnections.length}`);
-            console.log(`  Files scanned: ${sourceFiles.length}`);
+            console.log(`  Files scanned: ${scannableFiles.length}`);
             console.log(`  Files changed: ${filesChanged}`);
             console.log(`  Warnings: ${allWarnings.length}`);
         }
@@ -1832,15 +1858,15 @@ export async function scan(projectRoot, options = {}) {
                 warnings_count: allWarnings.length,
                 // Run 1.6 — item #3 / Run 1.7 — Problem A: walk-set size for incremental
                 // and for an in-place promote (walkSet populated). Recursive-re-entry
-                // promote (walkSet empty) reports actual source-file count.
+                // promote (walkSet empty) reports actual scannable-file count.
                 // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
                 // (the user-visible label). On the recursive-re-entry promote (Run 1.7
                 // Problem A), decision.mode='full' even though scanType='incremental→full',
                 // and walkSet may be populated by the still-modified file — but the inner
-                // scan walked the full source tree, so files_scanned must be sourceFiles.length.
+                // scan walked the full source tree, so files_scanned must be scannableFiles.length.
                 files_scanned: decision.mode === 'incremental' && walkSet.size > 0
                     ? walkSet.size
-                    : sourceFiles.length,
+                    : scannableFiles.length,
                 files_changed: filesChanged,
                 prompts_found: promptScanResultHolder?.prompts.length,
             },

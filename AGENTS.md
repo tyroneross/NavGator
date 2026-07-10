@@ -233,6 +233,7 @@ The scanner (`src/scanner.ts` + `src/scanners/`) detects:
 - **Deploy configs:** Vercel, Railway, Heroku service definitions
 - **Swift/Xcode:** Package.swift, `.pbxproj`, Podfile, `.entitlements`, `Info.plist`
 - **LLM prompts:** Prompt content extraction with provider associations
+- **Markdown content:** Opt-in `--content` scanning for document components, Obsidian wikilinks, internal Markdown links, and typed frontmatter relationships; `.navgatorignore` controls corpus boundaries
 
 ---
 

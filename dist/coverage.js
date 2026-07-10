@@ -3,13 +3,14 @@
  * Measures architecture tracking coverage and identifies gaps
  */
 import * as path from 'path';
+import * as fs from 'fs';
 import { glob } from 'glob';
 /**
  * Compute architecture coverage for a project.
  */
 export async function computeCoverage(components, connections, projectRoot, fileMap) {
     // Count project source files
-    const sourceFiles = await discoverSourceFiles(projectRoot);
+    const sourceFiles = await discoverSourceFiles(projectRoot, components.some(component => component.type === 'document'));
     const sourcePathSet = new Set(sourceFiles.map(file => normalizeSourcePath(projectRoot, file)));
     const totalFiles = sourcePathSet.size;
     // Count only unique mapped paths that are part of the source population.
@@ -169,11 +170,26 @@ function normalizeSourcePath(projectRoot, file) {
         : path.resolve(projectRoot, normalizedSeparators);
     return path.relative(projectRoot, absolutePath).split(path.sep).join('/');
 }
-async function discoverSourceFiles(projectRoot) {
+async function discoverSourceFiles(projectRoot, includeMarkdown) {
     try {
-        return await glob('**/*.{ts,tsx,js,jsx,py,rb,go,rs,swift,java,kt}', {
+        const ignore = [
+            '**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**',
+            '**/vendor/**', '**/target/**', '**/.git/**', '**/.navgator/**',
+            '**/.rally/**', '**/.build-loop/**', '**/*_files/**',
+        ];
+        const userIgnore = path.join(projectRoot, '.navgatorignore');
+        if (fs.existsSync(userIgnore)) {
+            ignore.push(...fs.readFileSync(userIgnore, 'utf-8')
+                .split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => line && !line.startsWith('#')));
+        }
+        const pattern = includeMarkdown
+            ? '**/*.{ts,tsx,js,jsx,py,rb,go,rs,swift,java,kt,md}'
+            : '**/*.{ts,tsx,js,jsx,py,rb,go,rs,swift,java,kt}';
+        return await glob(pattern, {
             cwd: projectRoot,
-            ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/vendor/**', '**/target/**'],
+            ignore,
             absolute: true,
         });
     }

@@ -632,7 +632,7 @@ export async function buildSummary(config, projectRoot, promptScan, projectMetad
     // Components by layer
     lines.push('## Components');
     lines.push('');
-    const layerOrder = ['frontend', 'backend', 'database', 'queue', 'infra', 'external'];
+    const layerOrder = ['frontend', 'backend', 'database', 'queue', 'infra', 'content', 'external'];
     for (const layer of layerOrder) {
         const group = byLayer.get(layer);
         if (!group || group.length === 0)

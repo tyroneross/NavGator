@@ -36,6 +36,10 @@ export const TOOLS = [
                     type: "boolean",
                     description: "Quick scan (packages only, skip code analysis). Faster but less thorough.",
                 },
+                content: {
+                    type: "boolean",
+                    description: "Scan Markdown documents and internal content links in addition to code architecture.",
+                },
             },
         },
         annotations: {
@@ -110,7 +114,7 @@ export const TOOLS = [
     },
     {
         name: "diagram",
-        description: "Generate a Mermaid architecture diagram. Modes: 'summary' (high-level overview), 'focus' (single component and its connections), 'layer' (grouped by architectural layer — specify which layer: frontend, backend, database, queue, infra, external).",
+        description: "Generate a Mermaid architecture diagram. Modes: 'summary' (high-level overview), 'focus' (single component and its connections), 'layer' (grouped by architectural layer — specify which layer: frontend, backend, database, queue, infra, content, external).",
         inputSchema: {
             type: "object",
             properties: {
@@ -273,8 +277,10 @@ export async function handleToolCall(name, args) {
 async function handleScan(args) {
     const projectRoot = getProjectRoot();
     const quick = args.quick === true;
+    const content = args.content === true;
     const result = await scan(projectRoot, {
         quick,
+        content,
         mode: "auto",
     });
     if (result.status === 'busy') {

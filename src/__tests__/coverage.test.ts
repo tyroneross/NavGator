@@ -70,6 +70,35 @@ describe('coverage', () => {
     }
   });
 
+  it('measures Markdown files when the graph contains document components and respects .navgatorignore', async () => {
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-content-coverage-'));
+    try {
+      fs.mkdirSync(path.join(projectRoot, 'wiki'), { recursive: true });
+      fs.mkdirSync(path.join(projectRoot, 'raw'), { recursive: true });
+      fs.writeFileSync(path.join(projectRoot, 'wiki', 'page.md'), '# Page\n');
+      fs.writeFileSync(path.join(projectRoot, 'raw', 'source.md'), '# Raw\n');
+      fs.writeFileSync(path.join(projectRoot, '.navgatorignore'), 'raw/**\n');
+
+      const document = createMockComponent({
+        component_id: 'doc-1',
+        name: 'page',
+        type: 'document',
+        role: { purpose: 'Content', layer: 'content', critical: false },
+      });
+      const report = await computeCoverage([document], [], projectRoot, {
+        'wiki/page.md': 'doc-1',
+      });
+
+      expect(report.component_coverage).toEqual({
+        total_files_in_project: 1,
+        files_mapped_to_components: 1,
+        coverage_percent: 100,
+      });
+    } finally {
+      fs.rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
   it('detects zero-consumer components', async () => {
     const projectRoot = path.resolve(__dirname, '../..');
     const report = await computeCoverage(mockComponents, mockConnections, projectRoot, mockFileMap);

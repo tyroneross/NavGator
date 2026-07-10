@@ -72,6 +72,8 @@ export interface ScanOptions {
      *  files alongside the consolidated graph. Default false (off). Overrides
      *  config.perEntityFiles / NAVGATOR_PER_ENTITY_FILES when set. */
     perEntityFiles?: boolean;
+    /** Opt-in Markdown/content graph scanning. Also enabled by NAVGATOR_CONTENT=1. */
+    content?: boolean;
 }
 /**
  * Walk one level under `root`, return roots to scan. Behavior:

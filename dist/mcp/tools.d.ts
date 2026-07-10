@@ -14,6 +14,10 @@ export declare const TOOLS: ({
                 type: string;
                 description: string;
             };
+            content: {
+                type: string;
+                description: string;
+            };
             component?: undefined;
             direction?: undefined;
             mode?: undefined;
@@ -36,6 +40,7 @@ export declare const TOOLS: ({
         type: "object";
         properties: {
             quick?: undefined;
+            content?: undefined;
             component?: undefined;
             direction?: undefined;
             mode?: undefined;
@@ -62,6 +67,7 @@ export declare const TOOLS: ({
                 description: string;
             };
             quick?: undefined;
+            content?: undefined;
             direction?: undefined;
             mode?: undefined;
             focus?: undefined;
@@ -92,6 +98,7 @@ export declare const TOOLS: ({
                 description: string;
             };
             quick?: undefined;
+            content?: undefined;
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
@@ -121,6 +128,7 @@ export declare const TOOLS: ({
                 description: string;
             };
             quick?: undefined;
+            content?: undefined;
             component?: undefined;
             direction?: undefined;
             depth?: undefined;
@@ -145,6 +153,7 @@ export declare const TOOLS: ({
                 description: string;
             };
             quick?: undefined;
+            content?: undefined;
             direction?: undefined;
             mode?: undefined;
             focus?: undefined;
@@ -174,6 +183,7 @@ export declare const TOOLS: ({
                 description: string;
             };
             quick?: undefined;
+            content?: undefined;
             direction?: undefined;
             mode?: undefined;
             focus?: undefined;

@@ -47,10 +47,15 @@ const LAYER_STYLES: Record<ArchitectureLayer, LayerStyle> = {
     nodeStyle: 'fill:#cfd8dc,stroke:#455a64',  // Gray
     order: 5,
   },
+  content: {
+    subgraphName: 'Content',
+    nodeStyle: 'fill:#fff9c4,stroke:#f9a825',  // Amber
+    order: 6,
+  },
   external: {
     subgraphName: 'External Services',
     nodeStyle: 'fill:#ffccbc,stroke:#e64a19',  // Deep Orange
-    order: 6,
+    order: 7,
   },
 };
 
@@ -97,6 +102,18 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
   },
   'uses-package': {
     lineStyle: '-->',
+  },
+  wikilink: {
+    lineStyle: '-->',
+    label: 'links',
+  },
+  'markdown-link': {
+    lineStyle: '-->',
+    label: 'links',
+  },
+  'typed-relationship': {
+    lineStyle: '==>',
+    label: 'relates',
   },
   // Apple platform connections
   observes: {

@@ -82,6 +82,7 @@ import { traceLLMCalls, LLMTraceResult } from './scanners/connections/llm-call-t
 import { scanSwiftCode } from './scanners/swift/code-scanner.js';
 import { scanRustCode } from './scanners/rust/code-scanner.js';
 import { scanImports } from './scanners/connections/import-scanner.js';
+import { scanMarkdownContent } from './scanners/content/markdown-scanner.js';
 import {
   storeComponents,
   storeConnections,
@@ -212,6 +213,8 @@ export interface ScanOptions {
    *  files alongside the consolidated graph. Default false (off). Overrides
    *  config.perEntityFiles / NAVGATOR_PER_ENTITY_FILES when set. */
   perEntityFiles?: boolean;
+  /** Opt-in Markdown/content graph scanning. Also enabled by NAVGATOR_CONTENT=1. */
+  content?: boolean;
 }
 
 // =============================================================================
@@ -594,6 +597,11 @@ export async function scan(
     cwd: root,
     ignore: getIgnorePatterns(root),
   });
+  const contentEnabled = options.content === true || process.env['NAVGATOR_CONTENT'] === '1';
+  const markdownFiles = contentEnabled
+    ? await glob('**/*.md', { cwd: root, ignore: getIgnorePatterns(root) })
+    : [];
+  const scannableFiles = [...sourceFiles, ...markdownFiles];
 
   // For change detection, also include manifest files at the project root
   // (and a few well-known nested ones). selectScanMode consults these to
@@ -645,7 +653,7 @@ export async function scan(
   for (const file of nestedModuleConfigFiles) {
     if (!manifestFiles.includes(file)) manifestFiles.push(file);
   }
-  const filesForChangeDetection = [...sourceFiles, ...manifestFiles];
+  const filesForChangeDetection = [...scannableFiles, ...manifestFiles];
 
   // Detect file changes using prior hashes BEFORE any clearing.
   // (Used by mode selection AND timeline summary even on full scans.)
@@ -888,6 +896,23 @@ export async function scan(
     }
 
     await Promise.all(packageTasks);
+  }
+
+  // ==========================================================================
+  // Phase 1.5: Markdown content graph (opt-in)
+  // ==========================================================================
+
+  if (contentEnabled) {
+    if (options.verbose) console.log('Phase 1.5: Scanning Markdown content links...');
+    const contentResult = await scanMarkdownContent(root, markdownFiles, incWalkSet);
+    allComponents.push(...contentResult.components);
+    allConnections.push(...contentResult.connections);
+    allWarnings.push(...contentResult.warnings);
+    if (options.verbose) {
+      console.log(
+        `    Documents: ${contentResult.components.length}, links: ${contentResult.connections.length}, unresolved: ${contentResult.warnings.filter(w => w.type === 'unresolved_link').length}`
+      );
+    }
   }
 
   // ==========================================================================
@@ -1819,18 +1844,18 @@ export async function scan(
       // Run 1.7 — Problem A: the recursive-re-entry promote runs as a true
       // full scan (walkSet empty). Reporting `walkSet.size = 0` would be
       // dishonest — the inner scan really did walk every source file.
-      // Report `sourceFiles.length` in that case. Run 1.6 #3 still holds:
+      // Report `scannableFiles.length` in that case. Run 1.6 #3 still holds:
       // any future in-place promote path (walkSet populated under
       // 'incremental→full') reports walk-set size.
       // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
       // (the user-visible label). On the recursive-re-entry promote (Run 1.7
       // Problem A), decision.mode='full' even though scanType='incremental→full',
       // and walkSet may be populated by the still-modified file — but the inner
-      // scan walked the full source tree, so files_scanned must be sourceFiles.length.
+      // scan walked the full source tree, so files_scanned must be scannableFiles.length.
       files_scanned:
         decision.mode === 'incremental' && walkSet.size > 0
           ? walkSet.size
-          : sourceFiles.length,
+          : scannableFiles.length,
       // Run 2 — D4: audit report (when produced).
       ...(auditReport ? { audit: stripInternals(auditReport) } : {}),
     };
@@ -2054,13 +2079,13 @@ export async function scan(
   const duration = Date.now() - startTime;
   const filesChanged = fileChanges
     ? fileChanges.added.length + fileChanges.modified.length + fileChanges.removed.length
-    : sourceFiles.length;
+    : scannableFiles.length;
 
   if (options.verbose) {
     console.log(`\nScan complete in ${duration}ms`);
     console.log(`  Components: ${finalComponents.length}`);
     console.log(`  Connections: ${finalConnections.length}`);
-    console.log(`  Files scanned: ${sourceFiles.length}`);
+    console.log(`  Files scanned: ${scannableFiles.length}`);
     console.log(`  Files changed: ${filesChanged}`);
     console.log(`  Warnings: ${allWarnings.length}`);
   }
@@ -2102,16 +2127,16 @@ export async function scan(
       warnings_count: allWarnings.length,
       // Run 1.6 — item #3 / Run 1.7 — Problem A: walk-set size for incremental
       // and for an in-place promote (walkSet populated). Recursive-re-entry
-      // promote (walkSet empty) reports actual source-file count.
+      // promote (walkSet empty) reports actual scannable-file count.
       // Use decision.mode (the EFFECTIVE scan mode) instead of scanType
       // (the user-visible label). On the recursive-re-entry promote (Run 1.7
       // Problem A), decision.mode='full' even though scanType='incremental→full',
       // and walkSet may be populated by the still-modified file — but the inner
-      // scan walked the full source tree, so files_scanned must be sourceFiles.length.
+      // scan walked the full source tree, so files_scanned must be scannableFiles.length.
       files_scanned:
         decision.mode === 'incremental' && walkSet.size > 0
           ? walkSet.size
-          : sourceFiles.length,
+          : scannableFiles.length,
       files_changed: filesChanged,
       prompts_found: promptScanResultHolder?.prompts.length,
     },

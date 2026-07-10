@@ -76,7 +76,7 @@ export function registerDiagramCommand(program: Command): void {
 
           diagram = generateComponentDiagram(graph, component.component_id, 2, diagramOpts);
         } else if (options.layer) {
-          const validLayers: ArchitectureLayer[] = ['frontend', 'backend', 'database', 'queue', 'infra', 'external'];
+          const validLayers: ArchitectureLayer[] = ['frontend', 'backend', 'database', 'queue', 'infra', 'content', 'external'];
           if (!validLayers.includes(options.layer as ArchitectureLayer)) {
             console.error(`Invalid layer "${options.layer}". Valid layers: ${validLayers.join(', ')}`);
             process.exit(1);

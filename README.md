@@ -100,6 +100,9 @@ navgator scan --quick
 # With AI prompt detection
 navgator scan --prompts --verbose
 
+# Markdown/content graph: wikilinks, internal links, typed relationships
+navgator scan --full --content
+
 # With infrastructure analysis
 navgator scan --field-usage --typespec
 ```
@@ -247,6 +250,7 @@ Scan project and update architecture tracking.
 | `-q, --quick` | Packages only, skip code analysis |
 | `-c, --connections` | Focus on connection detection |
 | `-p, --prompts` | Enhanced AI prompt scanning with full content |
+| `--content` | Add Markdown documents plus wikilink, internal Markdown-link, and typed-frontmatter edges |
 | `-v, --verbose` | Detailed output |
 | `--auto` | Auto-pick scan mode (default — see Scan modes below) |
 | `--full` | Force a full scan (clear all and rebuild) |
@@ -258,6 +262,8 @@ Scan project and update architecture tracking.
 | `--track-branch` | Capture git branch/commit in scan output |
 | `--json` | Output scan results as JSON |
 | `--agent` | Wrap output in agent envelope (implies `--json`) |
+
+Content scanning is opt-in because a knowledge vault can contain far more documents than a codebase contains modules. Use `.navgatorignore` to exclude immutable raw archives, generated outputs, and other content that should not enter the live dependency graph. `NAVGATOR_CONTENT=1` enables the same scanner for programmatic calls.
 
 #### Scan modes
 
