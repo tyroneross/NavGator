@@ -134,10 +134,11 @@ jobs:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Ensure npm supports trusted publishing (OIDC)
-        # Trusted publishing needs npm >= 11.5.1. Node 24 ships a recent npm but
-        # pin explicitly so OIDC auth is available regardless of runner drift.
-        run: npm install -g npm@latest
+      # Node 24's bundled npm (11.16.0) already satisfies trusted publishing
+      # (needs >= 11.5.1) and ships sigstore for automatic provenance. A global
+      # `npm install -g npm@latest` here produced a broken npm missing the
+      # bundled `sigstore` module ("Cannot find module 'sigstore'"), so rely on
+      # the pinned Node's npm instead.
 
       - name: Check npmjs version
         id: npmjs
