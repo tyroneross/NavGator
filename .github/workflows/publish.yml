@@ -132,7 +132,10 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
-          registry-url: 'https://registry.npmjs.org'
+          # No registry-url: it writes an .npmrc with `always-auth=true` + a
+          # placeholder `_authToken`, which makes npm attempt (fake) token auth
+          # and fail with a misleading E404 instead of using OIDC. The publish
+          # command passes --registry explicitly; OIDC handles auth.
 
       # Node 24's bundled npm (11.16.0) already satisfies trusted publishing
       # (needs >= 11.5.1) and ships sigstore for automatic provenance. A global
