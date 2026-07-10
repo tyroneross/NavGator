@@ -18,7 +18,7 @@ const TYPED_RELATION_FIELDS = new Set([
     'related',
     'tested_by',
 ]);
-const NON_DOCUMENT_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|mp3|m4a|wav|mp4|mov|json|ya?ml|py|tsx?|jsx?|rs|swift)$/i;
+const NON_DOCUMENT_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|csv|tsv|txt|html?|xml|zip|mp3|m4a|wav|mp4|mov|json|ya?ml|py|tsx?|jsx?|rs|swift)$/i;
 function normalizeProjectPath(file) {
     return file.split(path.sep).join('/').replace(/^\.\//, '');
 }
@@ -85,7 +85,8 @@ function pathIdentity(file) {
 function makeDocument(file, content, now) {
     const { fields, bodyStartLine } = parseFrontmatter(content);
     const fallbackIdentity = pathIdentity(file);
-    const pageId = first(fields, 'id') ?? fallbackIdentity;
+    const declaredPageId = first(fields, 'id');
+    const pageId = declaredPageId ?? fallbackIdentity;
     const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
     const title = first(fields, 'title') ?? heading ?? pageId;
     const aliases = fields.get('aliases') ?? [];
@@ -119,7 +120,17 @@ function makeDocument(file, content, now) {
         timestamp: now,
         last_updated: now,
     };
-    return { file, content, bodyStartLine, fields, pageId, title, aliases, component };
+    return {
+        file,
+        content,
+        bodyStartLine,
+        fields,
+        pageId,
+        explicitPageId: declaredPageId !== undefined,
+        title,
+        aliases,
+        component,
+    };
 }
 function normalizeWikiTarget(target) {
     const normalized = target
@@ -221,10 +232,9 @@ function addUniqueLookup(map, key, doc) {
     else if (map.get(normalized)?.file !== doc.file)
         map.set(normalized, null);
 }
-function resolveWikiTarget(target, lookup) {
+function resolveWikiTarget(target, identityLookup, pathLookup) {
     const normalized = normalizeWikiTarget(target).toLowerCase();
-    const exact = lookup.get(normalized);
-    return exact ?? undefined;
+    return identityLookup.get(normalized) ?? pathLookup.get(normalized) ?? undefined;
 }
 function resolveMarkdownTarget(sourceFile, target, byFile) {
     const normalized = normalizeMarkdownTarget(target);
@@ -289,13 +299,15 @@ export async function scanMarkdownContent(projectRoot, markdownFiles, walkSet) {
         }
     }
     const byFile = new Map(documents.map(doc => [doc.file, doc]));
-    const wikiLookup = new Map();
+    const identityLookup = new Map();
+    const pathLookup = new Map();
     for (const doc of documents) {
-        addUniqueLookup(wikiLookup, doc.pageId, doc);
-        addUniqueLookup(wikiLookup, pathIdentity(doc.file), doc);
-        addUniqueLookup(wikiLookup, path.basename(doc.file, '.md'), doc);
+        if (doc.explicitPageId)
+            addUniqueLookup(identityLookup, doc.pageId, doc);
         for (const alias of doc.aliases)
-            addUniqueLookup(wikiLookup, alias, doc);
+            addUniqueLookup(identityLookup, alias, doc);
+        addUniqueLookup(pathLookup, pathIdentity(doc.file), doc);
+        addUniqueLookup(pathLookup, path.basename(doc.file, '.md'), doc);
     }
     const connections = [];
     for (const source of documents) {
@@ -306,7 +318,7 @@ export async function scanMarkdownContent(projectRoot, markdownFiles, walkSet) {
         for (const hit of hits) {
             const target = hit.type === 'markdown-link'
                 ? resolveMarkdownTarget(source.file, hit.target, byFile)
-                : resolveWikiTarget(hit.target, wikiLookup);
+                : resolveWikiTarget(hit.target, identityLookup, pathLookup);
             const key = `${hit.type}|${hit.field ?? ''}|${hit.target}|${hit.line}`;
             if (seen.has(key))
                 continue;

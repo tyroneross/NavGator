@@ -344,6 +344,20 @@ describe('Architecture Rules', () => {
         'DomainMainHelper',
       ]);
     });
+
+    it('does not apply runtime reachability rules to content documents', () => {
+      const mainApp = createComponent({ name: 'MainApp', type: 'component', file: 'src/MainApp.ts' });
+      const documentA = createComponent({ name: 'document-a', type: 'document', layer: 'content', file: 'wiki/a.md' });
+      const documentB = createComponent({ name: 'document-b', type: 'document', layer: 'content', file: 'wiki/b.md' });
+      const rule = getBuiltinRules().find(r => r.id === 'transitively-dead')!;
+
+      const violations = rule.check(
+        [mainApp, documentA, documentB],
+        [createConnection(documentA, documentB, { connection_type: 'wikilink' })]
+      );
+
+      expect(violations).toHaveLength(0);
+    });
   });
 
   describe('checkRules', () => {

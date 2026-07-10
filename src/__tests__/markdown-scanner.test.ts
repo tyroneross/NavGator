@@ -105,4 +105,20 @@ describe('scanMarkdownContent', () => {
     expect(result.connections[0].connection_type).toBe('markdown-link');
     expect(result.connections[0].to.location?.file).toBe('docs/reference/next.md');
   });
+
+  it('prefers a frontmatter id over a colliding filename fallback', async () => {
+    write('canonical.md', '---\nid: target-page\n---\n# Canonical\n');
+    write('target-page.md', '');
+    write('source.md', '---\nid: source\n---\n[[target-page]]\n');
+
+    const result = await scanMarkdownContent(root, [
+      'canonical.md',
+      'target-page.md',
+      'source.md',
+    ]);
+
+    expect(result.warnings).toHaveLength(0);
+    expect(result.connections).toHaveLength(1);
+    expect(result.connections[0].to.location?.file).toBe('canonical.md');
+  });
 });

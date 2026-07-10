@@ -376,7 +376,7 @@ function checkTransitivelyDead(
   // Identify entry points
   const entryPointTypes = new Set(['api-endpoint', 'worker', 'cron', 'xcode-target']);
   const entryPointNamePatterns = /App$|AppDelegate|@main|ContentView|SceneDelegate|(?:^|[\/\\.:#\s_-])Main(?:$|[\/\\.:#\s_-])/i;
-  const excludedTypes = new Set(['npm', 'pip', 'spm', 'cargo', 'go', 'gem', 'composer', 'infra', 'config']);
+  const excludedTypes = new Set(['npm', 'pip', 'spm', 'cargo', 'go', 'gem', 'composer', 'infra', 'config', 'document']);
 
   const entryPoints = new Set<string>();
   for (const c of components) {

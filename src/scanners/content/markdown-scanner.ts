@@ -29,7 +29,7 @@ const TYPED_RELATION_FIELDS = new Set([
   'tested_by',
 ]);
 
-const NON_DOCUMENT_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|mp3|m4a|wav|mp4|mov|json|ya?ml|py|tsx?|jsx?|rs|swift)$/i;
+const NON_DOCUMENT_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|csv|tsv|txt|html?|xml|zip|mp3|m4a|wav|mp4|mov|json|ya?ml|py|tsx?|jsx?|rs|swift)$/i;
 
 interface ParsedDocument {
   file: string;
@@ -37,6 +37,7 @@ interface ParsedDocument {
   bodyStartLine: number;
   fields: Map<string, string[]>;
   pageId: string;
+  explicitPageId: boolean;
   title: string;
   aliases: string[];
   component: ArchitectureComponent;
@@ -129,7 +130,8 @@ function pathIdentity(file: string): string {
 function makeDocument(file: string, content: string, now: number): ParsedDocument {
   const { fields, bodyStartLine } = parseFrontmatter(content);
   const fallbackIdentity = pathIdentity(file);
-  const pageId = first(fields, 'id') ?? fallbackIdentity;
+  const declaredPageId = first(fields, 'id');
+  const pageId = declaredPageId ?? fallbackIdentity;
   const heading = content.match(/^#\s+(.+)$/m)?.[1]?.trim();
   const title = first(fields, 'title') ?? heading ?? pageId;
   const aliases = fields.get('aliases') ?? [];
@@ -165,7 +167,17 @@ function makeDocument(file: string, content: string, now: number): ParsedDocumen
     last_updated: now,
   };
 
-  return { file, content, bodyStartLine, fields, pageId, title, aliases, component };
+  return {
+    file,
+    content,
+    bodyStartLine,
+    fields,
+    pageId,
+    explicitPageId: declaredPageId !== undefined,
+    title,
+    aliases,
+    component,
+  };
 }
 
 function normalizeWikiTarget(target: string): string {
@@ -269,10 +281,13 @@ function addUniqueLookup(map: Map<string, ParsedDocument | null>, key: string, d
   else if (map.get(normalized)?.file !== doc.file) map.set(normalized, null);
 }
 
-function resolveWikiTarget(target: string, lookup: Map<string, ParsedDocument | null>): ParsedDocument | undefined {
+function resolveWikiTarget(
+  target: string,
+  identityLookup: Map<string, ParsedDocument | null>,
+  pathLookup: Map<string, ParsedDocument | null>
+): ParsedDocument | undefined {
   const normalized = normalizeWikiTarget(target).toLowerCase();
-  const exact = lookup.get(normalized);
-  return exact ?? undefined;
+  return identityLookup.get(normalized) ?? pathLookup.get(normalized) ?? undefined;
 }
 
 function resolveMarkdownTarget(
@@ -349,12 +364,13 @@ export async function scanMarkdownContent(
   }
 
   const byFile = new Map(documents.map(doc => [doc.file, doc]));
-  const wikiLookup = new Map<string, ParsedDocument | null>();
+  const identityLookup = new Map<string, ParsedDocument | null>();
+  const pathLookup = new Map<string, ParsedDocument | null>();
   for (const doc of documents) {
-    addUniqueLookup(wikiLookup, doc.pageId, doc);
-    addUniqueLookup(wikiLookup, pathIdentity(doc.file), doc);
-    addUniqueLookup(wikiLookup, path.basename(doc.file, '.md'), doc);
-    for (const alias of doc.aliases) addUniqueLookup(wikiLookup, alias, doc);
+    if (doc.explicitPageId) addUniqueLookup(identityLookup, doc.pageId, doc);
+    for (const alias of doc.aliases) addUniqueLookup(identityLookup, alias, doc);
+    addUniqueLookup(pathLookup, pathIdentity(doc.file), doc);
+    addUniqueLookup(pathLookup, path.basename(doc.file, '.md'), doc);
   }
 
   const connections: ArchitectureConnection[] = [];
@@ -365,7 +381,7 @@ export async function scanMarkdownContent(
     for (const hit of hits) {
       const target = hit.type === 'markdown-link'
         ? resolveMarkdownTarget(source.file, hit.target, byFile)
-        : resolveWikiTarget(hit.target, wikiLookup);
+        : resolveWikiTarget(hit.target, identityLookup, pathLookup);
       const key = `${hit.type}|${hit.field ?? ''}|${hit.target}|${hit.line}`;
       if (seen.has(key)) continue;
       seen.add(key);
