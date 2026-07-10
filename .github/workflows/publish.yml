@@ -121,7 +121,10 @@ jobs:
       - name: Resolve artifact path
         id: artifact
         run: |
-          FILE=$(find release -maxdepth 1 -type f -name '*.tgz' -print -quit)
+          # Absolute path so `npm publish` treats it as a FILE. A relative
+          # `release/foo.tgz` is parsed as an <org>/<repo> git spec by
+          # npm-package-arg and npm tries to `git ls-remote` it.
+          FILE=$(find "$PWD/release" -maxdepth 1 -type f -name '*.tgz' -print -quit)
           test -n "$FILE"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
