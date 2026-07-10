@@ -132,10 +132,13 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
-          # No registry-url: it writes an .npmrc with `always-auth=true` + a
-          # placeholder `_authToken`, which makes npm attempt (fake) token auth
-          # and fail with a misleading E404 instead of using OIDC. The publish
-          # command passes --registry explicitly; OIDC handles auth.
+          # registry-url is required for npm to run the OIDC exchange against
+          # npmjs (without it npm skips OIDC entirely → ENEEDAUTH). The
+          # placeholder token setup-node writes does NOT block OIDC: npm still
+          # exchanges the id-token and signs provenance. A remaining E404 at the
+          # PUT is a trusted-publisher BINDING mismatch on npmjs, not a workflow
+          # problem (repo/org/workflow fields are case-sensitive + unvalidated).
+          registry-url: 'https://registry.npmjs.org'
 
       # Node 24's bundled npm (11.16.0) already satisfies trusted publishing
       # (needs >= 11.5.1) and ships sigstore for automatic provenance. A global
