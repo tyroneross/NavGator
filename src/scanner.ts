@@ -140,7 +140,7 @@ function stripInternals(report: AuditReport): AuditReport {
   return clean as AuditReport;
 }
 import { classifyAllConnections } from './classify.js';
-import { isSandboxMode } from './sandbox.js';
+import { detectSandbox } from './sandbox.js';
 import { ensureSafeGitignore } from './gitignore-safety.js';
 
 // =============================================================================
@@ -513,8 +513,14 @@ export async function scan(
     config.perEntityFiles = options.perEntityFiles;
   }
 
-  // Sandbox mode: restrict scan behavior
-  if (isSandboxMode()) {
+  // Degrade scan behavior only in a genuinely RESTRICTED sandbox (Codex-style:
+  // no child processes / read-only fs). A permissive-but-detected environment
+  // like CI (`CI=true` sets sandbox.enabled but leaves every restriction false)
+  // is fully capable and MUST run a complete scan — otherwise AST-derived
+  // source components and child-process indexers silently vanish, which is
+  // exactly the code CI needs to exercise.
+  const sandbox = detectSandbox();
+  if (sandbox.enabled && (sandbox.restrictions.noChildProcess || sandbox.restrictions.readOnlyFs)) {
     options.quick = true;
     options.prompts = false;
     options.useAST = false;
