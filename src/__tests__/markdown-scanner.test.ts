@@ -120,5 +120,6 @@ describe('scanMarkdownContent', () => {
     expect(result.warnings).toHaveLength(0);
     expect(result.connections).toHaveLength(1);
     expect(result.connections[0].to.location?.file).toBe('canonical.md');
+    expect(new Set(result.components.map(component => component.stable_id)).size).toBe(3);
   });
 });

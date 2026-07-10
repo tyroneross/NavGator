@@ -138,7 +138,10 @@ function makeDocument(file: string, content: string, now: number): ParsedDocumen
 
   const component: ArchitectureComponent = {
     component_id: generateComponentId('document', pageId),
-    stable_id: generateStableId('document', pageId),
+    // Document paths are canonical identity for incremental graph merging.
+    // Frontmatter IDs are lookup aliases and can legitimately collide with a
+    // filename elsewhere in the corpus (or with a compatibility/symlink view).
+    stable_id: generateStableId('document', pageId, file),
     name: pageId,
     type: 'document',
     role: {
