@@ -73,8 +73,11 @@ jobs:
       - name: Pack the verified artifact once
         id: artifact
         run: |
-          PACK_JSON=$(npm pack --json --ignore-scripts)
-          FILE=$(node -e "const value = JSON.parse(process.argv[1]); process.stdout.write(value[0].filename)" "$PACK_JSON")
+          # Pipe npm pack's JSON through stdin, not argv: the packed file list
+          # (portable dashboard runtime) is large enough that passing it as a
+          # command-line argument exceeds ARG_MAX ("Argument list too long").
+          FILE=$(npm pack --json --ignore-scripts \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d)[0].filename))")
           test -f "$FILE"
           echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
