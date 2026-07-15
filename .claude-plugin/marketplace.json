@@ -13,7 +13,6 @@
       "name": "navgator",
       "source": "./",
       "description": "Architecture connection tracker for Claude Code and Codex — know your stack before you change it",
-      "version": "0.9.1",
       "author": {
         "name": "Tyrone Ross"
       },
