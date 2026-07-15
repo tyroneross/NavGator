@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { discoverStackRoots } from '../scanner.js';
+import { discoverStackRoots, scan } from '../scanner.js';
 
 let tmp: string;
 
@@ -31,6 +31,19 @@ describe('discoverStackRoots', () => {
     fs.writeFileSync(path.join(tmp, 'package.json'), '{}');
     const out = discoverStackRoots(tmp, false);
     expect(out).toEqual([{ path: tmp, origin: '.' }]);
+  });
+
+  it('returns root and nested stacks when both carry manifests', () => {
+    fs.writeFileSync(path.join(tmp, 'package.json'), '{}');
+    fs.mkdirSync(path.join(tmp, 'apps', 'mac'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'apps', 'mac', 'Package.swift'), '// swift-tools-version: 6.0');
+
+    const out = discoverStackRoots(tmp, false);
+
+    expect(out).toEqual([
+      { path: tmp, origin: '.' },
+      { path: path.join(tmp, 'apps', 'mac'), origin: 'apps/mac' },
+    ]);
   });
 
   it('returns each subroot when root has no manifest but children do', () => {
@@ -83,6 +96,55 @@ describe('discoverStackRoots', () => {
     const out = discoverStackRoots(tmp, false);
     expect(out.map(s => s.origin)).toEqual(['rust-api']);
   });
+
+  it('detects nested Swift package and Xcode roots behind wrapper directories', () => {
+    fs.mkdirSync(path.join(tmp, 'apps', 'mac', 'PsychScribe.xcodeproj'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'packages', 'PsychScribeCore'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'tools', 'asr-bench'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'packages', 'PsychScribeCore', 'Package.swift'), '// swift-tools-version: 6.0');
+    fs.writeFileSync(path.join(tmp, 'tools', 'asr-bench', 'Package.swift'), '// swift-tools-version: 6.0');
+
+    const origins = discoverStackRoots(tmp, false).map(s => s.origin).sort();
+
+    expect(origins).toEqual([
+      'apps/mac',
+      'packages/PsychScribeCore',
+      'tools/asr-bench',
+    ]);
+  });
+
+  it('runs Swift code analysis when the manifest is below a wrapper directory', async () => {
+    fs.writeFileSync(path.join(tmp, 'package.json'), '{"name":"mixed-root"}');
+    const packageRoot = path.join(tmp, 'packages', 'PsychScribeCore');
+    const sourcesRoot = path.join(packageRoot, 'Sources', 'PsychScribeCore');
+    fs.mkdirSync(sourcesRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageRoot, 'Package.swift'),
+      '// swift-tools-version: 6.0\nimport PackageDescription\n' +
+      'let package = Package(name: "PsychScribeCore", dependencies: [' +
+      '.package(url: "https://github.com/apple/swift-collections.git", from: "1.0.0")])\n'
+    );
+    fs.writeFileSync(
+      path.join(sourcesRoot, 'Recorder.swift'),
+      'struct LocalRecorder: Sendable {}\n'
+    );
+
+    const result = await scan(tmp, { mode: 'full', noAudit: true });
+
+    expect(result.connections.some(connection =>
+      connection.detected_from === 'swift-code-scanner' &&
+      connection.connection_type === 'conforms-to' &&
+      connection.code_reference?.file === 'packages/PsychScribeCore/Sources/PsychScribeCore/Recorder.swift'
+    )).toBe(true);
+    expect(result.components.find(component => component.name === 'swift-collections')?.source.config_files)
+      .toContain('packages/PsychScribeCore/Package.swift');
+
+    fs.appendFileSync(path.join(packageRoot, 'Package.swift'), '// dependency changed\n');
+    const incremental = await scan(tmp, { mode: 'auto', noAudit: true });
+
+    expect(incremental.fileChanges?.modified).toContain('packages/PsychScribeCore/Package.swift');
+    expect(incremental.timelineEntry?.scan_type).toBe('full');
+  }, 30000);
 
   it('falls back to root when nothing matches anywhere', () => {
     fs.mkdirSync(path.join(tmp, 'docs'));

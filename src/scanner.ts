@@ -204,8 +204,8 @@ export interface ScanOptions {
    *  (vs. CLI). Enables the LLM-judge MISSED_EDGE verifier. */
   isMcpMode?: boolean;
   /** Multi-stack auto-discovery: when the project root carries no stack
-   *  manifest (no package.json/pyproject.toml/etc), walk one level down
-   *  and scan each subdirectory that does. Defaults to ON. Pass
+   *  manifest (no package.json/pyproject.toml/etc), search nested wrapper
+   *  directories and scan each manifest-bearing subdirectory. Defaults to ON. Pass
    *  `singleStack: true` to force the legacy behavior — scan only the
    *  given root regardless of subdirs. */
   singleStack?: boolean;
@@ -223,13 +223,16 @@ export interface ScanOptions {
 
 /**
  * Manifest filenames that mark a directory as the root of a discrete stack.
- * Order matters: when we walk one level deep we stop at the first match per
- * subdir, so place the language-canonical manifests first.
+ * Keep language-canonical manifests together so root detection and nested
+ * discovery use the same contract.
  */
 const STACK_MANIFESTS: ReadonlyArray<string> = [
   'package.json',
   'pyproject.toml',
   'Cargo.toml',
+  'Package.swift',
+  'Podfile',
+  'Cartfile',
   'go.mod',
   'pom.xml',
   'Gemfile',
@@ -238,13 +241,12 @@ const STACK_MANIFESTS: ReadonlyArray<string> = [
 ];
 
 /**
- * Walk one level under `root`, return roots to scan. Behavior:
+ * Search nested wrapper directories under `root`, return roots to scan. Behavior:
  *
- *  - If `root` has any stack manifest, return `[{ path: root, origin: '.' }]`.
- *    No further walking — single-stack repos behave exactly as before.
- *  - Else, look at every direct child directory (depth 1). Any child that
- *    carries a stack manifest is included.
- *  - When more than one child stack is found, all of them are scanned and
+ *  - If `root` has a stack manifest, include it as `{ origin: '.' }`.
+ *  - Walk up to four directory levels. Any directory that carries a
+ *    stack manifest is included and its descendants are pruned.
+ *  - When more than one nested stack is found, all of them are scanned and
  *    components get an `origin_root` metadata tag so consumers can group.
  *
  * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
@@ -261,19 +263,19 @@ export function discoverStackRoots(
     for (const m of STACK_MANIFESTS) {
       if (fs.existsSync(path.join(dir, m))) return true;
     }
-    // .NET — any *.csproj
+    // Project containers without a fixed manifest filename.
     try {
       const entries = fs.readdirSync(dir);
-      if (entries.some(e => e.endsWith('.csproj'))) return true;
+      if (entries.some(e =>
+        e.endsWith('.csproj') ||
+        e.endsWith('.xcodeproj') ||
+        e.endsWith('.xcworkspace')
+      )) return true;
     } catch {
       // unreadable dir → not a stack root
     }
     return false;
   };
-
-  if (hasManifest(root)) {
-    return [{ path: root, origin: '.' }];
-  }
 
   const skipDirs = new Set([
     'node_modules', 'dist', 'build', '.git', '.next', '.cache',
@@ -282,44 +284,63 @@ export function discoverStackRoots(
     '.claude',
   ]);
 
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(root);
-  } catch {
-    return [{ path: root, origin: '.' }];
-  }
+  const maxDepth = 4;
+  const found: Array<{ path: string; origin: string }> = hasManifest(root)
+    ? [{ path: root, origin: '.' }]
+    : [];
+  const pending: Array<{ dir: string; origin: string; depth: number }> = [
+    { dir: root, origin: '', depth: 0 },
+  ];
+  let cursor = 0;
 
-  const found: Array<{ path: string; origin: string }> = [];
-  for (const name of entries) {
-    if (name.startsWith('.')) continue;
-    if (skipDirs.has(name)) continue;
-    const child = path.join(root, name);
-    let isDir = false;
+  while (cursor < pending.length) {
+    const current = pending[cursor++];
+    if (current.depth >= maxDepth) continue;
+
+    let entries: string[];
     try {
-      isDir = fs.statSync(child).isDirectory();
+      entries = fs.readdirSync(current.dir).sort();
     } catch {
       continue;
     }
-    if (!isDir) continue;
-    if (hasManifest(child)) {
-      found.push({ path: child, origin: name });
+
+    for (const name of entries) {
+      if (name.startsWith('.') || skipDirs.has(name)) continue;
+      const child = path.join(current.dir, name);
+      try {
+        // Do not follow directory symlinks; this keeps discovery bounded and
+        // avoids cycles through workspace or package-manager links.
+        if (!fs.lstatSync(child).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+
+      const origin = current.origin
+        ? `${current.origin}/${name}`
+        : name;
+      if (hasManifest(child)) {
+        found.push({ path: child, origin });
+        continue;
+      }
+
+      pending.push({ dir: child, origin, depth: current.depth + 1 });
     }
   }
 
   if (found.length === 0) {
-    // Nothing one level down either — keep legacy behavior so older
+    // Nothing in the bounded nested search either — keep legacy behavior so older
     // projects don't silently turn into no-ops.
     if (verbose) {
       console.log(
-        '  - No stack manifest at root or any direct child; scanning root anyway'
+        '  - No stack manifest at root or in nested wrappers; scanning root anyway'
       );
     }
     return [{ path: root, origin: '.' }];
   }
 
-  if (verbose) {
+  if (verbose && (found.length > 1 || found[0]?.origin !== '.')) {
     console.log(
-      `  - Multi-stack project: ${found.length} subroot(s): ` +
+      `  - Multi-stack project: ${found.length} nested root(s): ` +
       found.map(f => f.origin).join(', ')
     );
   }
@@ -347,6 +368,10 @@ const FULL_SCAN_TRIGGER_FILES: ReadonlySet<string> = new Set<string>([
   'prisma/schema.prisma',
   'Package.swift',
   'Package.resolved',
+  'Podfile',
+  'Podfile.lock',
+  'Cartfile',
+  'Cartfile.resolved',
   'Cargo.toml',
   'Cargo.lock',
   // Build / runtime config — change resolution, deploy targets, ignore rules
@@ -619,6 +644,10 @@ export async function scan(
     'prisma/schema.prisma',
     'Package.swift',
     'Package.resolved',
+    'Podfile',
+    'Podfile.lock',
+    'Cartfile',
+    'Cartfile.resolved',
     'Cargo.toml',
     'Cargo.lock',
     // Build / runtime config — track so changes trigger full scan
@@ -644,6 +673,16 @@ export async function scan(
     ignore: getIgnorePatterns(root),
   });
   for (const file of rustManifestFiles) {
+    if (!manifestFiles.includes(file)) manifestFiles.push(file);
+  }
+  const swiftManifestFiles = await glob(
+    '**/{Package.swift,Package.resolved,Podfile,Podfile.lock,Cartfile,Cartfile.resolved}',
+    {
+      cwd: root,
+      ignore: getIgnorePatterns(root),
+    }
+  );
+  for (const file of swiftManifestFiles) {
     if (!manifestFiles.includes(file)) manifestFiles.push(file);
   }
   const nestedModuleConfigFiles = await glob('**/{tsconfig.json,jsconfig.json}', {
@@ -823,7 +862,7 @@ export async function scan(
   // Package scanners run in parallel (independent of each other).
   //
   // Multi-stack auto-discovery: if the project root has no stack manifest
-  // of its own, walk one level deep and scan each subdir that does. This
+  // of its own, search nested wrapper directories and scan each subdir that does. This
   // catches the common monorepo-lite shape — a top-level `frontend/` with
   // package.json + a top-level `backend/` with pyproject.toml — that the
   // legacy single-root behavior silently missed (it would only scan
@@ -832,21 +871,32 @@ export async function scan(
   // Pass `singleStack: true` (CLI: --single-stack) to force the legacy
   // behavior. Each component scanned from a subroot gets its origin tagged
   // via `metadata.origin_root` so downstream layers can group by stack.
+  const stackRoots = options.singleStack
+    ? [{ path: root, origin: '.' }]
+    : discoverStackRoots(root, options.verbose === true);
+
   {
-    const stackRoots = options.singleStack
-      ? [{ path: root, origin: '.' }]
-      : discoverStackRoots(root, options.verbose === true);
 
     const packageTasks: Promise<void>[] = [];
     for (const sr of stackRoots) {
       const tagOrigin = (
-        result: { components: Array<Record<string, unknown>>; warnings: unknown[] }
+        result: ScanResult
       ) => {
         // Skip when origin is the root — keeps single-stack output identical.
         if (sr.origin === '.') return;
         for (const c of result.components) {
-          const md = (c.metadata as Record<string, unknown> | undefined) ?? {};
+          const md = c.metadata ?? {};
           c.metadata = { ...md, origin_root: sr.origin };
+          c.source.config_files = c.source.config_files.map(file =>
+            path.isAbsolute(file)
+              ? file
+              : path.posix.join(sr.origin, file.replace(/\\/g, '/'))
+          );
+        }
+        for (const warning of result.warnings) {
+          if (warning.file && !path.isAbsolute(warning.file)) {
+            warning.file = path.posix.join(sr.origin, warning.file.replace(/\\/g, '/'));
+          }
         }
       };
 
@@ -855,7 +905,7 @@ export async function scan(
           console.log(`  - Detected npm/yarn/pnpm project (${sr.origin})`);
         }
         packageTasks.push(scanNpmPackages(sr.path).then(result => {
-          tagOrigin(result as never);
+          tagOrigin(result);
           allComponents.push(...result.components);
           allWarnings.push(...result.warnings);
         }));
@@ -866,7 +916,7 @@ export async function scan(
           console.log(`  - Detected Python project (${sr.origin})`);
         }
         packageTasks.push(scanPipPackages(sr.path).then(result => {
-          tagOrigin(result as never);
+          tagOrigin(result);
           allComponents.push(...result.components);
           allWarnings.push(...result.warnings);
         }));
@@ -877,7 +927,7 @@ export async function scan(
           console.log(`  - Detected Swift/Xcode project (${sr.origin})`);
         }
         packageTasks.push(scanSpmPackages(sr.path).then(result => {
-          tagOrigin(result as never);
+          tagOrigin(result);
           allComponents.push(...result.components);
           allWarnings.push(...result.warnings);
         }));
@@ -888,7 +938,7 @@ export async function scan(
           console.log(`  - Detected Rust/Cargo project (${sr.origin})`);
         }
         packageTasks.push(scanCargoPackages(sr.path).then(result => {
-          tagOrigin(result as never);
+          tagOrigin(result);
           allComponents.push(...result.components);
           allWarnings.push(...result.warnings);
         }));
@@ -1244,7 +1294,8 @@ export async function scan(
     }
 
     // Swift code analysis (runtime deps, protocols, state, LLM calls)
-    if (detectSpm(root)) {
+    const swiftStackRoots = stackRoots.filter(sr => detectSpm(sr.path));
+    if (swiftStackRoots.length > 0) {
       if (options.verbose) console.log('  - Scanning Swift code connections...');
       try {
         const swiftResult = await scanSwiftCode(root, incWalkSet);
@@ -1271,9 +1322,9 @@ export async function scan(
       // Xcode project analysis (.pbxproj + storyboards)
       try {
         const { findXcodeProject } = await import('./scanners/packages/swift.js');
-        const pbxprojPath = findXcodeProject(root);
-
-        if (pbxprojPath) {
+        for (const swiftRoot of swiftStackRoots) {
+          const pbxprojPath = findXcodeProject(swiftRoot.path);
+          if (!pbxprojPath) continue;
           if (options.verbose) console.log('  - Scanning Xcode project...');
           const { parseXcodeProject, mapTargetToComponent, mapSourceMembership } = await import('./scanners/xcode/pbxproj-parser.js');
           const xcodeData = parseXcodeProject(pbxprojPath);
@@ -1281,8 +1332,35 @@ export async function scan(
 
           for (const target of xcodeData.targets) {
             const comp = mapTargetToComponent(target, timestamp);
+            if (swiftRoot.origin !== '.') {
+              comp.metadata = { ...comp.metadata, origin_root: swiftRoot.origin };
+              comp.source.config_files = comp.source.config_files.map(file =>
+                path.posix.join(swiftRoot.origin, path.basename(path.dirname(pbxprojPath)), file)
+              );
+            }
             allComponents.push(comp);
-            const memberConns = mapSourceMembership(target, comp.component_id, timestamp);
+            const targetForMapping = swiftRoot.origin === '.'
+              ? target
+              : {
+                  ...target,
+                  sourceFiles: target.sourceFiles.map(file => path.posix.join(swiftRoot.origin, file)),
+                };
+            const memberConns = mapSourceMembership(targetForMapping, comp.component_id, timestamp);
+            if (swiftRoot.origin !== '.') {
+              const pbxprojRelative = path.posix.join(
+                swiftRoot.origin,
+                path.basename(path.dirname(pbxprojPath)),
+                'project.pbxproj'
+              );
+              for (const connection of memberConns) {
+                if (connection.from.location?.file === 'project.pbxproj') {
+                  connection.from.location.file = pbxprojRelative;
+                }
+                if (connection.code_reference?.file === 'project.pbxproj') {
+                  connection.code_reference.file = pbxprojRelative;
+                }
+              }
+            }
             allConnections.push(...memberConns);
           }
 
@@ -1294,7 +1372,9 @@ export async function scan(
               dependencies: t.frameworks,
             }));
             projectMetadata.xcodeProject = {
-              path: pbxprojPath,
+              path: swiftRoot.origin === '.'
+                ? pbxprojPath
+                : path.relative(root, pbxprojPath).replace(/\\/g, '/'),
               targets: xcodeData.targets.map(t => ({
                 name: t.name,
                 type: t.type,
