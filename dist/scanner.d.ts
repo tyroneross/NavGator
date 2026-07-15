@@ -63,8 +63,8 @@ export interface ScanOptions {
      *  (vs. CLI). Enables the LLM-judge MISSED_EDGE verifier. */
     isMcpMode?: boolean;
     /** Multi-stack auto-discovery: when the project root carries no stack
-     *  manifest (no package.json/pyproject.toml/etc), walk one level down
-     *  and scan each subdirectory that does. Defaults to ON. Pass
+     *  manifest (no package.json/pyproject.toml/etc), search nested wrapper
+     *  directories and scan each manifest-bearing subdirectory. Defaults to ON. Pass
      *  `singleStack: true` to force the legacy behavior — scan only the
      *  given root regardless of subdirs. */
     singleStack?: boolean;
@@ -76,13 +76,12 @@ export interface ScanOptions {
     content?: boolean;
 }
 /**
- * Walk one level under `root`, return roots to scan. Behavior:
+ * Search nested wrapper directories under `root`, return roots to scan. Behavior:
  *
- *  - If `root` has any stack manifest, return `[{ path: root, origin: '.' }]`.
- *    No further walking — single-stack repos behave exactly as before.
- *  - Else, look at every direct child directory (depth 1). Any child that
- *    carries a stack manifest is included.
- *  - When more than one child stack is found, all of them are scanned and
+ *  - If `root` has a stack manifest, include it as `{ origin: '.' }`.
+ *  - Walk up to four directory levels. Any directory that carries a
+ *    stack manifest is included and its descendants are pruned.
+ *  - When more than one nested stack is found, all of them are scanned and
  *    components get an `origin_root` metadata tag so consumers can group.
  *
  * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
