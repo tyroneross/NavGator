@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Python bytecode
+__pycache__/
+*.py[cod]
+
 # Build output
 # NOTE: dist/ is committed per `feedback_plugin_dist_commit.md` — marketplace
 # installs clone the repo without building, so .mcp.json paths to dist/ break
@@ -25,7 +29,8 @@ Thumbs.db
 npm-debug.log*
 
 # Test coverage
-coverage/
+/coverage/
+/web/coverage/
 
 # Environment
 .env

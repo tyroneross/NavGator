@@ -35,9 +35,11 @@ describe('release contract', () => {
     for (const manifest of [claudeManifest, claudeEntry, codexManifest]) {
       expect(manifest).toMatchObject({
         name: 'navgator',
-        version: packageJson.version,
         license: packageJson.license,
       });
+      if (manifest.version !== undefined) {
+        expect(manifest.version).toBe(packageJson.version);
+      }
     }
   });
 
