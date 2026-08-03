@@ -22,10 +22,20 @@ interface RegisteredProject {
   name: string;
   addedAt: number;
   lastScan: number | null;
+  // Optional fields owned by src/projects.ts's richer ProjectEntry shape.
+  // This route never reconstructs an existing entry (GET spreads `...project`,
+  // POST only pushes brand-new entries) so these are never stripped from
+  // sibling entries on a read-modify-write — declared here only so the
+  // types below don't have to widen to `any`.
+  scanCount?: number;
+  stats?: { components: number; connections: number; prompts: number };
+  git?: { branch: string; commit: string };
+  origin?: { kind: 'local' | 'remote'; url?: string; cachePath?: string };
+  portfolio?: { root: string };
 }
 
 interface ProjectRegistry {
-  version: 1;
+  version: 2;
   projects: RegisteredProject[];
 }
 
@@ -50,9 +60,13 @@ const REGISTRY_PATH = path.join(REGISTRY_DIR, "projects.json");
 async function loadRegistry(): Promise<ProjectRegistry> {
   try {
     const content = await fs.readFile(REGISTRY_PATH, "utf-8");
-    return JSON.parse(content);
+    const raw = JSON.parse(content) as { version?: number; projects: RegisteredProject[] };
+    // This route is a secondary writer of the same registry src/projects.ts
+    // owns; align on version 2 so a save from here doesn't regress a v1
+    // literal into a file src/projects.ts has already migrated forward.
+    return { version: 2, projects: raw.projects ?? [] };
   } catch {
-    return { version: 1, projects: [] };
+    return { version: 2, projects: [] };
   }
 }
 
@@ -190,6 +204,7 @@ export async function POST(request: NextRequest) {
         name: extractProjectName(resolvedPath),
         addedAt: Date.now(),
         lastScan: null,
+        scanCount: 0,
       });
 
       await saveRegistry(registry);

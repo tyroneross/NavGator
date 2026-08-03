@@ -26,6 +26,16 @@ export interface ProjectEntry {
   lastSignificantChange?: number;
   lastSignificance?: DiffSignificance;
   git?: { branch: string; commit: string };
+  /**
+   * Where this project's code lives. 'local' is the default for anything
+   * scanned from a path already on disk; 'remote' marks a repo cloned by
+   * the remote-scan chunk (C7), which also carries `url` and `cachePath`.
+   * Optional and additive — registry `version` stays 2 (docs/plans/
+   * 2026-08-03-portfolio-remote-gitaware.md, C6).
+   */
+  origin?: { kind: 'local' | 'remote'; url?: string; cachePath?: string };
+  /** Set when this project was discovered/scanned as part of a portfolio sweep. */
+  portfolio?: { root: string };
 }
 
 interface ProjectRegistry {
@@ -135,6 +145,40 @@ export async function registerProject(
   }
 }
 
+/**
+ * Read-modify-write a project's metadata, preserving every field the caller
+ * doesn't name in `patch`. Used by the remote-scan chunk (C7) to record a
+ * remote origin without disturbing scan stats, git info, or portfolio data
+ * a sibling writer already set.
+ */
+export async function updateProjectMeta(
+  root: string,
+  patch: Partial<Omit<ProjectEntry, 'path'>>
+): Promise<void> {
+  const registry = await loadRegistry();
+  const existing = registry.projects.find((p) => p.path === root);
+
+  if (existing) {
+    Object.assign(existing, patch);
+  } else {
+    const dirName = root.split(path.sep).pop() || 'project';
+    const name = dirName
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim();
+    registry.projects.push({
+      path: root,
+      name,
+      addedAt: Date.now(),
+      lastScan: null,
+      scanCount: 0,
+      ...patch,
+    });
+  }
+
+  await saveRegistry(registry);
+}
+
 // =============================================================================
 // LISTING
 // =============================================================================
@@ -181,6 +225,15 @@ export function formatProjectsList(projects: ProjectEntry[], json?: boolean): st
 
     if (p.git) {
       lines.push(`  Branch: ${p.git.branch} @ ${p.git.commit}`);
+    }
+
+    if (p.origin) {
+      const detail = p.origin.kind === 'remote' && p.origin.url ? ` (${p.origin.url})` : '';
+      lines.push(`  Origin: ${p.origin.kind}${detail}`);
+    }
+
+    if (p.portfolio) {
+      lines.push(`  Portfolio: ${p.portfolio.root}`);
     }
 
     if (p.lastSignificance && p.lastSignificantChange) {
