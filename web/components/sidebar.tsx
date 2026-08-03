@@ -12,6 +12,7 @@ import {
   BarChart3,
   Route,
   Network,
+  HeartPulse,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { View } from "@/app/page"
@@ -32,6 +33,7 @@ const navItems = [
   { id: "coverage" as const, label: "Coverage", icon: BarChart3 },
   { id: "trace" as const, label: "Trace", icon: Route },
   { id: "subgraph" as const, label: "Subgraph", icon: Network },
+  { id: "health" as const, label: "Registry Health", icon: HeartPulse },
 ]
 
 export function Sidebar({ activeView, setActiveView }: SidebarProps) {

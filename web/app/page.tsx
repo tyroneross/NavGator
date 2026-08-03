@@ -14,11 +14,12 @@ import { CoveragePanel } from "@/components/coverage-panel"
 import { TracePanel } from "@/components/trace-panel"
 import { SubgraphPanel } from "@/components/subgraph-panel"
 import { SettingsPanel } from "@/components/settings-panel"
+import { RegistryHealthPanel } from "@/components/registry-health-panel"
 import { useProjects } from "@/lib/hooks"
 import { useActiveProject } from "@/lib/project-context"
 import { useStatus } from "@/lib/hooks"
 
-export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "rules" | "coverage" | "trace" | "subgraph" | "settings"
+export type View = "overview" | "components" | "connections" | "impact" | "diagram" | "llm" | "rules" | "coverage" | "trace" | "subgraph" | "settings" | "health"
 
 export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>("overview")
@@ -95,6 +96,7 @@ export default function Dashboard() {
           {activeView === "trace" && <TracePanel />}
           {activeView === "subgraph" && <SubgraphPanel />}
           {activeView === "settings" && <SettingsPanel />}
+          {activeView === "health" && <RegistryHealthPanel />}
         </main>
       </div>
     </div>

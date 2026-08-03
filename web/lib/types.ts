@@ -289,6 +289,71 @@ export interface TraceApiResponse {
 }
 
 // =============================================================================
+// REGISTRY HEALTH (navgator doctor --json / --fix --yes --json)
+// =============================================================================
+
+export interface RegistryHealthFinding {
+  severity: "info" | "warn";
+  code: string;
+  message: string;
+}
+
+export interface RegistryHealthReport {
+  schema_version: string;
+  registry: {
+    path: string;
+    entries: number;
+    revision: number;
+    bytes: number;
+    tmpRooted: number;
+    missing: number;
+    prunable: number;
+  };
+  journal: {
+    records: number;
+    windowDays: number;
+    registersInWindow: number;
+    registersPerDay: number;
+    estimated: boolean;
+    conflicts: number;
+    degradedWrites: number;
+  };
+  memory: {
+    exists: boolean;
+    projects: number;
+    orphaned: number;
+    events: number;
+    bytes: number;
+    lastEventAt: number | string | null;
+  };
+  mirror: {
+    enabled: boolean;
+    target: string | null;
+    targetExists: boolean;
+  };
+  findings: RegistryHealthFinding[];
+  verdict: "healthy" | "attention";
+}
+
+export interface RegistryHealthCleanupResult {
+  backupPath: string;
+  removedFromRegistry: number;
+  removedFromMemory: number;
+}
+
+export interface RegistryHealthApiResponse {
+  success: boolean;
+  data?: RegistryHealthReport;
+  error?: string;
+}
+
+export interface RegistryHealthFixApiResponse {
+  success: boolean;
+  data?: RegistryHealthReport & { cleanup: RegistryHealthCleanupResult };
+  error?: string;
+}
+
+// =============================================================================
 // SUBGRAPH
 // =============================================================================
 

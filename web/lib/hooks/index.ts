@@ -9,3 +9,4 @@ export type { RegisteredProject } from "./use-projects";
 export { useCoverage } from "./use-coverage";
 export { useTrace } from "./use-trace";
 export { useSubgraph } from "./use-subgraph";
+export { useRegistryHealth } from "./use-registry-health";
