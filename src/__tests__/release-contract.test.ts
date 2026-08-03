@@ -30,7 +30,7 @@ describe('release contract', () => {
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[''].version).toBe(packageJson.version);
     expect(packageLock.packages[''].engines.node).toBe(packageJson.engines.node);
-    expect(webPackage.dependencies.next).toBe('16.2.10');
+    expect(webPackage.dependencies.next).toBe('16.2.12');
     expect(webPackage.overrides.postcss).toBe('$postcss');
     for (const manifest of [claudeManifest, claudeEntry, codexManifest]) {
       expect(manifest).toMatchObject({
