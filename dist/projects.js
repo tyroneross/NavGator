@@ -92,6 +92,35 @@ export async function registerProject(projectRoot, stats, significance, gitInfo)
         // Non-critical — don't fail the scan
     }
 }
+/**
+ * Read-modify-write a project's metadata, preserving every field the caller
+ * doesn't name in `patch`. Used by the remote-scan chunk (C7) to record a
+ * remote origin without disturbing scan stats, git info, or portfolio data
+ * a sibling writer already set.
+ */
+export async function updateProjectMeta(root, patch) {
+    const registry = await loadRegistry();
+    const existing = registry.projects.find((p) => p.path === root);
+    if (existing) {
+        Object.assign(existing, patch);
+    }
+    else {
+        const dirName = root.split(path.sep).pop() || 'project';
+        const name = dirName
+            .replace(/[-_]/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase())
+            .trim();
+        registry.projects.push({
+            path: root,
+            name,
+            addedAt: Date.now(),
+            lastScan: null,
+            scanCount: 0,
+            ...patch,
+        });
+    }
+    await saveRegistry(registry);
+}
 // =============================================================================
 // LISTING
 // =============================================================================
@@ -130,6 +159,13 @@ export function formatProjectsList(projects, json) {
         }
         if (p.git) {
             lines.push(`  Branch: ${p.git.branch} @ ${p.git.commit}`);
+        }
+        if (p.origin) {
+            const detail = p.origin.kind === 'remote' && p.origin.url ? ` (${p.origin.url})` : '';
+            lines.push(`  Origin: ${p.origin.kind}${detail}`);
+        }
+        if (p.portfolio) {
+            lines.push(`  Portfolio: ${p.portfolio.root}`);
         }
         if (p.lastSignificance && p.lastSignificantChange) {
             lines.push(`  Last significant change: ${p.lastSignificance.toUpperCase()} (${timeSince(p.lastSignificantChange)})`);

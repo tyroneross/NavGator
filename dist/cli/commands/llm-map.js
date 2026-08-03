@@ -96,11 +96,12 @@ export function registerLLMMapCommand(program) {
                 console.log(`${cat.toUpperCase()} (${group.length}):`);
                 for (const uc of group) {
                     const provTag = uc.provider.padEnd(12);
+                    const kindTag = uc.kind ? ` (${uc.kind})` : '';
                     const file = uc.primaryFile;
                     const feeds = uc.feedsInto && uc.feedsInto.length > 0
                         ? ` → ${uc.feedsInto.slice(0, 3).join(', ')}`
                         : '';
-                    console.log(`  ${provTag} ${file}${feeds}`);
+                    console.log(`  ${provTag}${kindTag} ${file}${feeds}`);
                 }
                 console.log('');
             }

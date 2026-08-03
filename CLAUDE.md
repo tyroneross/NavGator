@@ -83,7 +83,7 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `components/COMP_*.json` | Full detail for one component *(opt-in: `--per-entity-files`)* | Deep dive on specific component |
 | `connections/CONN_*.json` | Full detail for one connection *(opt-in: `--per-entity-files`)* | Understanding a specific relationship |
 
-**For agents building on NavGator:** Use the MCP tools (`scan`, `status`, `explore`, `review`, `trace`, `rules`) rather than reading JSON files directly. The tools return pre-analyzed, compact text output optimized for LLM consumption.
+**For agents building on NavGator:** Use the MCP tools (`scan`, `status`, `explore`, `review`, `trace`, `rules`, `portfolio`, `arch_diff`) rather than reading JSON files directly. The tools return pre-analyzed, compact text output optimized for LLM consumption.
 
 ## Available Commands
 
@@ -125,6 +125,9 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `navgator coverage --typespec` | Prisma vs TypeScript type validation |
 | `navgator coverage --fields` | Analyze DB field usage (unused, read-only, write-only) |
 | `navgator coverage --typespec` | Validate Prisma types against TypeScript interfaces |
+| `navgator portfolio [dir]` | Cross-repo dependency/service map; scans a folder of repos, or reports over registered projects with no `dir` |
+| `navgator scan-remote <url>` | Shallow-clone a GitHub repo by URL and scan it (CLI-only, human-initiated) |
+| `navgator arch-diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `--base` ref) |
 
 ## Agent/Machine Output
 

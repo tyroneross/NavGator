@@ -15,8 +15,15 @@ import { checkRules } from "../rules.js";
 import { deduplicateLLMUseCases } from "../llm-dedup.js";
 import { getConfig, getPromptsPath } from "../config.js";
 import { getGitInfo } from "../git.js";
+import { listProjects } from "../projects.js";
+import { scanPortfolio } from "../portfolio/scan.js";
+import { buildCrossRepoMap } from "../portfolio/cross-repo.js";
+import { writeSnapshotForCurrentRef } from "../git-aware/canonical.js";
+import { premergeDiff } from "../git-aware/premerge-diff.js";
 import * as fs from "fs";
 import * as path from "path";
+/** Always present, in every output mode, per the plan's heuristic-labeling requirement. */
+const SERVICE_CALL_DISCLAIMER = "serviceCalls are heuristic/inferred (host-match or service-name-match) — not a verified call graph.";
 // --- Response helpers ---
 function textResponse(text) {
     return { content: [{ type: "text", text }] };
@@ -238,6 +245,58 @@ export const TOOLS = [
             openWorldHint: false,
         },
     },
+    {
+        name: "portfolio",
+        description: "Cross-repo architecture map. With 'dir', discovers and scans a folder of local repos and builds a shared-dependency and cross-repo service-call map. Without 'dir', reports status over already-registered projects without scanning anything. Service-call edges are heuristic (host or service-name match), never a verified call graph — always labeled as such.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                dir: {
+                    type: "string",
+                    description: "Local directory to search for repos (each containing a .git dir or file). Omit to report over already-registered projects instead of scanning.",
+                },
+                depth: {
+                    type: "number",
+                    description: "Directory depth to search for repos below 'dir' (default 1, max 3).",
+                },
+                concurrency: {
+                    type: "number",
+                    description: "Concurrent repo scans when 'dir' is given (default 1, max 4).",
+                },
+            },
+        },
+        annotations: {
+            title: "Portfolio Scan",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
+    {
+        name: "arch_diff",
+        description: "Pre-merge architecture diff — compares the current git branch's recorded architecture snapshot against the canonical (default-branch) baseline, or a named 'base' ref, so topology drift is visible before a merge. Read-only unless 'record' is true, which additionally writes the current ref's snapshot before diffing. A missing base or head snapshot returns available:false with an actionable reason, never an empty diff.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                base: {
+                    type: "string",
+                    description: "Diff against this ref's recorded snapshot instead of the canonical baseline.",
+                },
+                record: {
+                    type: "boolean",
+                    description: "Also write the current ref's snapshot before diffing (canonical if on the default branch, else a branch-delta snapshot).",
+                },
+            },
+        },
+        annotations: {
+            title: "Pre-Merge Architecture Diff",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+        },
+    },
 ];
 // --- Tool handlers ---
 function getProjectRoot() {
@@ -266,6 +325,10 @@ export async function handleToolCall(name, args) {
                 return await handleExplore(args);
             case "rules":
                 return await handleRules();
+            case "portfolio":
+                return await handlePortfolio(args);
+            case "arch_diff":
+                return await handleArchDiff(args);
             default:
                 return errorResponse(`Unknown tool: ${name}`);
         }
@@ -759,6 +822,121 @@ async function handleRules() {
         if (group.length > 10)
             lines.push(`  ... +${group.length - 10} more`);
     }
+    return textResponse(lines.join("\n"));
+}
+async function handlePortfolio(args) {
+    const dir = typeof args.dir === "string" ? args.dir : undefined;
+    const config = getConfig();
+    if (!dir) {
+        const projects = await listProjects();
+        const inputs = [];
+        for (const p of projects) {
+            const components = await loadAllComponents(config, p.path);
+            const connections = await loadAllConnections(config, p.path);
+            inputs.push({ repo: p.path, components, connections, lastScan: p.lastScan });
+        }
+        const map = buildCrossRepoMap(inputs);
+        return textResponse(formatPortfolioMap(map));
+    }
+    const depth = typeof args.depth === "number" ? args.depth : 1;
+    const concurrency = typeof args.concurrency === "number" ? args.concurrency : 1;
+    const resolvedDir = path.resolve(dir);
+    const scanResult = await scanPortfolio(resolvedDir, { depth, concurrency });
+    const inputs = [];
+    for (const r of scanResult.repos) {
+        const canLoad = r.status === "scanned" || r.status === "noop";
+        const components = canLoad ? await loadAllComponents(config, r.path) : [];
+        const connections = canLoad ? await loadAllConnections(config, r.path) : [];
+        inputs.push({ repo: r.path, components, connections, scanStatus: r.status });
+    }
+    const map = buildCrossRepoMap(inputs);
+    return textResponse(formatPortfolioMap(map, scanResult));
+}
+function formatPortfolioMap(map, scanResult) {
+    const lines = [];
+    if (scanResult) {
+        lines.push(`Scanned ${scanResult.repos.length} repo(s) under ${scanResult.root}`);
+        lines.push(`  completed/noop: ${scanResult.scanned + scanResult.noop}  busy: ${scanResult.busy}  failed: ${scanResult.failed}`);
+        for (const r of scanResult.repos) {
+            const detail = r.status === "busy" || r.status === "failed"
+                ? ` (${r.message ?? "no detail"})`
+                : r.stats
+                    ? ` (${r.stats.components} components, ${r.stats.connections} connections)`
+                    : "";
+            lines.push(`  - ${r.name}: ${r.status}${detail}`);
+        }
+    }
+    lines.push(`Status: ${map.status.repoCount} repo(s), ${map.status.totalComponents} components, ${map.status.totalConnections} connections`);
+    if (map.status.staleRepos.length > 0)
+        lines.push(`  Stale (>24h): ${map.status.staleRepos.join(", ")}`);
+    if (map.status.failedRepos.length > 0)
+        lines.push(`  Failed: ${map.status.failedRepos.join(", ")}`);
+    if (map.status.busyRepos.length > 0)
+        lines.push(`  Busy: ${map.status.busyRepos.join(", ")}`);
+    lines.push(`\nShared dependencies (${map.sharedDependencies.length}):`);
+    for (const d of map.sharedDependencies.slice(0, 15)) {
+        const skew = d.versionSkew ? " [version skew]" : "";
+        const versions = d.repos.map((r) => `${r.repo}@${r.version ?? "?"}`).join(", ");
+        lines.push(`  - ${d.name} (${d.type})${skew}: ${versions}`);
+    }
+    if (map.sharedDependencies.length > 15)
+        lines.push(`  ... +${map.sharedDependencies.length - 15} more`);
+    lines.push(`\nCross-repo service calls — ${SERVICE_CALL_DISCLAIMER} (${map.serviceCalls.length}):`);
+    for (const e of map.serviceCalls.slice(0, 15)) {
+        lines.push(`  - ${e.fromRepo}:${e.fromComponent} -> ${e.toRepo}:${e.toComponent} [${e.basis}, confidence ${e.confidence.toFixed(2)}]`);
+    }
+    if (map.serviceCalls.length > 15)
+        lines.push(`  ... +${map.serviceCalls.length - 15} more`);
+    return lines.join("\n");
+}
+async function handleArchDiff(args) {
+    const projectRoot = getProjectRoot();
+    const base = typeof args.base === "string" ? args.base : undefined;
+    const record = args.record === true;
+    let recorded;
+    if (record) {
+        recorded = await writeSnapshotForCurrentRef(projectRoot);
+    }
+    const result = await premergeDiff(projectRoot, { base });
+    const lines = [];
+    if (recorded) {
+        lines.push(`Recorded snapshot for "${recorded.ref ?? "(unknown)"}" -> ${recorded.path} (${recorded.isDefault ? "canonical" : "branch"})`);
+    }
+    lines.push(`Base: ${result.base}`);
+    lines.push(`Head: ${result.head ?? "(unresolved)"}`);
+    if (!result.available) {
+        lines.push(`\nNo diff available: ${result.reason}`);
+        return textResponse(lines.join("\n"));
+    }
+    const diff = result.diff;
+    const sig = result.significance;
+    lines.push(`\nSignificance: ${sig.significance} (${sig.triggers.join(", ") || "none"})`);
+    lines.push(`Total changes: ${diff.stats.total_changes}`);
+    lines.push(`\nComponents added (${diff.components.added.length}):`);
+    for (const c of diff.components.added.slice(0, 10))
+        lines.push(`  + ${c.name} (${c.type}, ${c.layer})`);
+    if (diff.components.added.length > 10)
+        lines.push(`  ... +${diff.components.added.length - 10} more`);
+    lines.push(`Components removed (${diff.components.removed.length}):`);
+    for (const c of diff.components.removed.slice(0, 10))
+        lines.push(`  - ${c.name} (${c.type}, ${c.layer})`);
+    if (diff.components.removed.length > 10)
+        lines.push(`  ... +${diff.components.removed.length - 10} more`);
+    lines.push(`Components modified (${diff.components.modified.length}):`);
+    for (const c of diff.components.modified.slice(0, 10))
+        lines.push(`  ~ ${c.name}: ${c.changes.join("; ")}`);
+    if (diff.components.modified.length > 10)
+        lines.push(`  ... +${diff.components.modified.length - 10} more`);
+    lines.push(`\nConnections added (${diff.connections.added.length}):`);
+    for (const c of diff.connections.added.slice(0, 10))
+        lines.push(`  + ${c.from_name} -> ${c.to_name} (${c.type})`);
+    if (diff.connections.added.length > 10)
+        lines.push(`  ... +${diff.connections.added.length - 10} more`);
+    lines.push(`Connections removed (${diff.connections.removed.length}):`);
+    for (const c of diff.connections.removed.slice(0, 10))
+        lines.push(`  - ${c.from_name} -> ${c.to_name} (${c.type})`);
+    if (diff.connections.removed.length > 10)
+        lines.push(`  ... +${diff.connections.removed.length - 10} more`);
     return textResponse(lines.join("\n"));
 }
 //# sourceMappingURL=tools.js.map

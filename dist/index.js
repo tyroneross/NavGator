@@ -16,9 +16,22 @@ export { generateMermaidDiagram, generateComponentDiagram, generateLayerDiagram,
 // Diff engine
 export { computeArchitectureDiff, classifySignificance, loadTimeline, saveTimelineEntry, loadLatestSnapshot, buildCurrentSnapshot, formatTimeline, formatDiffSummary, formatDiffForSummary, } from './diff.js';
 // Project registry
-export { registerProject, listProjects, formatProjectsList, } from './projects.js';
+export { registerProject, listProjects, formatProjectsList, updateProjectMeta, } from './projects.js';
 // Git utilities
 export { getGitInfo } from './git.js';
+// Component identity — base-name normalization and alias merging
+export { componentBaseName, identityKey, mergeComponentAliases } from './component-identity.js';
+// Git-aware — canonical/branch snapshot storage (slice 3) and pre-merge diff (slice 4)
+export { writeSnapshotForCurrentRef, readCanonicalSnapshot, readBranchSnapshot, } from './git-aware/canonical.js';
+export { getDefaultBranch, getCurrentBranch, getCurrentRef, isDefaultBranch, isWorktree, slugifyRef } from './git-aware/refs.js';
+export { premergeDiff } from './git-aware/premerge-diff.js';
+// Portfolio — multi-repo scanning and cross-repo mapping
+export { discoverRepos } from './portfolio/discover.js';
+export { scanPortfolio } from './portfolio/scan.js';
+export { buildCrossRepoMap } from './portfolio/cross-repo.js';
+// Remote — GitHub URL parsing, clone, and scan
+export { parseGitHubUrl } from './remote/github-url.js';
+export { scanRemote } from './remote/scan-remote.js';
 // Impact analysis
 export { computeImpact, computeSeverity } from './impact.js';
 // Agent output

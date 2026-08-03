@@ -23,6 +23,10 @@ export declare const TOOLS: ({
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required?: undefined;
     };
@@ -46,6 +50,10 @@ export declare const TOOLS: ({
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required?: undefined;
     };
@@ -72,6 +80,10 @@ export declare const TOOLS: ({
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required: string[];
     };
@@ -102,6 +114,10 @@ export declare const TOOLS: ({
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required: string[];
     };
@@ -132,6 +148,10 @@ export declare const TOOLS: ({
             component?: undefined;
             direction?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required?: undefined;
     };
@@ -158,6 +178,10 @@ export declare const TOOLS: ({
             mode?: undefined;
             focus?: undefined;
             depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required?: undefined;
     };
@@ -187,8 +211,81 @@ export declare const TOOLS: ({
             direction?: undefined;
             mode?: undefined;
             focus?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+            base?: undefined;
+            record?: undefined;
         };
         required: string[];
+    };
+    annotations: {
+        title: string;
+        readOnlyHint: boolean;
+        destructiveHint: boolean;
+        idempotentHint: boolean;
+        openWorldHint: boolean;
+    };
+} | {
+    name: string;
+    description: string;
+    inputSchema: {
+        type: "object";
+        properties: {
+            dir: {
+                type: string;
+                description: string;
+            };
+            depth: {
+                type: string;
+                description: string;
+            };
+            concurrency: {
+                type: string;
+                description: string;
+            };
+            quick?: undefined;
+            content?: undefined;
+            component?: undefined;
+            direction?: undefined;
+            mode?: undefined;
+            focus?: undefined;
+            base?: undefined;
+            record?: undefined;
+        };
+        required?: undefined;
+    };
+    annotations: {
+        title: string;
+        readOnlyHint: boolean;
+        destructiveHint: boolean;
+        idempotentHint: boolean;
+        openWorldHint: boolean;
+    };
+} | {
+    name: string;
+    description: string;
+    inputSchema: {
+        type: "object";
+        properties: {
+            base: {
+                type: string;
+                description: string;
+            };
+            record: {
+                type: string;
+                description: string;
+            };
+            quick?: undefined;
+            content?: undefined;
+            component?: undefined;
+            direction?: undefined;
+            mode?: undefined;
+            focus?: undefined;
+            depth?: undefined;
+            dir?: undefined;
+            concurrency?: undefined;
+        };
+        required?: undefined;
     };
     annotations: {
         title: string;

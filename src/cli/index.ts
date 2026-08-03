@@ -34,6 +34,9 @@ import {
   registerSummaryCommand,
   showWelcomeMenu,
 } from './commands/misc.js';
+import { registerPortfolioCommand } from './commands/portfolio.js';
+import { registerScanRemoteCommand } from './commands/remote.js';
+import { registerArchDiffCommand } from './commands/arch-diff.js';
 
 const NAVGATOR_LOGO = `
   _   _             ____       _
@@ -87,6 +90,9 @@ registerLLMMapCommand(program);
 registerSchemaCommand(program);
 registerDeadCommand(program);
 registerLessonsCommand(program);
+registerPortfolioCommand(program);
+registerScanRemoteCommand(program);
+registerArchDiffCommand(program);
 
 // =============================================================================
 // PARSE AND RUN

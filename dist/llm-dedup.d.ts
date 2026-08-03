@@ -24,6 +24,12 @@ export interface LLMUseCase {
     feature?: string;
     /** Downstream connections — what this LLM call feeds into (for agent classification) */
     feedsInto?: string[];
+    /** Resolved provider tag from the LLM component's metadata (e.g. 'apple-on-device') */
+    providerTag?: string;
+    /** Resolved kind from the LLM component's metadata (e.g. 'foundation-models') */
+    kind?: string;
+    /** Structured-output contract names (e.g. @Generable schema names) from the LLM component's metadata */
+    structuredOutput?: string[];
 }
 export interface LLMDedupResult {
     useCases: LLMUseCase[];

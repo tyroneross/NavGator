@@ -2,6 +2,7 @@
  * NavGator Component Resolution
  * Resolves component queries (names, file paths, IDs) to ArchitectureComponent objects
  */
+import { componentBaseName } from './component-identity.js';
 /**
  * Resolve a query string to an architecture component.
  *
@@ -10,6 +11,9 @@
  * 2. Exact component name match (case-insensitive)
  * 3. File path match via fileMap → component ID → component
  * 4. Partial name match (substring, case-insensitive)
+ * 4b. Base-name alias match (e.g. "Railway" / "Railway Config" / "Railway (infra)"
+ *     all collapse to the same identity) — fires only when step 4 found nothing,
+ *     preferring the candidate with the most connections.
  * 5. File path substring match (normalized, no leading ./)
  */
 export function resolveComponent(query, components, fileMap) {
@@ -58,6 +62,23 @@ export function resolveComponent(query, components, fileMap) {
             return a.name.length - b.name.length;
         });
         return partialMatches[0];
+    }
+    // 4b. Base-name alias match — collapses "Railway" / "Railway Config" / "Railway (infra)"
+    // into one identity. Only fires here because step 4 found nothing; preserves steps 1-4's
+    // precedence entirely.
+    const queryBaseName = componentBaseName(query);
+    if (queryBaseName) {
+        const aliasMatches = components.filter(c => componentBaseName(c.name) === queryBaseName);
+        if (aliasMatches.length === 1)
+            return aliasMatches[0];
+        if (aliasMatches.length > 1) {
+            aliasMatches.sort((a, b) => {
+                const aConns = a.connects_to.length + a.connected_from.length;
+                const bConns = b.connects_to.length + b.connected_from.length;
+                return bConns - aConns;
+            });
+            return aliasMatches[0];
+        }
     }
     // 5. File path substring match
     const normalizedQuery = normalizePath(query);

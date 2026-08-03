@@ -25,6 +25,7 @@ export interface TraceOptions {
     filterClassification?: string;
     maxPaths?: number;
     showAll?: boolean;
+    resolveFileNodes?: boolean;
 }
 /**
  * Trace dataflow from a starting component through the architecture graph.

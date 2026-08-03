@@ -68,7 +68,25 @@ generation can still require a later full refresh.
 
 - Slice 2, not yet built: `context <target>` command for targeted, freshness-aware
   architecture context.
-- Slice 3, not yet built: canonical-main plus worktree-delta storage, so agents
-  can separate committed architecture from local changes.
-- Slice 4, not yet built: pre-merge architecture diff for reviewing topology
-  changes before integration.
+- Slice 3, built: canonical-main plus branch-delta snapshot storage, so agents
+  can separate committed architecture from local changes. Storage is strictly
+  additive to the layout above: `.navgator/architecture/canonical/snapshot.json`
+  holds the default branch's snapshot, and `.navgator/architecture/branches/<slug>/snapshot.json`
+  holds one per non-default ref (`<slug>` sanitizes the ref name and appends an
+  8-character hash of the original whenever sanitization or truncation changed
+  the string, so two refs that sanitize alike cannot collide). The existing
+  working-view files (`components.full.jsonl`, `graph.json`, etc.) are
+  untouched — this is a second, parallel view, not a replacement.
+- Slice 4, built: pre-merge architecture diff (`navgator arch-diff`) for
+  reviewing topology changes before integration. It reads the canonical (or a
+  named `--base` ref's) snapshot and the current branch's snapshot, then
+  delegates to the existing diff engine (`computeArchitectureDiff()` /
+  `classifySignificance()`) — no second diff implementation. A missing
+  snapshot on either side returns `available: false` with an actionable
+  reason, never an empty diff that would read as "no changes."
+
+**Snapshots are written on demand, not maintained by `scan()`.** `navgator
+arch-diff --record` (or the MCP `arch_diff` tool with `record: true`) is what
+writes `canonical/` and `branches/<slug>/` snapshots — a plain `scan()` call
+never touches them. Treat them as an explicit, human- or agent-triggered
+checkpoint rather than a byproduct of every scan.

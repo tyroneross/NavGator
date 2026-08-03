@@ -11,6 +11,9 @@ import type { ArchitectureComponent } from './types.js';
  * 2. Exact component name match (case-insensitive)
  * 3. File path match via fileMap → component ID → component
  * 4. Partial name match (substring, case-insensitive)
+ * 4b. Base-name alias match (e.g. "Railway" / "Railway Config" / "Railway (infra)"
+ *     all collapse to the same identity) — fires only when step 4 found nothing,
+ *     preferring the candidate with the most connections.
  * 5. File path substring match (normalized, no leading ./)
  */
 export declare function resolveComponent(query: string, components: ArchitectureComponent[], fileMap?: Record<string, string>): ArchitectureComponent | null;

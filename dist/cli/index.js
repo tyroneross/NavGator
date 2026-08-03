@@ -24,6 +24,9 @@ import { registerDeadCommand } from './commands/dead.js';
 import { registerLessonsCommand } from './commands/lessons.js';
 import { registerFreshnessCommands } from './commands/freshness.js';
 import { registerSetupCommand, registerUICommand, registerHistoryCommand, registerDiffCommand, registerProjectsCommand, registerSummaryCommand, showWelcomeMenu, } from './commands/misc.js';
+import { registerPortfolioCommand } from './commands/portfolio.js';
+import { registerScanRemoteCommand } from './commands/remote.js';
+import { registerArchDiffCommand } from './commands/arch-diff.js';
 const NAVGATOR_LOGO = `
   _   _             ____       _
  | \\ | | __ ___   _/ ___| __ _| |_ ___  _ __
@@ -72,6 +75,9 @@ registerLLMMapCommand(program);
 registerSchemaCommand(program);
 registerDeadCommand(program);
 registerLessonsCommand(program);
+registerPortfolioCommand(program);
+registerScanRemoteCommand(program);
+registerArchDiffCommand(program);
 // =============================================================================
 // PARSE AND RUN
 // =============================================================================

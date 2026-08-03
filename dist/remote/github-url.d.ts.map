@@ -1,0 +1,1 @@
+{"version":3,"file":"github-url.d.ts","sourceRoot":"","sources":["../../src/remote/github-url.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;;GAeG;AAEH,MAAM,WAAW,eAAe;IAC9B,KAAK,EAAE,MAAM,CAAC;IACd,IAAI,EAAE,MAAM,CAAC;IACb,GAAG,CAAC,EAAE,MAAM,CAAC;CACd;AA2BD,wBAAgB,cAAc,CAAC,KAAK,EAAE,OAAO,GAAG,eAAe,GAAG,IAAI,CAsBrE"}

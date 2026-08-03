@@ -201,6 +201,7 @@ export function deduplicateLLMUseCases(components, connections, prompts) {
     const llmComponents = components.filter(c => c.type === 'llm');
     const llmIds = new Set(llmComponents.map(c => c.component_id));
     const llmNameById = new Map(llmComponents.map(c => [c.component_id, c.name]));
+    const llmComponentById = new Map(llmComponents.map(c => [c.component_id, c]));
     if (llmIds.size === 0) {
         return { useCases: [], totalCallSites: 0, productionCallSites: 0, providers: [] };
     }
@@ -330,6 +331,11 @@ export function deduplicateLLMUseCases(components, connections, prompts) {
             mainProviderId = bestNonObsId;
         }
         const providerName = llmNameById.get(mainProviderId) || 'unknown';
+        const providerComponent = llmComponentById.get(mainProviderId);
+        const providerTag = providerComponent?.metadata?.provider;
+        const kind = providerComponent?.metadata?.kind;
+        const structuredOutputRaw = providerComponent?.metadata?.generable_schemas;
+        const structuredOutput = structuredOutputRaw && structuredOutputRaw.length > 0 ? structuredOutputRaw : undefined;
         // Find what the LLM call's file connects to downstream (for agent classification)
         const primaryFileId = `FILE:${mostCommonFile(group.connections)}`;
         const downstream = connections
@@ -350,6 +356,9 @@ export function deduplicateLLMUseCases(components, connections, prompts) {
             productionCallSites: group.connections.length,
             groupedBy: group.groupedBy,
             feedsInto: downstream.length > 0 ? downstream : undefined,
+            providerTag,
+            kind,
+            structuredOutput,
         });
     }
     // Final pass: re-classify any use case without a category by checking its primary file

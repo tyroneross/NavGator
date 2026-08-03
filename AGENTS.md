@@ -128,7 +128,7 @@ task.
 
 JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 
-10 tools exposed:
+12 tools exposed:
 
 | Tool | Purpose |
 |------|---------|
@@ -142,6 +142,10 @@ JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 | `review` | Architectural integrity review (drift, lessons, violations) |
 | `explore` | Full detail on a specific component (type, layer, files, metadata) |
 | `rules` | Rule checks: orphans, layer violations, cycles, hotspots |
+| `portfolio` | Cross-repo dependency/service map; scans a local folder of repos, or reports over already-registered projects with no `dir` |
+| `arch_diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `base` ref) |
+
+**`scan_remote` is deliberately not an MCP tool.** `navgator scan-remote <url>` runs `git clone` against a caller-supplied URL — exposing that as an agent-invokable tool would put a network fetch on a prompt-injection-reachable path (a malicious doc or tool output could smuggle a URL that gets cloned and scanned without a human in the loop). It ships CLI-only, human-initiated, and stays that way until a URL allowlist exists. `portfolio` and `arch_diff` were added instead because they operate over local paths only, with no equivalent network-fetch surface. Do not "fix" this omission by adding a `scan_remote` MCP tool without first landing an allowlist.
 
 ### Slash Commands (13)
 

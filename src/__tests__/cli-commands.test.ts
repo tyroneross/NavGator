@@ -219,6 +219,112 @@ describe('CLI command modules', () => {
     const uniqueNames = new Set(names);
     expect(uniqueNames.size).toBe(17);
   });
+
+  // ---------------------------------------------------------------------------
+  // C8 integration — portfolio, scan-remote, arch-diff (docs/plans/
+  // 2026-08-03-portfolio-remote-gitaware.md)
+  // ---------------------------------------------------------------------------
+
+  it('portfolio command registers without error', async () => {
+    const { registerPortfolioCommand } = await import('../cli/commands/portfolio.js');
+    const program = new Command();
+    expect(() => registerPortfolioCommand(program)).not.toThrow();
+    const cmd = program.commands.find(c => c.name() === 'portfolio');
+    expect(cmd).toBeDefined();
+  });
+
+  it('scan-remote command registers without error', async () => {
+    const { registerScanRemoteCommand } = await import('../cli/commands/remote.js');
+    const program = new Command();
+    expect(() => registerScanRemoteCommand(program)).not.toThrow();
+    const cmd = program.commands.find(c => c.name() === 'scan-remote');
+    expect(cmd).toBeDefined();
+  });
+
+  it('arch-diff command registers without error', async () => {
+    const { registerArchDiffCommand } = await import('../cli/commands/arch-diff.js');
+    const program = new Command();
+    expect(() => registerArchDiffCommand(program)).not.toThrow();
+    const cmd = program.commands.find(c => c.name() === 'arch-diff');
+    expect(cmd).toBeDefined();
+  });
+
+  it('portfolio, scan-remote, and arch-diff coexist with the original 17 without collisions', async () => {
+    const [
+      { registerScanCommand },
+      { registerStatusCommand },
+      { registerImpactCommand },
+      { registerConnectionsCommand },
+      { registerListCommand },
+      { registerDiagramCommand },
+      { registerPromptsCommand },
+      { registerTraceCommand },
+      { registerRulesCommand },
+      { registerCoverageCommand },
+      { registerSubgraphCommand },
+      {
+        registerSetupCommand,
+        registerUICommand,
+        registerHistoryCommand,
+        registerDiffCommand,
+        registerProjectsCommand,
+        registerSummaryCommand,
+      },
+      { registerPortfolioCommand },
+      { registerScanRemoteCommand },
+      { registerArchDiffCommand },
+    ] = await Promise.all([
+      import('../cli/commands/scan.js'),
+      import('../cli/commands/status.js'),
+      import('../cli/commands/impact.js'),
+      import('../cli/commands/connections.js'),
+      import('../cli/commands/list.js'),
+      import('../cli/commands/diagram.js'),
+      import('../cli/commands/prompts.js'),
+      import('../cli/commands/trace.js'),
+      import('../cli/commands/rules.js'),
+      import('../cli/commands/coverage.js'),
+      import('../cli/commands/subgraph.js'),
+      import('../cli/commands/misc.js'),
+      import('../cli/commands/portfolio.js'),
+      import('../cli/commands/remote.js'),
+      import('../cli/commands/arch-diff.js'),
+    ]);
+
+    const program = new Command();
+
+    expect(() => {
+      registerScanCommand(program);
+      registerStatusCommand(program);
+      registerImpactCommand(program);
+      registerConnectionsCommand(program);
+      registerListCommand(program);
+      registerDiagramCommand(program);
+      registerPromptsCommand(program);
+      registerTraceCommand(program);
+      registerRulesCommand(program);
+      registerCoverageCommand(program);
+      registerSubgraphCommand(program);
+      registerSetupCommand(program);
+      registerUICommand(program);
+      registerHistoryCommand(program);
+      registerDiffCommand(program);
+      registerProjectsCommand(program);
+      registerSummaryCommand(program);
+      registerPortfolioCommand(program);
+      registerScanRemoteCommand(program);
+      registerArchDiffCommand(program);
+    }).not.toThrow();
+
+    expect(program.commands).toHaveLength(20);
+
+    const names = program.commands.map(c => c.name());
+    const uniqueNames = new Set(names);
+    expect(uniqueNames.size).toBe(20);
+    expect(names).toContain('portfolio');
+    expect(names).toContain('scan-remote');
+    expect(names).toContain('arch-diff');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -250,5 +356,31 @@ describe('MCP tools', () => {
       expect(tool.annotations).toBeDefined();
       expect(tool.annotations.readOnlyHint).toBeDefined();
     }
+  });
+
+  // C8 integration — portfolio and arch_diff added, scan_remote deliberately
+  // withheld (docs/plans/2026-08-03-portfolio-remote-gitaware.md, Surface decision)
+  it('TOOLS array includes portfolio and arch_diff, and exactly 12 tools total', async () => {
+    const { TOOLS } = await import('../mcp/tools.js');
+    const names = TOOLS.map(t => t.name);
+    expect(names).toContain('portfolio');
+    expect(names).toContain('arch_diff');
+    expect(names).not.toContain('scan_remote');
+    expect(TOOLS).toHaveLength(12);
+  });
+
+  it('handleToolCall has a case for portfolio and arch_diff', async () => {
+    const { TOOLS, handleToolCall } = await import('../mcp/tools.js');
+    expect(TOOLS.length).toBe(12);
+    const unknown = await handleToolCall('not-a-real-tool', {});
+    expect(unknown.isError).toBe(true);
+    // A real dispatch (not the unknown-tool fallthrough) proves the switch has cases
+    // for the two new names — either they run cleanly or throw inside their own
+    // handler (caught and turned into an error response), never the generic
+    // "Unknown tool" message.
+    const portfolioResult = await handleToolCall('portfolio', {});
+    expect(portfolioResult.content[0].text).not.toBe('Unknown tool: portfolio');
+    const archDiffResult = await handleToolCall('arch_diff', {});
+    expect(archDiffResult.content[0].text).not.toBe('Unknown tool: arch_diff');
   });
 });

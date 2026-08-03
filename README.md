@@ -14,8 +14,8 @@ NavGator tracks architecture connections across your entire stack—packages, se
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and 10 MCP tools
-- **Codex Integration**: the same 6 skills and 10 MCP tools through a Codex-specific manifest
+- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and 12 MCP tools
+- **Codex Integration**: the same 6 skills and 12 MCP tools through a Codex-specific manifest
 
 ## Installation
 
@@ -76,7 +76,7 @@ Codex reads these package surfaces:
 - `.codex-plugin/mcp.json`
 - `skills/*/SKILL.md`
 
-Claude remains the authoritative host for slash commands and subagent wiring. Codex does not load `commands/` or `agents/`; it loads the 6 shared skills and 10 MCP tools only. Hooks are disabled by default on both hosts. A source checkout is not a valid self-referential Codex marketplace until the installer materializes the package at a non-empty child path.
+Claude remains the authoritative host for slash commands and subagent wiring. Codex does not load `commands/` or `agents/`; it loads the 6 shared skills and 12 MCP tools only. Hooks are disabled by default on both hosts. A source checkout is not a valid self-referential Codex marketplace until the installer materializes the package at a non-empty child path.
 
 ## Quick Start
 
@@ -436,6 +436,41 @@ Extract a focused subgraph around a specific component.
 | `--depth <n>` | Include connections up to N hops away (default: 2) |
 | `--json` | Output as JSON |
 
+### `navgator portfolio [dir]`
+
+Scan a folder of repos and build a cross-repo map of shared dependencies and heuristic service calls. With no `dir`, reports status over already-registered projects without scanning anything.
+
+| Option | Description |
+|--------|-------------|
+| `--depth <n>` | Directory depth to search for repos (default: 1, max: 3) |
+| `--concurrency <n>` | Concurrent repo scans (default: 1, max: 4) |
+| `--json` | Output as JSON |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
+Cross-repo service-call edges are heuristic (host-match or service-name-match) — never a verified call graph, and always labeled as such.
+
+### `navgator scan-remote <url>`
+
+Shallow-clone a GitHub repo by URL into `~/.navgator/cache/remote` and run the architecture scan against it. CLI-only by design: an MCP-invokable version would put a network fetch (`git clone`) on a prompt-injection-reachable path, so this stays human-initiated (see [AGENTS.md](AGENTS.md)).
+
+| Option | Description |
+|--------|-------------|
+| `--ref <ref>` | Branch, tag, or commit-ish to check out (overrides a `/tree/<ref>` in the URL) |
+| `--refresh` | Force a clean re-clone instead of a shallow fetch + reset of the cached checkout |
+| `--json` | Output as JSON |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
+### `navgator arch-diff`
+
+Pre-merge architecture diff: shows how the current branch's architecture differs from the canonical (default-branch) baseline, or a named `--base` ref, before merging.
+
+| Option | Description |
+|--------|-------------|
+| `--base <ref>` | Diff against this ref's recorded snapshot instead of the canonical baseline |
+| `--record` | Also write the current ref's snapshot before diffing |
+| `--json` | Output as JSON |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
 ## What Gets Detected
 
 ### Components
@@ -684,4 +719,4 @@ bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
 bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-After registration, install and enable `navgator` in the Codex plugin browser, disable a legacy `gator` entry if present, and start a new task. Codex loads 6 skills and 10 MCP tools; Claude-specific slash commands and subagents remain Claude-only.
+After registration, install and enable `navgator` in the Codex plugin browser, disable a legacy `gator` entry if present, and start a new task. Codex loads 6 skills and 12 MCP tools; Claude-specific slash commands and subagents remain Claude-only.
