@@ -16,7 +16,9 @@ export { generateMermaidDiagram, generateComponentDiagram, generateLayerDiagram,
 // Diff engine
 export { computeArchitectureDiff, classifySignificance, loadTimeline, saveTimelineEntry, loadLatestSnapshot, buildCurrentSnapshot, formatTimeline, formatDiffSummary, formatDiffForSummary, } from './diff.js';
 // Project registry
-export { registerProject, listProjects, formatProjectsList, updateProjectMeta, } from './projects.js';
+export { registerProject, listProjects, formatProjectsList, updateProjectMeta, removeProject, } from './projects.js';
+// Registry operation journal — every read and write of the project registry
+export { readJournal, formatJournal, appendJournalEvent, appendJournalEventSync, defaultRegistryDir, journalPathForDir, } from './registry-journal.js';
 // Git utilities
 export { getGitInfo } from './git.js';
 // Component identity — base-name normalization and alias merging

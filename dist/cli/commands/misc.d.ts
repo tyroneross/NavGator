@@ -13,5 +13,6 @@ export declare function registerUICommand(program: Command): void;
 export declare function registerHistoryCommand(program: Command): void;
 export declare function registerDiffCommand(program: Command): void;
 export declare function registerProjectsCommand(program: Command): void;
+export declare function registerRegistryLogCommand(program: Command): void;
 export declare function registerSummaryCommand(program: Command): void;
 //# sourceMappingURL=misc.d.ts.map

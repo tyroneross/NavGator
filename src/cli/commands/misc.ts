@@ -12,6 +12,7 @@ import { setup, fastSetup, isSetupComplete, formatSetupStatus } from '../../setu
 import { buildExecutiveSummary } from '../../agent-output.js';
 import { isSandboxMode } from '../../sandbox.js';
 import { scan } from '../../scanner.js';
+import type { JournalActor, JournalOp } from '../../registry-journal.js';
 
 // =============================================================================
 // SHARED HELPERS
@@ -489,6 +490,89 @@ export function registerProjectsCommand(program: Command): void {
         console.log(formatProjectsList(projects, options.json));
       } catch (error) {
         console.error('Failed to list projects:', error);
+        process.exit(1);
+      }
+    });
+}
+
+// =============================================================================
+// REGISTRY-LOG COMMAND
+// =============================================================================
+
+const VALID_JOURNAL_ACTORS: readonly JournalActor[] = ['cli', 'mcp', 'web-route'];
+const VALID_JOURNAL_OPS: readonly JournalOp[] = [
+  'load',
+  'save',
+  'register',
+  'update',
+  'remove',
+  'conflict',
+];
+
+function isValidJournalActor(value: string): value is JournalActor {
+  return (VALID_JOURNAL_ACTORS as readonly string[]).includes(value);
+}
+
+function isValidJournalOp(value: string): value is JournalOp {
+  return (VALID_JOURNAL_OPS as readonly string[]).includes(value);
+}
+
+export function registerRegistryLogCommand(program: Command): void {
+  program
+    .command('registry-log')
+    .description('Show recent reads and writes of the project registry')
+    .option('--limit <n>', 'Most recent N entries', '50')
+    .option('--actor <actor>', 'Filter to cli, mcp, or web-route')
+    .option('--op <op>', 'Filter to load, save, register, update, remove, or conflict')
+    .option('--conflicts', 'Only lost-update conflict records')
+    .option('--json', 'Output as JSON')
+    .option('--agent', 'Output wrapped in agent envelope (implies --json)')
+    .action(async (options) => {
+      try {
+        const { readJournal, formatJournal } = await import('../../registry-journal.js');
+
+        if (options.actor && !isValidJournalActor(options.actor)) {
+          console.error(
+            `Invalid --actor "${options.actor}". Valid values: ${VALID_JOURNAL_ACTORS.join(', ')}`
+          );
+          process.exit(1);
+          return;
+        }
+        if (options.op && !isValidJournalOp(options.op)) {
+          console.error(
+            `Invalid --op "${options.op}". Valid values: ${VALID_JOURNAL_OPS.join(', ')}`
+          );
+          process.exit(1);
+          return;
+        }
+
+        const parsedLimit = Number.parseInt(options.limit, 10);
+        const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50;
+
+        const events = readJournal({
+          limit,
+          actor: options.actor as JournalActor | undefined,
+          op: options.op as JournalOp | undefined,
+          conflictsOnly: Boolean(options.conflicts),
+        });
+
+        if (options.agent) {
+          console.log(wrapInEnvelope('registry-log', events));
+          return;
+        }
+
+        if (options.json) {
+          console.log(JSON.stringify(events, null, 2));
+          return;
+        }
+
+        console.log(
+          formatJournal(events, {
+            filtered: Boolean(options.actor || options.op || options.conflicts),
+          })
+        );
+      } catch (error) {
+        console.error('Failed to load registry journal:', error);
         process.exit(1);
       }
     });

@@ -15,6 +15,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { glob } from "glob";
+import { appendJournalEventSync } from "./registry-journal";
 
 export interface CoverageGap {
   type: "unmapped-file" | "low-confidence-connection" | "zero-consumers" | "no-outgoing";
@@ -116,18 +117,82 @@ export interface RegisteredProjectsFile {
  * SEC-003: /api/coverage constrains its `path` query param to this allowlist
  * instead of accepting an arbitrary filesystem path.
  */
+/**
+ * The allowlist read fires once per /api/coverage request, so its rate is set by
+ * the caller rather than by any real registry mutation. Journaling every one
+ * turns a cacheable read-only route into an unconditional disk write and lets a
+ * flood drive the journal's rotation. Recording one read per directory per
+ * window keeps the evidence ("this process is reading the registry") without
+ * handing an external party control of the log.
+ *
+ * The window matches /api/coverage's own 60s cache TTL. The map is capped for
+ * the same reason the route caps its cache: the key derives from a request.
+ */
+const JOURNAL_COALESCE_MS = 60_000;
+const JOURNAL_COALESCE_MAX_KEYS = 20;
+const lastAllowlistJournalAt = new Map<string, number>();
+
+function shouldJournalAllowlistRead(dir: string): boolean {
+  const now = Date.now();
+  const last = lastAllowlistJournalAt.get(dir);
+  if (last !== undefined && now - last < JOURNAL_COALESCE_MS) return false;
+
+  if (!lastAllowlistJournalAt.has(dir) && lastAllowlistJournalAt.size >= JOURNAL_COALESCE_MAX_KEYS) {
+    const oldest = lastAllowlistJournalAt.keys().next().value;
+    if (oldest !== undefined) lastAllowlistJournalAt.delete(oldest);
+  }
+  lastAllowlistJournalAt.set(dir, now);
+  return true;
+}
+
 export function loadRegisteredProjectPaths(registryPath: string): Set<string> {
   try {
     const raw = fs.readFileSync(registryPath, "utf-8");
-    const parsed = JSON.parse(raw) as RegisteredProjectsFile;
+    const parsed = JSON.parse(raw) as RegisteredProjectsFile & { revision?: unknown };
     const entries = Array.isArray(parsed.projects) ? parsed.projects : [];
-    return new Set(
+    const result = new Set(
       entries
         .map((entry) => entry.path)
         .filter((p): p is string => typeof p === "string" && p.length > 0)
         .map((p) => path.resolve(p))
     );
+
+    // Every read of the registry gets journaled, including this allowlist
+    // read. The journal directory is derived from `registryPath` itself (NOT
+    // the home directory) so a test pointing this at a tmp registry never
+    // touches the user's real ~/.navgator journal — see SEC-003's
+    // src/__tests__ callers, which pass arbitrary tmp registry paths.
+    // Fail-closed semantics are preserved: a journal failure can't change what
+    // this returns, since appendJournalEventSync itself fails open/silently.
+    const revision =
+      typeof parsed.revision === "number" && Number.isFinite(parsed.revision)
+        ? parsed.revision
+        : 0;
+    const dir = path.dirname(registryPath);
+    if (shouldJournalAllowlistRead(dir)) {
+      appendJournalEventSync(dir, {
+        op: "load",
+        rev: revision,
+        entries: entries.length,
+        note: "coverage-allowlist",
+      });
+    }
+
+    return result;
   } catch {
+    // A read that found nothing to read is still a read, and it is the more
+    // interesting one: a missing or corrupt registry here silently empties the
+    // allowlist and makes every /api/coverage request 400. Recording the miss
+    // is what makes that diagnosable from the journal instead of invisible.
+    const dir = path.dirname(registryPath);
+    if (shouldJournalAllowlistRead(dir)) {
+      appendJournalEventSync(dir, {
+        op: "load",
+        rev: 0,
+        entries: 0,
+        note: "coverage-allowlist: unreadable",
+      });
+    }
     return new Set();
   }
 }

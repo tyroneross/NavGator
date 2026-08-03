@@ -32,6 +32,7 @@ import {
   registerDiffCommand,
   registerProjectsCommand,
   registerSummaryCommand,
+  registerRegistryLogCommand,
   showWelcomeMenu,
 } from './commands/misc.js';
 import { registerPortfolioCommand } from './commands/portfolio.js';
@@ -81,6 +82,7 @@ registerPromptsCommand(program);
 registerHistoryCommand(program);
 registerDiffCommand(program);
 registerProjectsCommand(program);
+registerRegistryLogCommand(program);
 registerSummaryCommand(program);
 registerTraceCommand(program);
 registerRulesCommand(program);

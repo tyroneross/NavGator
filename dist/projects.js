@@ -6,6 +6,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { atomicWriteJSON } from './storage.js';
+import { appendJournalEvent, registryDigest, } from './registry-journal.js';
+import { withRegistryFileLock } from './registry-lock.js';
 // =============================================================================
 // REGISTRY I/O
 // =============================================================================
@@ -16,10 +18,15 @@ function getRegistryPath() {
     return path.join(getRegistryDir(), 'projects.json');
 }
 /**
- * Load the project registry with v1→v2 auto-migration
+ * Load the project registry with v1→v2 auto-migration.
+ *
+ * Every call journals a `load` record. The registry has readers in two
+ * compilation units and no other record of access, so "who read this, when"
+ * was previously unanswerable.
  */
-export async function loadRegistry() {
+export async function loadRegistry(note) {
     const registryPath = getRegistryPath();
+    let registry;
     try {
         const content = await fs.promises.readFile(registryPath, 'utf-8');
         const raw = JSON.parse(content);
@@ -31,24 +38,94 @@ export async function loadRegistry() {
                     p.scanCount = p.lastScan ? 1 : 0;
             }
         }
-        return raw;
+        // A v2 file written before `revision` existed reads as revision 0. This is
+        // the whole backward-compatibility story: no migration write, no version
+        // bump, and the first CAS write after upgrade simply stamps revision 1.
+        if (typeof raw.revision !== 'number' || !Number.isFinite(raw.revision)) {
+            raw.revision = 0;
+        }
+        if (!Array.isArray(raw.projects))
+            raw.projects = [];
+        registry = raw;
     }
     catch {
-        return { version: 2, projects: [] };
+        registry = { version: 2, revision: 0, projects: [] };
     }
+    await appendJournalEvent(getRegistryDir(), {
+        op: 'load',
+        rev: registry.revision ?? 0,
+        entries: registry.projects.length,
+        note,
+    });
+    return registry;
 }
 /**
  * Save the project registry.
  *
  * Uses `atomicWriteJSON` (write-to-temp + rename) so a reader never observes
  * a partially-written file. This does NOT by itself prevent the
- * read-modify-write race between concurrent callers within this process —
- * see `withRegistryLock` below, which serializes the load-mutate-save body
- * of `registerProject`/`updateProjectMeta` so writers never clobber each
- * other's in-memory mutations.
+ * read-modify-write race between concurrent callers — see `mutateRegistry`
+ * below, which serializes the load-mutate-save body in-process and detects the
+ * cross-process case by comparing revisions.
+ *
+ * Callers that go through `mutateRegistry` get their revision stamped for them.
+ * A direct call here bumps the revision too, so no write can leave the counter
+ * standing still and make a real conflict look like agreement.
+ *
+ * UNSAFE for concurrent use. This takes NEITHER mutex and performs NO
+ * compare-and-swap — it overwrites whatever is on disk. It exists for callers
+ * that already hold the whole registry and genuinely mean to replace it. Every
+ * production writer must go through `registerProject`, `updateProjectMeta`, or
+ * `removeProject`, which route through `mutateRegistry`.
  */
 export async function saveRegistry(registry) {
+    await writeRegistry(registry, 'save');
+}
+/** Shared write tail: stamp the revision, write atomically, journal the result. */
+async function writeRegistry(registry, op, options = {}) {
+    if (!options.stamped) {
+        registry.revision = (registry.revision ?? 0) + 1;
+    }
     await atomicWriteJSON(getRegistryPath(), registry);
+    await appendJournalEvent(getRegistryDir(), {
+        op,
+        rev: registry.revision ?? 0,
+        entries: registry.projects.length,
+        delta: options.entriesBefore === undefined
+            ? undefined
+            : registry.projects.length - options.entriesBefore,
+        digest: registryDigest(registry),
+        locked: options.locked,
+        note: options.note,
+    });
+}
+/**
+ * Read only the revision currently on disk, for the compare-and-swap check.
+ *
+ * Journaled as a `load` (it is a real read of the file) tagged `cas-check` so
+ * the journal distinguishes a caller reading the registry from a writer
+ * verifying its base.
+ */
+async function readDiskRevision() {
+    let revision = 0;
+    let entries = 0;
+    try {
+        const content = await fs.promises.readFile(getRegistryPath(), 'utf-8');
+        const raw = JSON.parse(content);
+        revision = typeof raw.revision === 'number' && Number.isFinite(raw.revision) ? raw.revision : 0;
+        entries = Array.isArray(raw.projects) ? raw.projects.length : 0;
+    }
+    catch {
+        // Missing or unparseable reads as revision 0 — the same pre-image
+        // loadRegistry would have produced, so base and disk still agree.
+    }
+    await appendJournalEvent(getRegistryDir(), {
+        op: 'load',
+        rev: revision,
+        entries,
+        note: 'cas-check',
+    });
+    return revision;
 }
 // =============================================================================
 // CONCURRENCY
@@ -66,10 +143,11 @@ export async function saveRegistry(registry) {
  * single promise queue makes them run one at a time, so each sees the
  * previous writer's result.
  *
- * This is an in-process mutex ONLY. It does nothing for cross-process
- * contention (two separate `navgator` invocations writing projects.json at
- * the same time) — that is a separate, pre-existing concern, out of scope
- * here.
+ * This is an in-process mutex ONLY. Cross-process contention (two `navgator`
+ * invocations, or a CLI scan against the dashboard) is handled one layer out by
+ * `withRegistryFileLock`; see `mutateRegistry` for how the two compose. This
+ * mutex remains load-bearing because the file lock fails open, and when it does
+ * this is what still keeps same-process writers correct.
  */
 let registryLock = Promise.resolve();
 function withRegistryLock(fn) {
@@ -80,6 +158,102 @@ function withRegistryLock(fn) {
     registryLock = result.catch(() => undefined);
     return result;
 }
+/**
+ * How many times a writer will re-read and re-apply before giving up on
+ * agreement and taking last-writer-wins on the merged result.
+ */
+const MAX_CAS_ATTEMPTS = 5;
+/**
+ * Serialize and version-stamp a registry read-modify-write.
+ *
+ * Three mechanisms, covering three different races. They are ordered outermost
+ * to innermost, and each one exists because the next one out does not cover
+ * its case:
+ *
+ * 1. **`withRegistryLock`** serializes the whole load-mutate-save body against
+ *    other callers *in this process*. That is what stops `scanPortfolio`'s
+ *    concurrent workers from clobbering each other. It does nothing for another
+ *    process.
+ *
+ * 2. **`withRegistryFileLock`** serializes against writers in *other* processes
+ *    — a second `navgator` invocation, or the dashboard route, which compiles
+ *    separately and mirrors the same lock protocol. This is the mechanism that
+ *    actually prevents cross-process loss.
+ *
+ *    It is load-bearing, not belt-and-braces: CAS alone cannot prevent this.
+ *    Two writers starting in the same tick both read revision R before either
+ *    saves, so both pass their own CAS check and both write R+1. One entry is
+ *    lost and *neither writer sees a mismatch to report* — silent loss, exactly
+ *    the failure this whole change exists to eliminate.
+ *
+ * 3. **Compare-and-swap on `revision`** is the detector of last resort, for
+ *    anything that slips past the lock: a writer that could not acquire it
+ *    within the budget and proceeded unlocked, a stale-lock steal, a
+ *    filesystem that does not honour O_EXCL, or an older dashboard build that
+ *    predates the lock entirely. On a mismatch we journal a `conflict`,
+ *    re-read the winner's registry, and **re-apply the same mutation closure**
+ *    to it.
+ *
+ * The closure is the reason (3) merges instead of clobbering. Replaying intent
+ * against fresh state is idempotent for every mutation here — find-or-create,
+ * field patch, filter-out — whereas replaying a captured *result* would drop
+ * whatever the winner wrote. It also means derived values recompute correctly:
+ * `scanCount + 1` increments once off the winner's count, not twice off a
+ * stale one. A mutation that decides it has nothing to do returns
+ * `commit: false`, which skips the write entirely rather than replaying a
+ * duplicate insert.
+ *
+ * Honest limit: when the file lock cannot be acquired the write proceeds
+ * unlocked, and POSIX offers no atomic compare-and-swap on a rename, so a
+ * sub-millisecond window remains in that degraded path. It is recorded — the
+ * write's journal note says the lock was not held — rather than hidden.
+ */
+async function mutateRegistry(op, mutate, note) {
+    return withRegistryLock(() => withRegistryFileLock(getRegistryDir(), async (lockHeld) => {
+        let attempt = 0;
+        // Bounded by MAX_CAS_ATTEMPTS: each `continue` increments, and the final
+        // attempt skips the CAS check and commits unconditionally.
+        for (;;) {
+            const registry = await loadRegistry(note);
+            const base = registry.revision ?? 0;
+            const entriesBefore = registry.projects.length;
+            const outcome = mutate(registry);
+            if (!outcome.commit)
+                return outcome.value;
+            if (attempt < MAX_CAS_ATTEMPTS) {
+                const diskRevision = await readDiskRevision();
+                if (diskRevision !== base) {
+                    // A decrease means a writer that does not preserve `revision`
+                    // committed — an older dashboard build reconstructs the registry as
+                    // `{version, projects}` and drops the field. Worth naming separately
+                    // in the journal: it is a compatibility signal, not contention.
+                    const kind = diskRevision < base ? 'revision-regression' : 'concurrent-write';
+                    await appendJournalEvent(getRegistryDir(), {
+                        op: 'conflict',
+                        rev: diskRevision,
+                        entries: registry.projects.length,
+                        base,
+                        found: diskRevision,
+                        note: `${note ?? op}: ${kind}, replaying (attempt ${attempt + 1})`,
+                    });
+                    attempt++;
+                    continue;
+                }
+            }
+            const notes = [note ?? op];
+            if (attempt > 0)
+                notes.push(`merged after ${attempt} conflict(s)`);
+            registry.revision = base + 1;
+            await writeRegistry(registry, op, {
+                entriesBefore,
+                note: notes.join('; '),
+                stamped: true,
+                locked: lockHeld,
+            });
+            return outcome.value;
+        }
+    }));
+}
 // =============================================================================
 // REGISTRATION
 // =============================================================================
@@ -88,9 +262,12 @@ function withRegistryLock(fn) {
  * Replaces the inline registry code previously in cli/index.ts.
  */
 export async function registerProject(projectRoot, stats, significance, gitInfo) {
-    await withRegistryLock(async () => {
-        try {
-            const registry = await loadRegistry();
+    try {
+        // The mutation is expressed as a closure so `mutateRegistry` can replay it
+        // against a fresh registry after a detected conflict. Find-or-create is
+        // idempotent under replay, and `scanCount + 1` recomputes off the winner's
+        // count rather than double-incrementing a stale one.
+        await mutateRegistry('register', (registry) => {
             const existing = registry.projects.find((p) => p.path === projectRoot);
             if (existing) {
                 existing.lastScan = Date.now();
@@ -123,18 +300,15 @@ export async function registerProject(projectRoot, stats, significance, gitInfo)
                     git: gitInfo ? { branch: gitInfo.branch, commit: gitInfo.commit } : undefined,
                 });
             }
-            // Intentionally NOT wrapped in a try/catch that also swallows this:
-            // a save failure must not be reported as a silent success. The outer
-            // catch below still keeps registerProject itself non-fatal to the
-            // scan, but it no longer pretends the write succeeded when it didn't.
-            await saveRegistry(registry);
-        }
-        catch (err) {
-            // Non-critical to the caller's scan — but surface it so it isn't
-            // completely invisible (was a bare `catch {}` before this fix).
-            console.error(`navgator: failed to register project ${projectRoot} in ~/.navgator/projects.json: ${err instanceof Error ? err.message : String(err)}`);
-        }
-    });
+            return { commit: true, value: undefined };
+        }, 'register');
+    }
+    catch (err) {
+        // Non-critical to the caller's scan — but surface it so it isn't
+        // completely invisible (was a bare `catch {}` before this fix). A save
+        // failure must not be reported as a silent success.
+        console.error(`navgator: failed to register project ${projectRoot} in ~/.navgator/projects.json: ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 /**
  * Read-modify-write a project's metadata, preserving every field the caller
@@ -146,8 +320,7 @@ export async function registerProject(projectRoot, stats, significance, gitInfo)
  * `registerProject` — see that function's comment.
  */
 export async function updateProjectMeta(root, patch) {
-    await withRegistryLock(async () => {
-        const registry = await loadRegistry();
+    await mutateRegistry('update', (registry) => {
         const existing = registry.projects.find((p) => p.path === root);
         if (existing) {
             Object.assign(existing, patch);
@@ -167,8 +340,24 @@ export async function updateProjectMeta(root, patch) {
                 ...patch,
             });
         }
-        await saveRegistry(registry);
-    });
+        return { commit: true, value: undefined };
+    }, 'update');
+}
+/**
+ * Remove a project from the registry. Returns true when an entry was actually
+ * removed, false when the path was not registered.
+ *
+ * Shares the CAS write path so a removal cannot silently resurrect entries a
+ * concurrent writer added — the filter is replayed against the winner's
+ * registry rather than overwriting it with a stale list.
+ */
+export async function removeProject(root) {
+    return mutateRegistry('remove', (registry) => {
+        const before = registry.projects.length;
+        registry.projects = registry.projects.filter((p) => p.path !== root);
+        const removed = registry.projects.length !== before;
+        return { commit: removed, value: removed };
+    }, 'remove');
 }
 // =============================================================================
 // LISTING
@@ -177,7 +366,7 @@ export async function updateProjectMeta(root, patch) {
  * List all registered projects
  */
 export async function listProjects() {
-    const registry = await loadRegistry();
+    const registry = await loadRegistry('listProjects');
     return registry.projects;
 }
 /**

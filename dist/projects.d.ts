@@ -37,25 +37,60 @@ export interface ProjectEntry {
         root: string;
     };
 }
-interface ProjectRegistry {
+export interface ProjectRegistry {
     version: number;
+    /**
+     * Monotonic write counter, bumped once per successful save.
+     *
+     * A writer that loads revision N and finds revision M != N on disk when it
+     * goes to save has detected that someone else committed underneath it — a
+     * lost-update race. See `mutateRegistry`.
+     *
+     * Optional and additive: `version` stays 2, and a v2 file written before this
+     * field existed loads as revision 0. That keeps a registry written by a new
+     * CLI readable by an older dashboard build and vice versa.
+     */
+    revision?: number;
     projects: ProjectEntry[];
 }
 /**
- * Load the project registry with v1→v2 auto-migration
+ * Load the project registry with v1→v2 auto-migration.
+ *
+ * Every call journals a `load` record. The registry has readers in two
+ * compilation units and no other record of access, so "who read this, when"
+ * was previously unanswerable.
  */
-export declare function loadRegistry(): Promise<ProjectRegistry>;
+export declare function loadRegistry(note?: string): Promise<ProjectRegistry>;
 /**
  * Save the project registry.
  *
  * Uses `atomicWriteJSON` (write-to-temp + rename) so a reader never observes
  * a partially-written file. This does NOT by itself prevent the
- * read-modify-write race between concurrent callers within this process —
- * see `withRegistryLock` below, which serializes the load-mutate-save body
- * of `registerProject`/`updateProjectMeta` so writers never clobber each
- * other's in-memory mutations.
+ * read-modify-write race between concurrent callers — see `mutateRegistry`
+ * below, which serializes the load-mutate-save body in-process and detects the
+ * cross-process case by comparing revisions.
+ *
+ * Callers that go through `mutateRegistry` get their revision stamped for them.
+ * A direct call here bumps the revision too, so no write can leave the counter
+ * standing still and make a real conflict look like agreement.
+ *
+ * UNSAFE for concurrent use. This takes NEITHER mutex and performs NO
+ * compare-and-swap — it overwrites whatever is on disk. It exists for callers
+ * that already hold the whole registry and genuinely mean to replace it. Every
+ * production writer must go through `registerProject`, `updateProjectMeta`, or
+ * `removeProject`, which route through `mutateRegistry`.
  */
 export declare function saveRegistry(registry: ProjectRegistry): Promise<void>;
+/**
+ * What a mutation decided. `commit: false` means the mutation was a no-op
+ * (e.g. adding a project that is already registered) and no write should
+ * happen — which also means no revision bump and no spurious conflict for the
+ * next writer.
+ */
+export interface MutationOutcome<T> {
+    commit: boolean;
+    value: T;
+}
 /**
  * Register or update a project after scan.
  * Replaces the inline registry code previously in cli/index.ts.
@@ -76,6 +111,15 @@ export declare function registerProject(projectRoot: string, stats?: {
  */
 export declare function updateProjectMeta(root: string, patch: Partial<Omit<ProjectEntry, 'path'>>): Promise<void>;
 /**
+ * Remove a project from the registry. Returns true when an entry was actually
+ * removed, false when the path was not registered.
+ *
+ * Shares the CAS write path so a removal cannot silently resurrect entries a
+ * concurrent writer added — the filter is replayed against the winner's
+ * registry rather than overwriting it with a stale list.
+ */
+export declare function removeProject(root: string): Promise<boolean>;
+/**
  * List all registered projects
  */
 export declare function listProjects(): Promise<ProjectEntry[]>;
@@ -83,5 +127,4 @@ export declare function listProjects(): Promise<ProjectEntry[]>;
  * Format the project list for CLI display
  */
 export declare function formatProjectsList(projects: ProjectEntry[], json?: boolean): string;
-export {};
 //# sourceMappingURL=projects.d.ts.map

@@ -51,8 +51,23 @@ export {
   listProjects,
   formatProjectsList,
   updateProjectMeta,
+  removeProject,
   type ProjectEntry,
+  type ProjectRegistry,
 } from './projects.js';
+
+// Registry operation journal — every read and write of the project registry
+export {
+  readJournal,
+  formatJournal,
+  appendJournalEvent,
+  appendJournalEventSync,
+  defaultRegistryDir,
+  journalPathForDir,
+  type RegistryJournalEvent,
+  type JournalActor,
+  type JournalOp,
+} from './registry-journal.js';
 
 // Git utilities
 export { getGitInfo } from './git.js';

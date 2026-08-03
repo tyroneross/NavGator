@@ -10,35 +10,17 @@ import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
 import { readFileSync } from "fs";
 import * as path from "path";
-import * as os from "os";
-import { rejectUnsafeMutation } from "@/lib/server/request-guard";
-import { atomicWriteFile } from "@/lib/server/atomic-write";
+import { rejectNonLoopback, rejectUnsafeMutation } from "@/lib/server/request-guard";
+import {
+  loadRegistry,
+  addProject,
+  removeProject,
+  type RegisteredProject,
+} from "@/lib/server/registry-store";
 
 // =============================================================================
 // TYPES
 // =============================================================================
-
-interface RegisteredProject {
-  path: string;
-  name: string;
-  addedAt: number;
-  lastScan: number | null;
-  // Optional fields owned by src/projects.ts's richer ProjectEntry shape.
-  // This route never reconstructs an existing entry (GET spreads `...project`,
-  // POST only pushes brand-new entries) so these are never stripped from
-  // sibling entries on a read-modify-write — declared here only so the
-  // types below don't have to widen to `any`.
-  scanCount?: number;
-  stats?: { components: number; connections: number; prompts: number };
-  git?: { branch: string; commit: string };
-  origin?: { kind: 'local' | 'remote'; url?: string; cachePath?: string };
-  portfolio?: { root: string };
-}
-
-interface ProjectRegistry {
-  version: 2;
-  projects: RegisteredProject[];
-}
 
 interface ProjectWithStatus extends RegisteredProject {
   hasArchitecture: boolean;
@@ -48,42 +30,8 @@ interface ProjectWithStatus extends RegisteredProject {
 }
 
 // =============================================================================
-// REGISTRY PATH
-// =============================================================================
-
-const REGISTRY_DIR = path.join(os.homedir(), ".navgator");
-const REGISTRY_PATH = path.join(REGISTRY_DIR, "projects.json");
-
-// =============================================================================
 // HELPERS
 // =============================================================================
-
-async function loadRegistry(): Promise<ProjectRegistry> {
-  try {
-    const content = await fs.readFile(REGISTRY_PATH, "utf-8");
-    const raw = JSON.parse(content) as { version?: number; projects: RegisteredProject[] };
-    // This route is a secondary writer of the same registry src/projects.ts
-    // owns; align on version 2 so a save from here doesn't regress a v1
-    // literal into a file src/projects.ts has already migrated forward.
-    return { version: 2, projects: raw.projects ?? [] };
-  } catch {
-    return { version: 2, projects: [] };
-  }
-}
-
-async function saveRegistry(registry: ProjectRegistry): Promise<void> {
-  await fs.mkdir(REGISTRY_DIR, { recursive: true });
-  // Same defect class as the in-process registry race fixed in src/projects.ts,
-  // at the one writer that lives outside that module's mutex. The atomicity
-  // rationale and measurements live with the helper.
-  //
-  // Scope, stated precisely: this makes each individual write atomic. It does NOT
-  // serialize the load-mutate-save above, so lost updates remain possible BOTH
-  // between concurrent requests to this route AND cross-process between this route
-  // and the CLI. Only src/projects.ts's mutex covers the in-process case, and this
-  // route deliberately does not share it.
-  await atomicWriteFile(REGISTRY_PATH, JSON.stringify(registry, null, 2));
-}
 
 function extractProjectName(projectPath: string): string {
   try {
@@ -147,8 +95,16 @@ async function enrichProject(project: RegisteredProject): Promise<ProjectWithSta
 // GET /api/projects
 // =============================================================================
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // Same loopback boundary /api/coverage enforces. Without it a page on any
+    // origin can rebind its hostname to 127.0.0.1 and read this same-origin,
+    // exfiltrating every registered absolute project path, name, git branch and
+    // commit on the machine — the exact payload class the journal is careful
+    // never to record. A simple GET gets no preflight, so SOP does not cover it.
+    const nonLoopback = rejectNonLoopback(request);
+    if (nonLoopback) return nonLoopback;
+
     const registry = await loadRegistry();
 
     // Enrich each project with live status
@@ -171,6 +127,18 @@ export async function GET() {
 
 // =============================================================================
 // POST /api/projects
+//
+// Concurrent requests to this route are serialized in-process by
+// registry-store's mutex. A cross-process race against the CLI is PREVENTED by
+// the shared file lock both compilation units take (web/lib/server/registry-lock.ts)
+// — not merely detected: the revision compare-and-swap cannot see two writers
+// that load the same revision in the same tick, since both then pass their own
+// check. Measured on the real registry before the lock existed: 9 collisions,
+// 13 registrations silently lost, 0 conflicts recorded.
+//
+// Not a claim of full atomicity. When the lock cannot be acquired within its
+// budget the write proceeds unlocked (recorded as `locked: false` in the
+// journal), and POSIX offers no atomic compare-and-swap on a rename.
 // =============================================================================
 
 export async function POST(request: NextRequest) {
@@ -188,7 +156,6 @@ export async function POST(request: NextRequest) {
     }
 
     const resolvedPath = path.resolve(projectPath);
-    const registry = await loadRegistry();
 
     if (action === "add") {
       // Check if directory exists
@@ -201,23 +168,22 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Don't add duplicates
-      if (registry.projects.some((p) => p.path === resolvedPath)) {
-        return NextResponse.json({
-          success: true,
-          message: "Project already registered",
-        });
-      }
-
-      registry.projects.push({
-        path: resolvedPath,
+      // The duplicate check lives inside addProject's mutation closure, so a
+      // replay after a detected cross-process conflict re-checks against the
+      // winner's registry rather than the stale pre-conflict snapshot.
+      const { added } = await addProject(resolvedPath, {
         name: extractProjectName(resolvedPath),
         addedAt: Date.now(),
         lastScan: null,
         scanCount: 0,
       });
 
-      await saveRegistry(registry);
+      if (!added) {
+        return NextResponse.json({
+          success: true,
+          message: "Project already registered",
+        });
+      }
 
       return NextResponse.json({
         success: true,
@@ -226,8 +192,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "remove") {
-      registry.projects = registry.projects.filter((p) => p.path !== resolvedPath);
-      await saveRegistry(registry);
+      await removeProject(resolvedPath);
 
       return NextResponse.json({
         success: true,

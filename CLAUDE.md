@@ -128,6 +128,7 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `navgator portfolio [dir]` | Cross-repo dependency/service map; scans a folder of repos, or reports over registered projects with no `dir` |
 | `navgator scan-remote <url>` | Shallow-clone a GitHub repo by URL and scan it (CLI-only, human-initiated) |
 | `navgator arch-diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `--base` ref) |
+| `navgator registry-log` | Show recent reads and writes of the project registry |
 
 ## Agent/Machine Output
 
