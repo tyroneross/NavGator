@@ -196,7 +196,7 @@ function generateDemoConnections(): ConnectionsApiResponse["data"] {
       type: "service-call",
       symbol: "createPaymentIntent",
       line: 45,
-      code: "await stripe.paymentIntents.create({...})",
+      code: "await stripe.paymentIntents.create({...})", // nosec: string literal in opt-in demo fixture data (?demo=true), not a data-store query
     },
     {
       id: "conn-2",
