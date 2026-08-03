@@ -334,6 +334,9 @@ export function registerStatusCommand(program: Command): void {
                 const name = uc.name.padEnd(24);
                 const provider = uc.provider.padEnd(12);
                 console.log(`    ${name} ${provider} ${uc.primaryFile}`);
+                if (uc.structuredOutput && uc.structuredOutput.length > 0) {
+                  console.log(`      structured output: ${uc.structuredOutput.join(', ')}`);
+                }
               }
             }
           }

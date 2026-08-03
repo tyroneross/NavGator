@@ -32,6 +32,12 @@ export interface LLMUseCase {
   feature?: string;
   /** Downstream connections — what this LLM call feeds into (for agent classification) */
   feedsInto?: string[];
+  /** Resolved provider tag from the LLM component's metadata (e.g. 'apple-on-device') */
+  providerTag?: string;
+  /** Resolved kind from the LLM component's metadata (e.g. 'foundation-models') */
+  kind?: string;
+  /** Structured-output contract names (e.g. @Generable schema names) from the LLM component's metadata */
+  structuredOutput?: string[];
 }
 
 export interface LLMDedupResult {
@@ -226,6 +232,7 @@ export function deduplicateLLMUseCases(
   const llmComponents = components.filter(c => c.type === 'llm');
   const llmIds = new Set(llmComponents.map(c => c.component_id));
   const llmNameById = new Map(llmComponents.map(c => [c.component_id, c.name]));
+  const llmComponentById = new Map(llmComponents.map(c => [c.component_id, c]));
 
   if (llmIds.size === 0) {
     return { useCases: [], totalCallSites: 0, productionCallSites: 0, providers: [] };
@@ -382,6 +389,11 @@ export function deduplicateLLMUseCases(
       mainProviderId = bestNonObsId;
     }
     const providerName = llmNameById.get(mainProviderId) || 'unknown';
+    const providerComponent = llmComponentById.get(mainProviderId);
+    const providerTag = providerComponent?.metadata?.provider as string | undefined;
+    const kind = providerComponent?.metadata?.kind as string | undefined;
+    const structuredOutputRaw = providerComponent?.metadata?.generable_schemas as string[] | undefined;
+    const structuredOutput = structuredOutputRaw && structuredOutputRaw.length > 0 ? structuredOutputRaw : undefined;
 
     // Find what the LLM call's file connects to downstream (for agent classification)
     const primaryFileId = `FILE:${mostCommonFile(group.connections)}`;
@@ -404,6 +416,9 @@ export function deduplicateLLMUseCases(
       productionCallSites: group.connections.length,
       groupedBy: group.groupedBy,
       feedsInto: downstream.length > 0 ? downstream : undefined,
+      providerTag,
+      kind,
+      structuredOutput,
     });
   }
 

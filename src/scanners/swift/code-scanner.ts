@@ -115,11 +115,15 @@ const LLM_URL_PATTERNS: { pattern: RegExp; provider: string }[] = [
 ];
 
 // Swift SDK import patterns for LLMs
+// NOTE: FoundationModels is intentionally NOT here — it has its own dedicated,
+// import-gated pass (scanFoundationModelsUsage below) because a bare
+// `.respond(` or `@Generable` collides heavily with unrelated Swift APIs
+// (URLSession delegates, custom protocols) and previously false-positived
+// outside FoundationModels-importing files. See KNOWN-ISSUES.md (closed).
 const LLM_IMPORT_PATTERNS: { pattern: RegExp; provider: string }[] = [
   { pattern: /^import\s+OpenAI\b/, provider: 'OpenAI' },
   { pattern: /^import\s+Anthropic\b/, provider: 'Claude (Anthropic)' },
   { pattern: /^import\s+GoogleGenerativeAI\b/, provider: 'Gemini (Google)' },
-  { pattern: /^import\s+FoundationModels\b/, provider: 'Apple Intelligence' },
 ];
 
 // Swift SDK call patterns
@@ -131,10 +135,45 @@ const LLM_CALL_PATTERNS: { pattern: RegExp; provider: string }[] = [
   { pattern: /\.messages\.create\(/, provider: 'Claude (Anthropic)' },
   { pattern: /GenerativeModel\(name:/, provider: 'Gemini (Google)' },
   { pattern: /\.generateContent\(/, provider: 'Gemini (Google)' },
-  { pattern: /LanguageModelSession\(\)/, provider: 'Apple Intelligence' },
-  { pattern: /\.respond\(to:/, provider: 'Apple Intelligence' },
-  { pattern: /@Generable\b/, provider: 'Apple Intelligence' },
 ];
+
+// =============================================================================
+// FOUNDATIONMODELS (Apple on-device) DETECTION
+// =============================================================================
+//
+// Gated on `import FoundationModels` appearing in the SAME file — required
+// anchor per T1 Apple docs (developer.apple.com symbol JSON, 2026-08-03).
+// Within a gated file, any of the following register a use case:
+//   1. A `@Generable`-annotated struct/enum (bare, `(description:)`, or
+//      `(name:description:)` — struct/enum only; the annotation may sit on
+//      the line above the declaration).
+//   2. `LanguageModelSession(` with any arguments, or the trailing-closure
+//      construction form `LanguageModelSession { ... }` — there is no
+//      zero-arg initializer, so a prior zero-arg-only pattern matched
+//      nothing real.
+//   3. `respond(to:`, `respond(generating:`, `respond(options:`,
+//      `streamResponse(`, `SystemLanguageModel`, or `@Guide(` — confirming
+//      signals only, never standalone (they collide with unrelated Swift
+//      APIs outside a FoundationModels-importing file).
+const FOUNDATION_MODELS_IMPORT = /^\s*import\s+FoundationModels\b/;
+const FOUNDATION_MODELS_SESSION_CTOR = /LanguageModelSession\s*(?:\(|\{)/;
+const FOUNDATION_MODELS_CONFIRMING: RegExp[] = [
+  /\.respond\(\s*to:/,
+  /\.respond\(\s*generating:/,
+  /\.respond\(\s*options:/,
+  /\.streamResponse\(/,
+  /\bSystemLanguageModel\b/,
+  /@Guide\(/,
+];
+const GENERABLE_ANNOTATION = /@Generable\b(?:\([^)]*\))?/;
+const STRUCT_ENUM_DECL = /^\s*(?:(?:public|private|internal|open|final)\s+)*(?:struct|enum)\s+(\w+)/;
+
+interface FoundationModelsFileHit {
+  file: string;
+  line: number;
+  symbol: string;
+  snippet: string;
+}
 
 // =============================================================================
 // MAIN SCANNER
@@ -462,11 +501,14 @@ export async function scanSwiftCode(
   // ---- LLM API calls ----
   const llmCalls = scanLLMCalls(files);
   for (const call of llmCalls) {
-    const compId = generateComponentId('llm', call.provider);
-    // Only add component if not already present
-    if (!components.find(c => c.name === call.provider && c.type === 'llm')) {
-      components.push({
-        component_id: compId,
+    // Reuse the existing component's id when present — generateComponentId()
+    // appends a random suffix, so recomputing it here (rather than reusing
+    // the id actually pushed to `components`) would leave every subsequent
+    // file's connection pointing at a component that was never created.
+    let llmComponent = components.find(c => c.name === call.provider && c.type === 'llm');
+    if (!llmComponent) {
+      llmComponent = {
+        component_id: generateComponentId('llm', call.provider),
         name: call.provider,
         type: 'llm',
         role: { purpose: `${call.provider} LLM API`, layer: 'external', critical: true },
@@ -477,13 +519,17 @@ export async function scanSwiftCode(
         tags: ['swift', 'llm', 'external'],
         timestamp,
         last_updated: timestamp,
-      });
+      };
+      components.push(llmComponent);
     }
 
     connections.push({
       connection_id: generateConnectionId('service-call'),
-      from: { component_id: generateComponentId('other', call.file), location: { file: call.file, line: call.line } },
-      to: { component_id: compId },
+      // FILE: form (matching env-scanner.ts:469, deploy-scanner.ts:440,468) so
+      // scanner.ts:1578-1592 resolves it to the owning component instead of a
+      // random `generateComponentId('other', ...)` id that was never pushed.
+      from: { component_id: `FILE:${call.file}`, location: { file: call.file, line: call.line } },
+      to: { component_id: llmComponent.component_id },
       connection_type: 'service-call',
       code_reference: {
         file: call.file,
@@ -498,6 +544,70 @@ export async function scanSwiftCode(
       timestamp,
       last_verified: timestamp,
     });
+  }
+
+  // ---- FoundationModels (Apple on-device) — dedicated pass ----
+  const foundationModels = scanFoundationModelsUsage(files);
+  if (foundationModels.calls.length > 0) {
+    const allSchemas = new Set<string>();
+    for (const schemaSet of foundationModels.schemas.values()) {
+      for (const s of schemaSet) allSchemas.add(s);
+    }
+    const fmProvider = 'Apple Foundation Models';
+    let fmComponent = components.find(c => c.name === fmProvider && c.type === 'llm');
+    if (!fmComponent) {
+      fmComponent = {
+        component_id: generateComponentId('llm', fmProvider),
+        name: fmProvider,
+        type: 'llm',
+        role: { purpose: `${fmProvider} on-device API`, layer: 'external', critical: true },
+        source: { detection_method: 'auto', config_files: [], confidence: 0.9 },
+        connects_to: [],
+        connected_from: [],
+        status: 'active',
+        tags: ['swift', 'llm', 'external', 'apple-on-device'],
+        metadata: {
+          provider: 'apple-on-device',
+          kind: 'foundation-models',
+          generable_schemas: [...allSchemas],
+        },
+        timestamp,
+        last_updated: timestamp,
+      };
+      components.push(fmComponent);
+    } else {
+      const existingSchemas = new Set<string>(
+        (fmComponent.metadata?.generable_schemas as string[] | undefined) || []
+      );
+      for (const s of allSchemas) existingSchemas.add(s);
+      fmComponent.metadata = {
+        ...fmComponent.metadata,
+        provider: 'apple-on-device',
+        kind: 'foundation-models',
+        generable_schemas: [...existingSchemas],
+      };
+    }
+
+    for (const call of foundationModels.calls) {
+      connections.push({
+        connection_id: generateConnectionId('service-call'),
+        from: { component_id: `FILE:${call.file}`, location: { file: call.file, line: call.line } },
+        to: { component_id: fmComponent.component_id },
+        connection_type: 'service-call',
+        code_reference: {
+          file: call.file,
+          symbol: call.symbol,
+          symbol_type: 'function',
+          line_start: call.line,
+          code_snippet: call.snippet.slice(0, 100),
+        },
+        description: `${fmProvider} API call in ${call.file}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.9,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
   }
 
   // ---- Entitlement requirements ----
@@ -884,6 +994,80 @@ function scanLLMCalls(files: SwiftFileInfo[]): LLMApiCall[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Dedicated FoundationModels (Apple on-device LLM) detection pass.
+ * Gated on `import FoundationModels` in the same file — see the constants
+ * block above for the full rationale and pattern list.
+ */
+function scanFoundationModelsUsage(files: SwiftFileInfo[]): {
+  calls: FoundationModelsFileHit[];
+  schemas: Map<string, Set<string>>;
+} {
+  const calls: FoundationModelsFileHit[] = [];
+  const schemas = new Map<string, Set<string>>();
+
+  for (const file of files) {
+    // False-positive guard: nothing below runs unless this file imports
+    // FoundationModels.
+    if (!file.lines.some(l => FOUNDATION_MODELS_IMPORT.test(l))) continue;
+
+    let fileHasSignal = false;
+    let hitLine = -1;
+    let hitSymbol = '';
+    let hitSnippet = '';
+
+    for (let i = 0; i < file.lines.length; i++) {
+      const line = file.lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
+
+      // @Generable-annotated struct/enum. The annotation may be inline with
+      // the declaration or on the preceding line(s).
+      if (GENERABLE_ANNOTATION.test(line)) {
+        let name: string | undefined;
+        const inlineDecl = line.replace(GENERABLE_ANNOTATION, '').match(STRUCT_ENUM_DECL);
+        if (inlineDecl) {
+          name = inlineDecl[1];
+        } else {
+          for (let j = i + 1; j < Math.min(i + 4, file.lines.length); j++) {
+            if (file.lines[j].trim() === '') continue;
+            const declMatch = file.lines[j].match(STRUCT_ENUM_DECL);
+            if (declMatch) name = declMatch[1];
+            break; // only the nearest non-blank line counts
+          }
+        }
+        if (name) {
+          if (!schemas.has(file.relativePath)) schemas.set(file.relativePath, new Set());
+          schemas.get(file.relativePath)!.add(name);
+          if (!fileHasSignal) {
+            fileHasSignal = true;
+            hitLine = i + 1;
+            hitSymbol = name;
+            hitSnippet = trimmed;
+          }
+        }
+      }
+
+      // Session construction (any-argument or trailing-closure form) or a
+      // confirming signal.
+      const isConstruction = FOUNDATION_MODELS_SESSION_CTOR.test(line);
+      const isConfirming = FOUNDATION_MODELS_CONFIRMING.some(p => p.test(line));
+      if ((isConstruction || isConfirming) && !fileHasSignal) {
+        fileHasSignal = true;
+        hitLine = i + 1;
+        hitSymbol = extractNearestSymbol(file.lines, i) || 'LanguageModelSession';
+        hitSnippet = trimmed;
+      }
+    }
+
+    if (fileHasSignal) {
+      calls.push({ file: file.relativePath, line: hitLine, symbol: hitSymbol, snippet: hitSnippet });
+    }
+  }
+
+  return { calls, schemas };
 }
 
 // =============================================================================

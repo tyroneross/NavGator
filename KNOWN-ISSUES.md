@@ -4,57 +4,67 @@ Track issues with known repro and clear remediation paths. Closed issues move to
 
 ---
 
-## llm-map: Apple FoundationModels `@Generable` types not detected
+## Closed
 
-**Status:** open
+### llm-map: Apple FoundationModels `@Generable` types not detected
+
+**Status:** closed
 **Reported:** 2026-05-01
+**Closed:** 2026-08-03
 **Reporter:** FlowDoro tech-debt audit
 **Severity:** signal-quality (false-negative)
 
-### Symptom
+**Resolution:** the FoundationModels patterns were not previously undetected —
+`code-scanner.ts` already had an `import FoundationModels` → `Apple
+Intelligence` mapping plus a zero-arg-only `LanguageModelSession()` pattern,
+`.respond(to:`, and `@Generable`. The prior state was *partial and
+untagged*: (1) `LanguageModelSession()` matched only Apple's non-existent
+zero-arg initializer, so it matched nothing real (T1 Apple docs,
+developer.apple.com symbol JSON, 2026-08-03: `instructions:`/`transcript:` is
+always required); (2) `.respond(to:` and `@Generable` were registered as
+standalone, ungated patterns, which both under-counted (any file lacking
+those exact substrings was missed) and risked false-positiving on unrelated
+Swift APIs (URLSession delegates, custom `respond` methods) since they were
+never gated on `import FoundationModels`; (3) no `provider`/`kind` tagging or
+`@Generable` schema-name capture existed.
 
-Running `navgator llm-map` on `~/dev/git-folder/FlowDoro` reports a single LLM use case (`TaskDecomposer`). FlowDoro actually has at least two LLM-driven flows:
+Fixed with a dedicated, import-gated detection pass
+(`scanFoundationModelsUsage` in `src/scanners/swift/code-scanner.ts`) that:
+- requires `import FoundationModels` in the same file before anything else
+  fires (closes the false-positive risk);
+- matches `LanguageModelSession(` with any arguments plus the
+  trailing-closure construction form (there is no zero-arg initializer);
+- captures `@Generable`-annotated `struct`/`enum` names (bare,
+  `(description:)`, and `(name:description:)` forms; annotation may sit on
+  the preceding line);
+- treats `respond(to:`, `respond(generating:`, `streamResponse(`,
+  `SystemLanguageModel`, and `@Guide(` as confirming-only signals.
 
-1. **Phase 1: TaskDecomposer** — caught correctly (uses Groq + on-device routing).
-2. **Phase 2: PlanCoachService** — *not detected*. Calls Apple FoundationModels via a typed `@Generable` request shape (`Shared/Services/PlanCoachService.swift`), routed through `AppleOnDeviceCoachInferrer` and `EstimationCoachInferring`.
+Emits a single `Apple Foundation Models` component (`type: 'llm'`,
+`role.layer: 'external'`) tagged `metadata.provider: 'apple-on-device'`,
+`metadata.kind: 'foundation-models'`, and `metadata.generable_schemas:
+string[]`. `LLMUseCase` (`src/llm-dedup.ts`) gained optional `providerTag`,
+`kind`, and `structuredOutput`, surfaced in `navgator llm-map` and `navgator
+status`. Also fixed two pre-existing orphan-id bugs in the Swift LLM
+connection emission (`code-scanner.ts:462-501`) that produced dangling
+connection endpoints on every Swift LLM call, including this new pass had it
+reused the old pattern.
 
-The `llm-map` heuristic appears to scan for HTTP-style cloud-provider call patterns (URL string → `URLRequest` → `URLSession`) and on-device adapter classes that explicitly name a provider. It misses the `@Generable` / `LanguageModelSession.respond(to:)` shape that Apple FoundationModels apps adopt.
+Tests: `src/__tests__/swift-foundation-models.test.ts` (new),
+`src/__tests__/llm-dedup.test.ts` (appended).
 
-### Why this matters
-
-Apple FoundationModels is the on-device-first path for any iOS 26+ / macOS 26+ app, and the `@Generable` typed-output shape is the canonical Apple pattern (per WWDC 2024 + 2025 sessions). An `llm-map` that misses it will under-count LLM surface area on every Apple-native app that follows Apple's own guidance — exactly the apps most likely to be on the leading edge.
-
-### Suggested heuristic addition
-
-Detect any Swift file matching at least one of:
-
-1. `import FoundationModels` AND a type annotated with `@Generable`
-2. A call site that constructs `LanguageModelSession(...)` (any initializer)
-3. A call site invoking `.respond(to:)`, `.respond(to:generating:)`, or any
-   `respond(...)` overload on a `LanguageModelSession` value
-
-Each match should register an LLM use case tagged `provider: apple-on-device`, `kind: foundation-models`, with the `@Generable` schema name surfaced (when present) as the structured-output contract.
-
-### Repro
+**Original symptom (for reference):** `navgator llm-map` on
+`~/dev/git-folder/FlowDoro` reported a single LLM use case
+(`TaskDecomposer`), missing the FoundationModels-driven
+`Shared/Services/PlanCoachService.swift` flow entirely. Repro at the time:
 
 ```bash
 cd ~/dev/git-folder/FlowDoro
 navgator llm-map
-# observe single TaskDecomposer hit
+# observed single TaskDecomposer hit
 grep -rln "FoundationModels\|@Generable\|LanguageModelSession" Shared/ | sort -u
-# observe additional files: PlanCoachService.swift, EstimationCoachInferring.swift,
+# observed additional files: PlanCoachService.swift, EstimationCoachInferring.swift,
 # any *.swift with @Generable types
 ```
-
-### Workaround until fix lands
-
-For Apple-native apps, supplement `navgator llm-map` output with:
-
-```bash
-grep -rln "@Generable\|LanguageModelSession\|import FoundationModels" \
-     <repo>/Shared <repo>/iOS <repo>/macOS 2>/dev/null
-```
-
-Treat each unique file as a candidate use case; reconcile by hand.
 
 ---

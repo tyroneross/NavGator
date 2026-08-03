@@ -182,4 +182,37 @@ describe('deduplicateLLMUseCases', () => {
     expect(result.useCases[0].productionCallSites).toBe(3); // b.ts has 3
     expect(result.useCases[1].productionCallSites).toBe(1); // a.ts has 1
   });
+
+  // FoundationModels tagging (KNOWN-ISSUES.md, closed 2026-08-03)
+
+  it('surfaces providerTag, kind, and structuredOutput from the resolved LLM component metadata', () => {
+    const appleFM = createMockComponent({
+      name: 'Apple Foundation Models',
+      type: 'llm',
+      component_id: 'COMP_llm_apple_foundation_models_test',
+      role: { purpose: 'Apple Foundation Models on-device API', layer: 'external', critical: true },
+      metadata: {
+        provider: 'apple-on-device',
+        kind: 'foundation-models',
+        generable_schemas: ['PlanCoachRequest'],
+      },
+    });
+    const conns = [
+      llmConn('Shared/Services/PlanCoachService.swift', 'PlanCoachRequest', appleFM.component_id),
+    ];
+    const result = deduplicateLLMUseCases([appleFM], conns);
+    expect(result.useCases).toHaveLength(1);
+    expect(result.useCases[0].providerTag).toBe('apple-on-device');
+    expect(result.useCases[0].kind).toBe('foundation-models');
+    expect(result.useCases[0].structuredOutput).toEqual(['PlanCoachRequest']);
+  });
+
+  it('leaves providerTag, kind, and structuredOutput undefined when the LLM component carries no metadata', () => {
+    const conns = [llmConn('src/ai.ts', 'summarize', openai.component_id)];
+    const result = deduplicateLLMUseCases([openai], conns);
+    expect(result.useCases).toHaveLength(1);
+    expect(result.useCases[0].providerTag).toBeUndefined();
+    expect(result.useCases[0].kind).toBeUndefined();
+    expect(result.useCases[0].structuredOutput).toBeUndefined();
+  });
 });
