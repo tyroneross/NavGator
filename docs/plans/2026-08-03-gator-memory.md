@@ -33,10 +33,18 @@ no configuration, no setup step. Every user gets it on their first scan.
     └── <slug>.json       DURABLE per-project record — THE SOURCE OF TRUTH
 ```
 
-`projects/<slug>.json` is the source of truth. `index.json` and `events.jsonl`
-are derived and can both be deleted without losing a single fact about any
-project — every event is also folded into its owning project's `milestones[]`.
-That property is what makes rotation and compaction safe to do aggressively.
+`projects/<slug>.json` is the source of truth. Every event is also folded into
+its owning project's `milestones[]`, so `index.json` and `events.jsonl` can both
+be deleted while every project's identity, counters, and most recent milestones
+survive.
+
+Be precise about the limit, because it is easy to overclaim here: `milestones[]`
+is CAPPED and evicts oldest-first, so a project with more lifetime events than
+the cap has older chronology that exists only in `events.jsonl` until rotation
+drops it. The honest statement is that the per-project record survives
+independently of the derived files, not that no fact is ever lost. The cap is
+what bounds a single project's file, and accepting that bound is a deliberate
+trade for unbounded growth.
 
 **Slug** = `kebab(basename)` + `-` + `sha256(resolvedPath).slice(0,8)`. The
 digest is what keeps two directories both named `web` distinct. It is also why

@@ -525,6 +525,28 @@ export function selectScanMode(
 /**
  * Run a full architecture scan
  */
+/**
+ * Does a timeline diff agree with the component count the scan actually
+ * persisted?
+ *
+ * A diff whose `components_after` disagrees with what was just written is
+ * describing a different scan than the one that happened. See the call site in
+ * `scan()` for the two real entries in this repo's own timeline that exhibit
+ * it, and why the resulting event is suppressed rather than repaired here (the
+ * root cause is upstream in the Phase 5 snapshot build; this boundary only
+ * refuses to make it durable).
+ *
+ * Returns false when there is no diff at all, so the caller's ternary handles
+ * both "nothing to report" and "cannot be trusted" the same way.
+ */
+export function isDiffConsistentWithScan(
+  entry: TimelineEntry | undefined,
+  finalComponentCount: number
+): boolean {
+  if (!entry?.diff) return false;
+  return entry.diff.stats.components_after === finalComponentCount;
+}
+
 export async function scan(
   projectRoot?: string,
   options: ScanOptions = {}
@@ -2139,12 +2161,29 @@ export async function scan(
       gitInfo,
       // Already computed above (Phase 5); previously discarded at this
       // boundary. Feeds gator-memory's 'architecture.changed' event.
-      timelineEntry?.diff
+      //
+      // Gated on the diff agreeing with what this scan actually wrote. On the
+      // full-scan path `buildCurrentSnapshot` can read empty storage and
+      // produce a diff that says everything was removed: this repo's own
+      // timeline carries two such entries (TL_20260530080058 and
+      // TL_20260602062857, both `components_after: 0` with `total_changes:
+      // 636`) immediately before an entry reporting 265 components. Nothing
+      // was removed; the diff is simply wrong.
+      //
+      // That upstream defect predates gator-memory, but forwarding it here is
+      // what would make it DURABLE — written into a project's permanent
+      // milestone list and mirrored into build-loop-memory as an
+      // authoritative-looking narrative. Recording nothing is strictly better
+      // than recording a confident falsehood, so the event is suppressed
+      // rather than guessed at. The check is not a heuristic: the diff's own
+      // `components_after` must match the component count this scan just
+      // persisted, or the two disagree and the diff loses.
+      isDiffConsistentWithScan(timelineEntry, finalComponents.length)
         ? {
-            componentsAdded: timelineEntry.diff.components.added.length,
-            componentsRemoved: timelineEntry.diff.components.removed.length,
-            connectionsAdded: timelineEntry.diff.connections.added.length,
-            connectionsRemoved: timelineEntry.diff.connections.removed.length,
+            componentsAdded: timelineEntry!.diff.components.added.length,
+            componentsRemoved: timelineEntry!.diff.components.removed.length,
+            connectionsAdded: timelineEntry!.diff.connections.added.length,
+            connectionsRemoved: timelineEntry!.diff.connections.removed.length,
           }
         : undefined
     );

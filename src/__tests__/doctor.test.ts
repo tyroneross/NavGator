@@ -18,6 +18,7 @@ import {
   computeHealth,
   isTmpRootedPath,
   classifyRegistryEntries,
+  selectPrunableEntries,
 } from '../memory/health.js';
 import { registerProject, loadRegistry } from '../projects.js';
 import { recordMemoryEvent, readProjectMemory } from '../memory/store.js';
@@ -266,9 +267,12 @@ describe('fixRegistry — end to end', () => {
       expect(outcome.cleanup!.removedFromRegistry).toBe(1);
       expect(outcome.cleanup!.removedFromMemory).toBe(1);
 
-      // Backup exists AND parses.
-      expect(fs.existsSync(outcome.cleanup!.backupPath)).toBe(true);
-      const backupContent = JSON.parse(fs.readFileSync(outcome.cleanup!.backupPath, 'utf-8'));
+      // Backup exists AND parses. Non-null assertion is safe here: status
+      // 'cleaned' always carries a real backup path (only 'nothing-to-clean'
+      // reports null — see FixCleanupResult's header).
+      const backupPath = outcome.cleanup!.backupPath!;
+      expect(fs.existsSync(backupPath)).toBe(true);
+      const backupContent = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
       expect(Array.isArray(backupContent.projects)).toBe(true);
 
       // Only the prunable entry is gone; the real one survives.
@@ -306,7 +310,15 @@ describe('fixRegistry — end to end', () => {
       const outcome = await fixRegistry({ yes: true });
 
       expect(outcome.status).toBe('nothing-to-clean');
-      expect(outcome.cleanup).toBeUndefined();
+      // f6: nothing-to-clean now ALWAYS carries a `cleanup` object with
+      // explicit zero counts and a null backup path — an ABSENT `cleanup`
+      // is what made the dashboard misdiagnose a healthy registry as a
+      // broken CLI build (see web/app/api/registry-health/route.ts:135-143).
+      expect(outcome.cleanup).toEqual({
+        removedFromRegistry: 0,
+        removedFromMemory: 0,
+        backupPath: null,
+      });
 
       const registryDir = defaultRegistryDir();
       const backups = fs
@@ -316,6 +328,140 @@ describe('fixRegistry — end to end', () => {
 
       const after = await loadRegistry();
       expect(after.projects.length).toBe(before.projects.length);
+    } finally {
+      fs.rmSync(realPath, { recursive: true, force: true });
+    }
+  });
+});
+
+// =============================================================================
+// 7. f1 — ORPHANED MEMORY RECORDS (no registry entry at all, not just a
+//    missing/tmp-rooted one) MUST be reachable and removable by `--fix`.
+//
+// Reproduces the dashboard delete path: `web/lib/server/registry-store.ts` is
+// a separate compilation unit that writes `projects.json` directly and
+// cannot import the memory store, so it can never emit a `project.removed`
+// event. These tests write `projects.json` directly for the same reason —
+// simulating exactly that bypass, not exercising `pruneProjects` (which
+// remains the only registry-mutation path `fixRegistry` itself is allowed to
+// use).
+// =============================================================================
+
+describe('fixRegistry — orphaned memory records (f1)', () => {
+  it('closes f1: an orphan is reported, --fix removes it, and the record is gone', async () => {
+    const keptPath = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-doctor-orphan-kept-'));
+    const droppedPath = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-doctor-orphan-dropped-'));
+    try {
+      await registerProject(keptPath, { components: 1, connections: 1, prompts: 0 });
+      await registerProject(droppedPath, { components: 1, connections: 1, prompts: 0 });
+
+      // Simulate the dashboard's delete path: drop one entry from
+      // projects.json directly, leaving its gator-memory record behind with
+      // no registry entry to shadow it — the definition of an orphan.
+      const registryPath = path.join(defaultRegistryDir(), 'projects.json');
+      const raw = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      raw.projects = raw.projects.filter((p: { path: string }) => p.path !== droppedPath);
+      fs.writeFileSync(registryPath, JSON.stringify(raw, null, 2));
+
+      const before = await computeHealth();
+      expect(before.memory.orphaned).toBe(1);
+      expect(before.findings.some((f) => f.code === 'memory-orphaned')).toBe(true);
+
+      const outcome = await fixRegistry({ yes: true });
+      expect(outcome.status).toBe('cleaned');
+      expect(outcome.cleanup!.removedFromMemory).toBe(1);
+      // Nothing was prunable from the registry side — the dropped path was
+      // never a registry entry by the time --fix ran, only its orphaned
+      // memory record was.
+      expect(outcome.cleanup!.removedFromRegistry).toBe(0);
+
+      const after = await computeHealth();
+      expect(after.memory.orphaned).toBe(0);
+      expect(readProjectMemory(droppedPath)).toBeNull();
+
+      // The surviving project's registry entry and memory record are
+      // untouched.
+      const registry = await loadRegistry();
+      expect(registry.projects.map((p) => p.path)).toContain(keptPath);
+      expect(readProjectMemory(keptPath)).not.toBeNull();
+    } finally {
+      fs.rmSync(keptPath, { recursive: true, force: true });
+      fs.rmSync(droppedPath, { recursive: true, force: true });
+    }
+  });
+
+  it('backs up an orphan record before deleting it', async () => {
+    const droppedPath = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-doctor-orphan-backup-'));
+    try {
+      await registerProject(droppedPath, { components: 1, connections: 1, prompts: 0 });
+
+      const registryPath = path.join(defaultRegistryDir(), 'projects.json');
+      const raw = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      raw.projects = raw.projects.filter((p: { path: string }) => p.path !== droppedPath);
+      fs.writeFileSync(registryPath, JSON.stringify(raw, null, 2));
+
+      const outcome = await fixRegistry({ yes: true });
+      expect(outcome.status).toBe('cleaned');
+      expect(outcome.cleanup!.backupPath).not.toBeNull();
+
+      const memoryBackupDir = `${outcome.cleanup!.backupPath}.memory`;
+      expect(fs.existsSync(memoryBackupDir)).toBe(true);
+      const backedUpFiles = fs.readdirSync(memoryBackupDir);
+      expect(backedUpFiles.length).toBe(1);
+
+      const parsed = JSON.parse(fs.readFileSync(path.join(memoryBackupDir, backedUpFiles[0]!), 'utf-8'));
+      expect(parsed.path).toBe(droppedPath);
+    } finally {
+      fs.rmSync(droppedPath, { recursive: true, force: true });
+    }
+  });
+
+  it('is NOT nothing-to-clean when the registry has nothing prunable but one orphan exists', async () => {
+    const keptPath = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-doctor-orphan-onlyorphan-'));
+    const droppedPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'navgator-doctor-orphan-onlyorphan-dropped-')
+    );
+    try {
+      await registerProject(keptPath, { components: 1, connections: 1, prompts: 0 });
+      await registerProject(droppedPath, { components: 1, connections: 1, prompts: 0 });
+
+      const registryPath = path.join(defaultRegistryDir(), 'projects.json');
+      const raw = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      raw.projects = raw.projects.filter((p: { path: string }) => p.path !== droppedPath);
+      fs.writeFileSync(registryPath, JSON.stringify(raw, null, 2));
+
+      // Nothing tmp-rooted-and-missing in the surviving registry — the only
+      // thing `--fix` has to do here is the orphan.
+      const registry = await loadRegistry();
+      const classifications = classifyRegistryEntries(registry.projects);
+      expect(selectPrunableEntries(classifications)).toHaveLength(0);
+
+      const outcome = await fixRegistry({ yes: true });
+      expect(outcome.status).toBe('cleaned');
+      expect(outcome.cleanup!.removedFromRegistry).toBe(0);
+      expect(outcome.cleanup!.removedFromMemory).toBe(1);
+    } finally {
+      fs.rmSync(keptPath, { recursive: true, force: true });
+      fs.rmSync(droppedPath, { recursive: true, force: true });
+    }
+  });
+
+  it('IS nothing-to-clean, with a zero-count cleanup object, when there is nothing prunable and no orphans (f6)', async () => {
+    const realPath = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-doctor-orphan-clean-'));
+    try {
+      await registerProject(realPath, { components: 1, connections: 1, prompts: 0 });
+
+      const outcome = await fixRegistry({ yes: true });
+
+      expect(outcome.status).toBe('nothing-to-clean');
+      // f6 closure: the zero-count `cleanup` object must be present (not
+      // omitted) so a JSON/agent caller can distinguish "ran, found nothing"
+      // from "didn't run" / "build broken".
+      expect(outcome.cleanup).toEqual({
+        removedFromRegistry: 0,
+        removedFromMemory: 0,
+        backupPath: null,
+      });
     } finally {
       fs.rmSync(realPath, { recursive: true, force: true });
     }

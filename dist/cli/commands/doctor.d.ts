@@ -3,8 +3,12 @@
  *
  * Default: read-only report (Registry, Growth, Reliability, Memory store,
  * Mirror, then a verdict + findings). `--fix` prunes tmp-rooted-and-missing
- * registry entries (opt-in wider with `--include-missing`) and the
- * gator-memory records that reference them. `--mirror` runs a one-off
+ * registry entries (opt-in wider with `--include-missing`), the gator-memory
+ * records that shadowed them, AND any gator-memory record left ORPHANED by a
+ * project removed outside this CLI (the dashboard deletes through
+ * `web/lib/server/registry-store.ts`, a separate compilation unit that
+ * writes `projects.json` directly and cannot emit a memory event) — see
+ * `reconcileMemory` in `src/memory/store.ts`. `--mirror` runs a one-off
  * `mirrorAll()` and reports the result.
  *
  * `--json`/`--agent` on the default and `--fix` paths emit the FROZEN shape
@@ -17,7 +21,16 @@
 import { Command } from 'commander';
 export declare function registerDoctorCommand(program: Command): void;
 export interface FixCleanupResult {
-    backupPath: string;
+    /**
+     * `null` on the nothing-to-clean outcome only — no registry write and no
+     * memory removal happened, so there is nothing to have backed up. Every
+     * outcome that actually mutates something (`'cleaned'`) always writes a
+     * registry backup first and reports its path here. See f6: an ABSENT
+     * `cleanup` field (not a `null` backupPath) is what the dashboard reads as
+     * "build is broken" (`web/app/api/registry-health/route.ts:135-143`), so
+     * nothing-to-clean must still emit this object, just with a null path.
+     */
+    backupPath: string | null;
     removedFromRegistry: number;
     removedFromMemory: number;
 }

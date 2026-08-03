@@ -16,10 +16,19 @@
  * `events.jsonl`. This is the property that makes compaction/rotation safe:
  * `index.json` is a derived rollup (regenerable from the per-project files —
  * see `rebuildMemoryIndex`) and `events.jsonl` is a derived chronology (each
- * event is ALSO folded into the owning project's `milestones[]`, so losing a
- * rotated generation loses recent cross-project ordering but never loses a
- * fact about any one project). Both can be deleted without losing knowledge;
- * `projects/<slug>.json` cannot.
+ * event is ALSO folded into the owning project's `milestones[]`).
+ *
+ * Be precise about that last part rather than overclaiming, because the
+ * tempting shorthand — "both can be deleted without losing knowledge" — is
+ * FALSE. `milestones[]` is capped at `maxMilestones()` and evicts oldest
+ * first, so a project with more lifetime events than the cap has older
+ * chronology that exists ONLY in `events.jsonl` until rotation drops it. The
+ * accurate statement is narrower and still strong: deleting the derived files
+ * preserves every project's identity, counters, latest stats, and most recent
+ * milestones, and `projects/<slug>.json` is the only file whose loss is
+ * unrecoverable. Losing a rotated event generation costs old cross-project
+ * ordering and the tail of a long-lived project's history — an accepted trade
+ * for a hard bound, not a free one.
  *
  * `index.json` IS NOT ON THE CAPTURE WRITE PATH, and that is a correctness
  * requirement rather than a performance preference. Capture deliberately runs
@@ -42,12 +51,36 @@
  * `rebuildMemoryIndex`, called from hygiene and mirror paths that are
  * single-threaded by construction. Readers never depend on it being current.
  *
+ * Single-project scope stops DIFFERENT projects from contending for the same
+ * file, but says nothing about the SAME project scanned concurrently — the
+ * dashboard and a CLI scan hitting one repo together, or a future caller that
+ * reaches `recordMemoryEvent` without `scanPortfolio`'s per-project
+ * partitioning. `writeProjectRecordWithCAS` closes that gap with a per-slug
+ * compare-and-swap, NOT a store-wide mutex or lock file — the whole point of
+ * this design is that capture stays off the shared-rollup path and outside
+ * the registry's locks. It reads the record, computes the candidate, and
+ * immediately re-reads the same file with nothing but two more `*Sync` calls
+ * in between; if the file changed since the first read, the SAME event is
+ * re-applied to the fresh winner and the attempt retries, bounded at 5
+ * (mirroring `MAX_CAS_ATTEMPTS` in `src/projects.ts:272`), then commits
+ * unconditionally on the last attempt. Because the whole read-compare-write
+ * runs on synchronous fs calls with no `await` in between, one in-process
+ * call cannot be interleaved by another in-process call at all — the first
+ * iteration always wins against same-process contention. Across processes,
+ * true OS-level parallelism remains possible in the syscall-width window
+ * between the check-read and the rename; the same honest limit
+ * `mutateRegistry`'s header documents for the registry applies here too.
+ *
  * Bounded by construction, mirroring `registry-journal.ts`'s posture exactly:
- *   - `milestones[]` on a project record is capped at `MAX_MILESTONES`, oldest
+ *   - `milestones[]` on a project record is capped at `maxMilestones()`
+ *     (env `NAVGATOR_MEMORY_MAX_MILESTONES` > `memory.maxMilestonesPerProject`
+ *     in `~/.navgator/config.json` > the `MAX_MILESTONES` default), oldest
  *     evicted first, so a single long-lived project's file cannot grow
  *     without limit no matter how many scans it accumulates.
- *   - `events.jsonl` rotates to `events.1.jsonl` at `maxEventBytes()`, one
- *     generation only, so the chronology is capped at
+ *   - `events.jsonl` rotates to `events.1.jsonl` at `maxEventBytes()` (same
+ *     ladder: env `NAVGATOR_MEMORY_MAX_EVENT_BYTES` > `memory.maxEventBytes`
+ *     in the file > `DEFAULT_MAX_EVENT_BYTES`), one generation only, so the
+ *     chronology is capped at
  *     `2 * maxEventBytes + 1 record` even if the rotate rename fails
  *     persistently (falls back to truncation — see `rotateEventsIfNeeded`,
  *     copied from `rotateIfNeededSync` in `registry-journal.ts:279-307`, and
@@ -132,12 +165,15 @@ export type RecordMemoryEventInput = Omit<MemoryEvent, 'ts' | 'slug'> & {
 };
 export declare const MEMORY_SCHEMA_VERSION = "1.0.0";
 /**
- * Default rotation threshold for `events.jsonl`. Override with
- * `NAVGATOR_MEMORY_MAX_EVENT_BYTES` (used by the rotation test — see
- * `src/__tests__/memory-store.test.ts`).
+ * Default rotation threshold for `events.jsonl`. See `maxEventBytes()` below
+ * for the full env > file > default ladder (env var used directly by the
+ * rotation test — see `src/__tests__/memory-store.test.ts`).
  */
 export declare const DEFAULT_MAX_EVENT_BYTES = 2000000;
-/** Per-project milestone cap. Oldest evicted first when exceeded. */
+/**
+ * Default per-project milestone cap, oldest evicted first when exceeded. See
+ * `maxMilestones()` below for the full env > file > default ladder.
+ */
 export declare const MAX_MILESTONES = 40;
 /**
  * Memory capture is on by default. `NAVGATOR_MEMORY=0` (or `false`,

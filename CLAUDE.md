@@ -224,9 +224,12 @@ scan — no setup, no dependency, no network.
 └── projects/<slug>.json  DURABLE per-project record — the source of truth
 ```
 
-`projects/<slug>.json` is authoritative. `index.json` and `events.jsonl` are
-derived and can both be deleted without losing a fact about any project, since
-every event is also folded into its project's `milestones[]`. Slug is
+`projects/<slug>.json` is authoritative. Each event is also folded into its
+project's `milestones[]`, so deleting `index.json` or `events.jsonl` keeps every
+project's identity, counters, and most recent milestones. The milestone list is
+capped (oldest evicted), so for a long-lived project the older chronology lives
+only in `events.jsonl` until rotation drops it — that cap is what bounds a
+single project's file. Slug is
 `kebab(basename)-<8 hex of sha256(path)>`, so two directories named `web` stay
 distinct.
 

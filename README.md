@@ -616,9 +616,12 @@ no dependency, and no network.
     └── <slug>.json       # Durable per-project record — source of truth
 ```
 
-`projects/<slug>.json` is authoritative; `index.json` and `events.jsonl` are
-derived and can be deleted without losing anything, because every event is also
-folded into its project's milestone list.
+`projects/<slug>.json` is authoritative. Each event is also folded into its
+project's milestone list, so deleting `index.json` or `events.jsonl` keeps every
+project's identity, counters, and most recent milestones intact. The milestone
+list is capped, though — so for a project with a long history, the older
+chronology lives only in `events.jsonl` until rotation drops it. The cap is what
+keeps a single project's file from growing without limit.
 
 Only meaningful events are recorded — a project entering or leaving the
 registry, and scans whose architecture diff is `major` or `minor`. **A routine

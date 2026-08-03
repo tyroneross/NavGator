@@ -7,7 +7,7 @@ import { FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer
 import { TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
 import { PromptScanResult } from './scanners/prompts/index.js';
 import { type ScanLease } from './scan-lock.js';
-import { ArchitectureIndex } from './types.js';
+import { TimelineEntry, ArchitectureIndex } from './types.js';
 /**
  * Mode the scanner runs in.
  * - 'auto': default. Inspect index + file changes; pick full or incremental.
@@ -119,6 +119,21 @@ export declare function selectScanMode(fileChanges: FileChangeResult | undefined
 /**
  * Run a full architecture scan
  */
+/**
+ * Does a timeline diff agree with the component count the scan actually
+ * persisted?
+ *
+ * A diff whose `components_after` disagrees with what was just written is
+ * describing a different scan than the one that happened. See the call site in
+ * `scan()` for the two real entries in this repo's own timeline that exhibit
+ * it, and why the resulting event is suppressed rather than repaired here (the
+ * root cause is upstream in the Phase 5 snapshot build; this boundary only
+ * refuses to make it durable).
+ *
+ * Returns false when there is no diff at all, so the caller's ternary handles
+ * both "nothing to report" and "cannot be trusted" the same way.
+ */
+export declare function isDiffConsistentWithScan(entry: TimelineEntry | undefined, finalComponentCount: number): boolean;
 export declare function scan(projectRoot?: string, options?: ScanOptions): Promise<ArchitectureScanOutcome<PromptScanResult, FieldUsageReport, TypeSpecReport>>;
 /**
  * Quick scan - only packages, no code analysis

@@ -29,12 +29,13 @@ import {
   slug,
   MAX_MILESTONES,
 } from '../memory/store.js';
-import { resetHomeConfigCache } from '../home-config.js';
+import { resetHomeConfigCache, homeConfigPath } from '../home-config.js';
 
 let homeDir: string;
 let prevHome: string | undefined;
 let prevMemoryEnv: string | undefined;
 let prevMaxEventBytesEnv: string | undefined;
+let prevMaxMilestonesEnv: string | undefined;
 
 beforeEach(() => {
   homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-memory-store-'));
@@ -43,8 +44,10 @@ beforeEach(() => {
 
   prevMemoryEnv = process.env.NAVGATOR_MEMORY;
   prevMaxEventBytesEnv = process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES;
+  prevMaxMilestonesEnv = process.env.NAVGATOR_MEMORY_MAX_MILESTONES;
   delete process.env.NAVGATOR_MEMORY;
   delete process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES;
+  delete process.env.NAVGATOR_MEMORY_MAX_MILESTONES;
 
   resetHomeConfigCache();
 });
@@ -58,6 +61,9 @@ afterEach(() => {
 
   if (prevMaxEventBytesEnv === undefined) delete process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES;
   else process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES = prevMaxEventBytesEnv;
+
+  if (prevMaxMilestonesEnv === undefined) delete process.env.NAVGATOR_MEMORY_MAX_MILESTONES;
+  else process.env.NAVGATOR_MEMORY_MAX_MILESTONES = prevMaxMilestonesEnv;
 
   resetHomeConfigCache();
   fs.rmSync(homeDir, { recursive: true, force: true });
@@ -667,4 +673,202 @@ describe('events.jsonl append refuses a pre-planted symlink', () => {
     // The victim file must be untouched — the append refused to follow.
     expect(fs.readFileSync(victim, 'utf-8')).toBe('original\n');
   });
+});
+
+// =============================================================================
+// f2 — SAME-PATH CONCURRENT CAPTURE (per-slug CAS)
+// =============================================================================
+
+describe('f2 — same-path concurrent capture is no longer a lost-update race', () => {
+  it('Promise.all of 50 recordMemoryEvent calls for the SAME project loses nothing', async () => {
+    // MUTANT: revert writeProjectRecordWithCAS to a plain
+    // readProjectMemoryBySlug -> applyEventToRecord -> atomicWriteJSONFile
+    // (no re-read, no retry) and this drops to counters.scans === 1,
+    // milestones.length === 1 — the exact defect the auditor measured.
+    const projectPath = path.join(homeDir, 'projects', 'same-path-race');
+    const total = 50;
+
+    await Promise.all(
+      Array.from({ length: total }, (_, i) =>
+        recordMemoryEvent({
+          projectPath,
+          kind: 'project.scanned',
+          summary: `race-${i}`,
+          ts: 1000 + i,
+        })
+      )
+    );
+
+    const record = readProjectMemory(projectPath);
+    expect(record?.counters.scans).toBe(total);
+    expect(record?.milestones).toHaveLength(Math.min(total, MAX_MILESTONES));
+
+    // The append-only chronology was never the defect; confirm it still kept
+    // every line too.
+    const events = readMemoryEvents({ slug: slug(projectPath), limit: total + 5 });
+    expect(events).toHaveLength(total);
+  }, 30_000);
+
+  it('keeps the different-projects property unchanged (regression guard)', async () => {
+    const projects = Array.from({ length: 8 }, (_, i) => `/repos/f2-worker-${i}`);
+
+    await Promise.all(
+      projects.map((p) =>
+        recordMemoryEvent({ projectPath: p, kind: 'project.registered', summary: 'registered' })
+      )
+    );
+
+    const stored = listProjectMemories()
+      .map((r) => r.path)
+      .sort();
+    expect(stored).toEqual([...projects].sort());
+  });
+});
+
+// =============================================================================
+// f3 — HOME-CONFIG WIRING: maxMilestonesPerProject / maxEventBytes
+// =============================================================================
+
+describe('f3 — maxMilestonesPerProject and maxEventBytes are no longer inert', () => {
+  it('file config caps milestones AND rotates events at the configured threshold', async () => {
+    // MUTANT: revert maxMilestones()/maxEventBytes() to read only the
+    // MAX_MILESTONES constant / DEFAULT_MAX_EVENT_BYTES (ignoring
+    // loadHomeConfig()) and milestones.length lands at 40 instead of 5, and
+    // events.1.jsonl never appears.
+    fs.mkdirSync(path.dirname(homeConfigPath()), { recursive: true });
+    fs.writeFileSync(
+      homeConfigPath(),
+      JSON.stringify({ memory: { maxMilestonesPerProject: 5, maxEventBytes: 500 } })
+    );
+    resetHomeConfigCache();
+
+    const projectPath = path.join(homeDir, 'projects', 'wired');
+    for (let i = 0; i < 60; i++) {
+      await recordMemoryEvent({
+        projectPath,
+        kind: 'project.scanned',
+        summary: `wired-${i}`,
+        ts: 4000 + i,
+      });
+    }
+
+    const record = readProjectMemory(projectPath);
+    expect(record?.milestones).toHaveLength(5);
+    expect(fs.existsSync(rotatedEventsPath())).toBe(true);
+  }, 30_000);
+
+  it('env var beats file for maxEventBytes', async () => {
+    fs.mkdirSync(path.dirname(homeConfigPath()), { recursive: true });
+    fs.writeFileSync(homeConfigPath(), JSON.stringify({ memory: { maxEventBytes: 5_000_000 } }));
+    resetHomeConfigCache();
+    process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES = '500';
+
+    const projectPath = path.join(homeDir, 'projects', 'env-beats-file-bytes');
+    for (let i = 0; i < 40; i++) {
+      await recordMemoryEvent({
+        projectPath,
+        kind: 'project.scanned',
+        summary: `e-${i}`,
+        ts: 5000 + i,
+      });
+    }
+
+    // If the 5MB file value had won, nothing would rotate at 40 tiny records.
+    expect(fs.existsSync(rotatedEventsPath())).toBe(true);
+  }, 30_000);
+
+  it('env var beats file for maxMilestonesPerProject', async () => {
+    fs.mkdirSync(path.dirname(homeConfigPath()), { recursive: true });
+    fs.writeFileSync(
+      homeConfigPath(),
+      JSON.stringify({ memory: { maxMilestonesPerProject: 100 } })
+    );
+    resetHomeConfigCache();
+    process.env.NAVGATOR_MEMORY_MAX_MILESTONES = '3';
+
+    const projectPath = path.join(homeDir, 'projects', 'env-beats-file-milestones');
+    for (let i = 0; i < 10; i++) {
+      await recordMemoryEvent({
+        projectPath,
+        kind: 'project.scanned',
+        summary: `m-${i}`,
+        ts: 6000 + i,
+      });
+    }
+
+    const record = readProjectMemory(projectPath);
+    expect(record?.milestones).toHaveLength(3);
+  });
+});
+
+describe('f3 — nonsense config values fall back to the default rather than breaking capture', () => {
+  it.each([0, -1, 'abc'] as const)(
+    'maxMilestonesPerProject=%s falls back to MAX_MILESTONES rather than breaking capture',
+    async (bad) => {
+      fs.mkdirSync(path.dirname(homeConfigPath()), { recursive: true });
+      fs.writeFileSync(
+        homeConfigPath(),
+        JSON.stringify({ memory: { maxMilestonesPerProject: bad } })
+      );
+      resetHomeConfigCache();
+
+      const projectPath = path.join(homeDir, 'projects', `nonsense-${String(bad)}`);
+      for (let i = 0; i < 5; i++) {
+        await recordMemoryEvent({
+          projectPath,
+          kind: 'project.scanned',
+          summary: `n-${i}`,
+          ts: 7000 + i,
+        });
+      }
+
+      // Falls back to the 40-record default, not 0 (which would evict
+      // everything) or -1/NaN (which would break `.slice()`), or the string
+      // (already caught by loadHomeConfig's own type guard).
+      const record = readProjectMemory(projectPath);
+      expect(record?.milestones).toHaveLength(5);
+    }
+  );
+});
+
+// =============================================================================
+// f8 — TRUNCATE FALLBACK WHEN THE ROTATION RENAME FAILS PERSISTENTLY
+// =============================================================================
+
+describe('f8 — truncate fallback when the rotation rename fails persistently', () => {
+  it('holds events.jsonl near the threshold instead of growing without bound', async () => {
+    // MUTANT: delete the `fs.truncateSync(liveEventsPath, 0)` call in
+    // `rotateEventsIfNeeded` and this assertion fails — the live file grows
+    // past 10KB because every append after the blocked rotation just keeps
+    // appending to the un-rotated, un-truncated file.
+    process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES = '5000';
+    const projectPath = path.join(homeDir, 'projects', 'truncate-fallback');
+
+    // Seed the tree, then pre-plant events.1.jsonl as a non-empty DIRECTORY —
+    // portable, no chmod needed — so every subsequent rotation attempt's
+    // `fs.renameSync(events.jsonl, events.1.jsonl)` fails persistently
+    // (EEXIST/ENOTEMPTY/EISDIR depending on platform) and falls through to
+    // the truncate fallback.
+    await recordMemoryEvent({ projectPath, kind: 'project.registered', summary: 'seed' });
+    fs.mkdirSync(rotatedEventsPath());
+    fs.writeFileSync(path.join(rotatedEventsPath(), 'blocker.txt'), 'occupied');
+
+    for (let i = 0; i < 3000; i++) {
+      await recordMemoryEvent({
+        projectPath,
+        kind: 'project.scanned',
+        summary: `t-${i}`,
+        ts: 8000 + i,
+      });
+    }
+
+    // The rename never succeeded — the planted directory is still there.
+    expect(fs.statSync(rotatedEventsPath()).isDirectory()).toBe(true);
+
+    // Load-bearing assertion: without the truncate fallback, 3000 appends at
+    // ~90-120 bytes each would leave events.jsonl well past 270KB. The
+    // fallback keeps it near the 5000-byte threshold.
+    const liveBytes = fs.statSync(eventsPath()).size;
+    expect(liveBytes).toBeLessThan(10_000);
+  }, 60_000);
 });

@@ -3,8 +3,12 @@
  *
  * Default: read-only report (Registry, Growth, Reliability, Memory store,
  * Mirror, then a verdict + findings). `--fix` prunes tmp-rooted-and-missing
- * registry entries (opt-in wider with `--include-missing`) and the
- * gator-memory records that reference them. `--mirror` runs a one-off
+ * registry entries (opt-in wider with `--include-missing`), the gator-memory
+ * records that shadowed them, AND any gator-memory record left ORPHANED by a
+ * project removed outside this CLI (the dashboard deletes through
+ * `web/lib/server/registry-store.ts`, a separate compilation unit that
+ * writes `projects.json` directly and cannot emit a memory event) — see
+ * `reconcileMemory` in `src/memory/store.ts`. `--mirror` runs a one-off
  * `mirrorAll()` and reports the result.
  *
  * `--json`/`--agent` on the default and `--fix` paths emit the FROZEN shape
@@ -21,7 +25,7 @@ import * as readline from 'readline';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { computeHealth, classifyRegistryEntries, selectPrunableEntries, } from '../../memory/health.js';
 import { loadRegistry, pruneProjects } from '../../projects.js';
-import { removeProjectMemory, rebuildMemoryIndex, projectMemoryPath, slug as memoryProjectSlug, } from '../../memory/store.js';
+import { removeProjectMemory, rebuildMemoryIndex, projectMemoryPath, slug as memoryProjectSlug, reconcileMemory, } from '../../memory/store.js';
 import { mirrorAll, mirrorStatus } from '../../memory/mirror.js';
 import { defaultRegistryDir } from '../../registry-journal.js';
 export function registerDoctorCommand(program) {
@@ -205,17 +209,49 @@ export async function fixRegistry(options) {
     const targets = selectPrunableEntries(classifications, {
         includeMissing: Boolean(options.includeMissing),
     });
-    if (targets.length === 0) {
-        return { status: 'nothing-to-clean' };
+    // f1: orphaned memory records — a record whose project has NO entry left
+    // in the registry at all (the dashboard's delete path writes `projects.json`
+    // directly, in a separate compilation unit that cannot import the memory
+    // store — see store.ts's `reconcileMemory` header). Reconciled against the
+    // FULL current registry (every entry, not just the ones surviving prune)
+    // so a prune TARGET — which still has a registry entry, just a missing or
+    // tmp-rooted path — is never also counted as an orphan: `reconcileMemory`
+    // only flags a record whose path matches NONE of the paths passed in, and
+    // every target's path is in `registry.projects` at this point. This is
+    // what keeps `removedFromMemory` from double-counting a target that is
+    // ALSO orphaned by construction — they are disjoint sets, not because of a
+    // filter here, but because "has a registry entry" and "orphaned" are
+    // mutually exclusive by definition.
+    const orphans = reconcileMemory(registry.projects.map((p) => p.path)).orphaned;
+    if (targets.length === 0 && orphans.length === 0) {
+        // f6: a clean, correctly-built registry must be distinguishable from a
+        // broken CLI build. An ABSENT `cleanup` field on `--fix --json` reads as
+        // "unavailable/incompatible" to the dashboard
+        // (`web/app/api/registry-health/route.ts:135-143`), which previously
+        // turned "nothing to clean" into "Registry health unavailable. Rebuild
+        // the CLI with `npm run build`." — a wrong diagnosis for a healthy
+        // system. Reporting explicit zero counts (not omitting the field) is
+        // what fixes that without changing the emitted shape.
+        return {
+            status: 'nothing-to-clean',
+            cleanup: { removedFromRegistry: 0, removedFromMemory: 0, backupPath: null },
+        };
     }
     // Print the exact entries that will be removed BEFORE asking for
     // confirmation (or before proceeding under --yes) — the blast radius of a
     // destructive operation must be visible, not just a count. Always stderr;
-    // see the module header.
-    console.error(`The following ${targets.length} ${targets.length === 1 ? 'entry' : 'entries'} will be removed from ` +
-        'the registry and gator-memory:');
+    // see the module header. Orphaned memory records are listed too — f1's
+    // whole point is that `--fix` now touches them, so the pre-confirmation
+    // preview must not omit them (the user must see everything that will be
+    // deleted before answering [y/N]).
+    const totalCount = targets.length + orphans.length;
+    console.error(`The following ${totalCount} ${totalCount === 1 ? 'entry' : 'entries'} will be removed from ` +
+        'the registry and/or gator-memory:');
     for (const t of targets) {
-        console.error(`  ${renderSafe(t.name)}  ${renderSafe(t.path)}`);
+        console.error(`  [registry] ${renderSafe(t.name)}  ${renderSafe(t.path)}`);
+    }
+    for (const o of orphans) {
+        console.error(`  [memory]   ${renderSafe(o.name)}  ${renderSafe(o.path)}`);
     }
     if (!options.yes) {
         // A non-interactive pipe (cron, CI, a script that redirected stdin) has
@@ -228,7 +264,7 @@ export async function fixRegistry(options) {
             console.error('Refusing to proceed: stdin is not a TTY and --yes was not passed. Re-run with --yes to confirm non-interactively.');
             return { status: 'aborted-non-tty' };
         }
-        const confirmed = await confirmPrompt(`Remove ${targets.length} ${targets.length === 1 ? 'entry' : 'entries'}? [y/N] `);
+        const confirmed = await confirmPrompt(`Remove ${totalCount} ${totalCount === 1 ? 'entry' : 'entries'}? [y/N] `);
         if (!confirmed) {
             console.error('Aborted — no changes made.');
             return { status: 'aborted-declined' };
@@ -293,6 +329,30 @@ export async function fixRegistry(options) {
             // the registry entry, which is the operation the user asked for.
         }
         if (removeProjectMemory(entry.path))
+            removedFromMemory += 1;
+    }
+    // f1: the orphan cleanup this whole finding is about. `pruneProjects`
+    // above only ever removes a memory record when the registry entry it
+    // shadowed was also pruned — an orphan by definition has NO such registry
+    // entry, so without this loop `fixRegistry` would keep reporting
+    // `memory-orphaned` findings forever no matter how many times `--fix` ran.
+    // Same backup-then-delete order and destination as the loop above: one
+    // `memoryBackupDir`, so a single restore point covers every memory record
+    // this run touches, whether it was reached via a pruned registry entry or
+    // via this orphan path.
+    for (const orphan of orphans) {
+        try {
+            const recordPath = projectMemoryPath(orphan.slug);
+            if (fs.existsSync(recordPath)) {
+                fs.mkdirSync(memoryBackupDir, { recursive: true, mode: 0o700 });
+                fs.copyFileSync(recordPath, path.join(memoryBackupDir, path.basename(recordPath)));
+            }
+        }
+        catch {
+            // Best-effort, same reasoning as the loop above: a record we cannot
+            // copy must not block removing the rest of the batch.
+        }
+        if (removeProjectMemory(orphan.path))
             removedFromMemory += 1;
     }
     rebuildMemoryIndex();

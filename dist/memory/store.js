@@ -16,10 +16,19 @@
  * `events.jsonl`. This is the property that makes compaction/rotation safe:
  * `index.json` is a derived rollup (regenerable from the per-project files —
  * see `rebuildMemoryIndex`) and `events.jsonl` is a derived chronology (each
- * event is ALSO folded into the owning project's `milestones[]`, so losing a
- * rotated generation loses recent cross-project ordering but never loses a
- * fact about any one project). Both can be deleted without losing knowledge;
- * `projects/<slug>.json` cannot.
+ * event is ALSO folded into the owning project's `milestones[]`).
+ *
+ * Be precise about that last part rather than overclaiming, because the
+ * tempting shorthand — "both can be deleted without losing knowledge" — is
+ * FALSE. `milestones[]` is capped at `maxMilestones()` and evicts oldest
+ * first, so a project with more lifetime events than the cap has older
+ * chronology that exists ONLY in `events.jsonl` until rotation drops it. The
+ * accurate statement is narrower and still strong: deleting the derived files
+ * preserves every project's identity, counters, latest stats, and most recent
+ * milestones, and `projects/<slug>.json` is the only file whose loss is
+ * unrecoverable. Losing a rotated event generation costs old cross-project
+ * ordering and the tail of a long-lived project's history — an accepted trade
+ * for a hard bound, not a free one.
  *
  * `index.json` IS NOT ON THE CAPTURE WRITE PATH, and that is a correctness
  * requirement rather than a performance preference. Capture deliberately runs
@@ -42,12 +51,36 @@
  * `rebuildMemoryIndex`, called from hygiene and mirror paths that are
  * single-threaded by construction. Readers never depend on it being current.
  *
+ * Single-project scope stops DIFFERENT projects from contending for the same
+ * file, but says nothing about the SAME project scanned concurrently — the
+ * dashboard and a CLI scan hitting one repo together, or a future caller that
+ * reaches `recordMemoryEvent` without `scanPortfolio`'s per-project
+ * partitioning. `writeProjectRecordWithCAS` closes that gap with a per-slug
+ * compare-and-swap, NOT a store-wide mutex or lock file — the whole point of
+ * this design is that capture stays off the shared-rollup path and outside
+ * the registry's locks. It reads the record, computes the candidate, and
+ * immediately re-reads the same file with nothing but two more `*Sync` calls
+ * in between; if the file changed since the first read, the SAME event is
+ * re-applied to the fresh winner and the attempt retries, bounded at 5
+ * (mirroring `MAX_CAS_ATTEMPTS` in `src/projects.ts:272`), then commits
+ * unconditionally on the last attempt. Because the whole read-compare-write
+ * runs on synchronous fs calls with no `await` in between, one in-process
+ * call cannot be interleaved by another in-process call at all — the first
+ * iteration always wins against same-process contention. Across processes,
+ * true OS-level parallelism remains possible in the syscall-width window
+ * between the check-read and the rename; the same honest limit
+ * `mutateRegistry`'s header documents for the registry applies here too.
+ *
  * Bounded by construction, mirroring `registry-journal.ts`'s posture exactly:
- *   - `milestones[]` on a project record is capped at `MAX_MILESTONES`, oldest
+ *   - `milestones[]` on a project record is capped at `maxMilestones()`
+ *     (env `NAVGATOR_MEMORY_MAX_MILESTONES` > `memory.maxMilestonesPerProject`
+ *     in `~/.navgator/config.json` > the `MAX_MILESTONES` default), oldest
  *     evicted first, so a single long-lived project's file cannot grow
  *     without limit no matter how many scans it accumulates.
- *   - `events.jsonl` rotates to `events.1.jsonl` at `maxEventBytes()`, one
- *     generation only, so the chronology is capped at
+ *   - `events.jsonl` rotates to `events.1.jsonl` at `maxEventBytes()` (same
+ *     ladder: env `NAVGATOR_MEMORY_MAX_EVENT_BYTES` > `memory.maxEventBytes`
+ *     in the file > `DEFAULT_MAX_EVENT_BYTES`), one generation only, so the
+ *     chronology is capped at
  *     `2 * maxEventBytes + 1 record` even if the rotate rename fails
  *     persistently (falls back to truncation — see `rotateEventsIfNeeded`,
  *     copied from `rotateIfNeededSync` in `registry-journal.ts:279-307`, and
@@ -89,12 +122,15 @@ import { loadHomeConfig } from '../home-config.js';
 // =============================================================================
 export const MEMORY_SCHEMA_VERSION = '1.0.0';
 /**
- * Default rotation threshold for `events.jsonl`. Override with
- * `NAVGATOR_MEMORY_MAX_EVENT_BYTES` (used by the rotation test — see
- * `src/__tests__/memory-store.test.ts`).
+ * Default rotation threshold for `events.jsonl`. See `maxEventBytes()` below
+ * for the full env > file > default ladder (env var used directly by the
+ * rotation test — see `src/__tests__/memory-store.test.ts`).
  */
 export const DEFAULT_MAX_EVENT_BYTES = 2_000_000;
-/** Per-project milestone cap. Oldest evicted first when exceeded. */
+/**
+ * Default per-project milestone cap, oldest evicted first when exceeded. See
+ * `maxMilestones()` below for the full env > file > default ladder.
+ */
 export const MAX_MILESTONES = 40;
 /** Summaries are context, not payload. Anything longer is a payload in disguise. */
 const SUMMARY_MAX_CHARS = 200;
@@ -159,6 +195,14 @@ function rotatedEventsPath(dir) {
 function indexPath(dir) {
     return path.join(dir, INDEX_FILENAME);
 }
+/**
+ * Rotation threshold ladder: env `NAVGATOR_MEMORY_MAX_EVENT_BYTES` > file
+ * `memory.maxEventBytes` (`~/.navgator/config.json`, via `loadHomeConfig()`)
+ * > `DEFAULT_MAX_EVENT_BYTES`. A nonsense file value (non-finite, `<= 0`, or
+ * the wrong type — the latter already caught by `loadHomeConfig`'s own
+ * `deepMerge`) falls back to the default, mirroring `maxBytes()` in
+ * `registry-journal.ts:172-177` exactly.
+ */
 function maxEventBytes() {
     const raw = process.env.NAVGATOR_MEMORY_MAX_EVENT_BYTES;
     if (raw) {
@@ -166,7 +210,27 @@ function maxEventBytes() {
         if (Number.isFinite(parsed) && parsed > 0)
             return parsed;
     }
-    return DEFAULT_MAX_EVENT_BYTES;
+    const fromFile = loadHomeConfig().memory.maxEventBytes;
+    return Number.isFinite(fromFile) && fromFile > 0 ? fromFile : DEFAULT_MAX_EVENT_BYTES;
+}
+/**
+ * Per-project milestone cap ladder: env `NAVGATOR_MEMORY_MAX_MILESTONES` >
+ * file `memory.maxMilestonesPerProject` > the `MAX_MILESTONES` default. Same
+ * nonsense-value guard as `maxEventBytes()` above. `MAX_MILESTONES` stays
+ * exported as the DEFAULT (tests and `src/index.ts` reference it) — this
+ * function, not the constant, is what `applyEventToRecord` calls, which is
+ * what makes the file config key change actual behavior instead of being
+ * parsed, typed, defaulted, and inert.
+ */
+function maxMilestones() {
+    const raw = process.env.NAVGATOR_MEMORY_MAX_MILESTONES;
+    if (raw) {
+        const parsed = Number.parseInt(raw, 10);
+        if (Number.isFinite(parsed) && parsed > 0)
+            return parsed;
+    }
+    const fromFile = loadHomeConfig().memory.maxMilestonesPerProject;
+    return Number.isFinite(fromFile) && fromFile > 0 ? fromFile : MAX_MILESTONES;
 }
 // =============================================================================
 // SLUG
@@ -246,23 +310,6 @@ function sanitizeSummary(summary) {
  */
 function uniqueTempPath(target) {
     return `${target}.${process.pid}.${Date.now()}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-}
-async function atomicWriteJSONFile(target, value) {
-    await fs.promises.mkdir(path.dirname(target), { recursive: true, mode: DIR_MODE });
-    const tmp = uniqueTempPath(target);
-    try {
-        await fs.promises.writeFile(tmp, JSON.stringify(value, null, 2), {
-            encoding: 'utf-8',
-            mode: FILE_MODE,
-        });
-        await fs.promises.rename(tmp, target);
-    }
-    catch (error) {
-        // Without this the temp survives every failed write and leaks a full
-        // copy of the payload beside the target.
-        await fs.promises.rm(tmp, { force: true }).catch(() => { });
-        throw error;
-    }
 }
 function atomicWriteJSONFileSync(target, value) {
     fs.mkdirSync(path.dirname(target), { recursive: true, mode: DIR_MODE });
@@ -355,7 +402,7 @@ function readProjectMemoryBySlug(projectSlug) {
  * event — the whole point of the field. `status` flips to `'removed'` on a
  * `project.removed` event and back to `'active'` on any subsequent event for
  * the same slug (a re-registration after removal is a fact worth recording,
- * not an error). `milestones` is capped at `MAX_MILESTONES`, oldest evicted
+ * not an error). `milestones` is capped at `maxMilestones()`, oldest evicted
  * first.
  */
 function applyEventToRecord(existing, projectSlug, resolvedPath, name, event) {
@@ -397,10 +444,53 @@ function applyEventToRecord(existing, projectSlug, resolvedPath, name, event) {
         record.counters.significantChanges += 1;
     }
     record.milestones.push(event);
-    if (record.milestones.length > MAX_MILESTONES) {
-        record.milestones = record.milestones.slice(record.milestones.length - MAX_MILESTONES);
+    const cap = maxMilestones();
+    if (record.milestones.length > cap) {
+        record.milestones = record.milestones.slice(record.milestones.length - cap);
     }
     return record;
+}
+/** Bounded retries for the same-path CAS below — mirrors `MAX_CAS_ATTEMPTS` in `src/projects.ts:272`. */
+const MAX_MEMORY_CAS_ATTEMPTS = 5;
+/**
+ * Fingerprint a record for the CAS equality check. `null` (no record on disk
+ * yet) gets its own sentinel so "absent" and "present" never compare equal.
+ */
+function fingerprintRecord(record) {
+    return record ? JSON.stringify(record) : '__ABSENT__';
+}
+/**
+ * Per-slug compare-and-swap write for `projects/<slug>.json` — see the
+ * module header's write-path section for the full reasoning. Read, compute
+ * the candidate, and immediately re-read the same file with nothing but two
+ * `*Sync` calls in between; if the on-disk record changed since the first
+ * read, re-apply the SAME event to the fresh winner and retry (bounded at
+ * `MAX_MEMORY_CAS_ATTEMPTS`), committing unconditionally on the final
+ * attempt exactly as `mutateRegistry` does.
+ *
+ * Deliberately built on `*Sync` fs calls with no `await` anywhere in this
+ * function: within one process nothing can interleave a call that never
+ * yields, so the first iteration already wins against every OTHER
+ * in-process `recordMemoryEvent` call. That is what makes 50 concurrent
+ * same-path `Promise.all` calls land all 50 updates instead of losing 49.
+ */
+function writeProjectRecordWithCAS(projectSlug, resolvedPath, name, event) {
+    const target = projectMemoryPath(projectSlug);
+    let base = readProjectMemoryBySlug(projectSlug);
+    for (let attempt = 0;; attempt++) {
+        const candidate = applyEventToRecord(base, projectSlug, resolvedPath, name, event);
+        if (attempt < MAX_MEMORY_CAS_ATTEMPTS) {
+            const onDisk = readProjectMemoryBySlug(projectSlug);
+            if (fingerprintRecord(onDisk) !== fingerprintRecord(base)) {
+                // Someone else committed since `base` was read. Re-apply the SAME
+                // event to their winning state rather than clobbering it.
+                base = onDisk;
+                continue;
+            }
+        }
+        atomicWriteJSONFileSync(target, candidate);
+        return;
+    }
 }
 /** Read a project's durable record. `null` on missing, unreadable, or corrupt. */
 export function readProjectMemory(projectPath) {
@@ -508,9 +598,7 @@ export async function recordMemoryEvent(input) {
         };
         await appendEventRecord(dir, event);
         const name = input.name ?? path.basename(resolvedPath);
-        const existing = readProjectMemoryBySlug(projectSlug);
-        const record = applyEventToRecord(existing, projectSlug, resolvedPath, name, event);
-        await atomicWriteJSONFile(projectMemoryPath(projectSlug), record);
+        writeProjectRecordWithCAS(projectSlug, resolvedPath, name, event);
     }
     catch {
         // Fail-open by construction — see module header.
