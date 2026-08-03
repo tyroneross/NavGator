@@ -72,6 +72,37 @@ export {
 // Git utilities
 export { getGitInfo } from './git.js';
 
+// gator-memory — durable narrative store for ~/.navgator/memory/
+export {
+  memoryEnabled,
+  memoryDir,
+  projectMemoryPath,
+  recordMemoryEvent,
+  readProjectMemory,
+  listProjectMemories,
+  readMemoryEvents,
+  memoryStoreStats,
+  removeProjectMemory,
+  rebuildMemoryIndex,
+  reconcileMemory,
+  slug as memoryProjectSlug,
+  MEMORY_SCHEMA_VERSION,
+  DEFAULT_MAX_EVENT_BYTES,
+  MAX_MILESTONES,
+  type MemoryEvent,
+  type MemoryEventKind,
+  type ProjectMemory,
+  type RecordMemoryEventInput,
+} from './memory/store.js';
+
+// Home-scoped configuration — ~/.navgator/config.json
+export {
+  loadHomeConfig,
+  homeConfigPath,
+  resetHomeConfigCache,
+  type NavGatorHomeConfig,
+} from './home-config.js';
+
 // Component identity — base-name normalization and alias merging
 export { componentBaseName, identityKey, mergeComponentAliases } from './component-identity.js';
 

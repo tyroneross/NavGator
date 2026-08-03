@@ -14,6 +14,8 @@ export { computeArchitectureDiff, classifySignificance, loadTimeline, saveTimeli
 export { registerProject, listProjects, formatProjectsList, updateProjectMeta, removeProject, type ProjectEntry, type ProjectRegistry, } from './projects.js';
 export { readJournal, formatJournal, appendJournalEvent, appendJournalEventSync, defaultRegistryDir, journalPathForDir, type RegistryJournalEvent, type JournalActor, type JournalOp, } from './registry-journal.js';
 export { getGitInfo } from './git.js';
+export { memoryEnabled, memoryDir, projectMemoryPath, recordMemoryEvent, readProjectMemory, listProjectMemories, readMemoryEvents, memoryStoreStats, removeProjectMemory, rebuildMemoryIndex, reconcileMemory, slug as memoryProjectSlug, MEMORY_SCHEMA_VERSION, DEFAULT_MAX_EVENT_BYTES, MAX_MILESTONES, type MemoryEvent, type MemoryEventKind, type ProjectMemory, type RecordMemoryEventInput, } from './memory/store.js';
+export { loadHomeConfig, homeConfigPath, resetHomeConfigCache, type NavGatorHomeConfig, } from './home-config.js';
 export { componentBaseName, identityKey, mergeComponentAliases } from './component-identity.js';
 export { writeSnapshotForCurrentRef, readCanonicalSnapshot, readBranchSnapshot, type WriteSnapshotResult, } from './git-aware/canonical.js';
 export { getDefaultBranch, getCurrentBranch, getCurrentRef, isDefaultBranch, isWorktree, slugifyRef } from './git-aware/refs.js';
