@@ -18,12 +18,17 @@
  * Mutation-verified. Reverting any of the three mechanisms makes a named test
  * here fail — see the `MUTANT:` annotation on each.
  *
- * Every test redirects `$HOME` to a tmp directory. `os.homedir()` honours
- * `$HOME` on POSIX, which is how the registry, the journal, and the lock all
- * follow the redirect together. The `journal coverage` block asserts the real
- * `~/.navgator` was never touched BY THESE TESTS — it says nothing about the
- * other 68 test files, which do pollute the real home (followup
- * nav-20260803-10).
+ * Every test in this file also redirects `$HOME` to its own per-test tmp
+ * directory in `beforeEach` — deliberately in addition to the suite-wide
+ * `setupFiles` hook (`src/__tests__/setup/home-redirect.ts`), which redirects
+ * home once per test FILE. This file needs a fresh home per TEST (each test
+ * provokes its own race and reads back its own registry/journal), so the
+ * file-level redirect isn't fine-grained enough on its own; keep both. The
+ * `journal coverage` block asserts the real `~/.navgator` was never touched
+ * BY THESE TESTS. The real home is reached only via
+ * `process.env.NAVGATOR_TEST_REAL_HOME`, which `home-redirect.ts` captures
+ * before it overwrites `$HOME` — every other test file's writes are now
+ * contained the same way this file's always were.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -69,8 +74,17 @@ let navDir: string;
 let registryPath: string;
 let prevHome: string | undefined;
 
-/** The developer's real journal, to prove THIS suite's writes never reach it. */
-const REAL_NAVGATOR_DIR = path.join(os.homedir(), '.navgator');
+/**
+ * The developer's real journal, to prove THIS suite's writes never reach it.
+ * Resolved from `NAVGATOR_TEST_REAL_HOME` (set by the suite-wide
+ * `home-redirect.ts` setup file BEFORE this module's top-level code runs),
+ * falling back to `os.homedir()` so this file still means what it says if it
+ * is ever run without that hook wired in.
+ */
+const REAL_NAVGATOR_DIR = path.join(
+  process.env.NAVGATOR_TEST_REAL_HOME ?? os.homedir(),
+  '.navgator'
+);
 
 beforeEach(() => {
   homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-oracle-home-'));
