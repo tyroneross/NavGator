@@ -16,7 +16,7 @@ import { getConfig } from '../../config.js';
 import { loadAllComponents, loadAllConnections } from '../../storage.js';
 import { listProjects } from '../../projects.js';
 import { wrapInEnvelope } from '../../agent-output.js';
-import { scanPortfolio } from '../../portfolio/scan.js';
+import { scanPortfolio, assertLocalStorageMode } from '../../portfolio/scan.js';
 import { buildCrossRepoMap } from '../../portfolio/cross-repo.js';
 import type { CrossRepoMap, CrossRepoRepoInput, PortfolioScanResult } from '../../portfolio/types.js';
 
@@ -44,6 +44,15 @@ export function registerPortfolioCommand(program: Command): void {
         const config = getConfig();
 
         if (!dir) {
+          // Same shared-mode refusal scanPortfolio() applies for the scan
+          // path: with no `dir`, this loop below fans out across every
+          // registered project via loadAllComponents/loadAllConnections,
+          // which in shared mode resolve to the SAME storage path for every
+          // project (getStoragePath ignores projectRoot). Without this
+          // guard, buildCrossRepoMap would silently fabricate cross-repo
+          // sharing from N copies of one repo's data.
+          assertLocalStorageMode(config);
+
           const projects = await listProjects();
           const inputs: CrossRepoRepoInput[] = [];
           for (const p of projects) {

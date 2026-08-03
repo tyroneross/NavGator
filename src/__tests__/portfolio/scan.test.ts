@@ -3,10 +3,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { scanPortfolio } from '../../portfolio/scan.js';
+import { scanPortfolio, assertLocalStorageMode } from '../../portfolio/scan.js';
 import { resetConfig, setConfig } from '../../config.js';
 import { acquireScanLease } from '../../scan-lock.js';
 import { scanLockPath } from '../../freshness/paths.js';
+import { Command } from 'commander';
+import { registerPortfolioCommand } from '../../cli/commands/portfolio.js';
+import { registerProject } from '../../projects.js';
 
 function initGitRepo(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
@@ -84,5 +87,57 @@ describe('scanPortfolio', () => {
     expect(fs.existsSync(navDir)).toBe(true);
     const topLevelJson = fs.readdirSync(navDir).filter((e) => e.endsWith('.json'));
     expect(topLevelJson).toEqual(['projects.json']);
+  }, 30000);
+
+  // f1 closure proof: before this fix, concurrent `registerProject` calls
+  // from scanPortfolio's workers raced an unguarded load-mutate-save and
+  // the last writer won, silently dropping registrations. Auditor measured
+  // 2 of 6 registered at concurrency 4; 6 of 6 at concurrency 1.
+  it('registers every repo in ~/.navgator/projects.json under concurrency 4 (f1)', async () => {
+    const repoCount = 6;
+    for (let i = 0; i < repoCount; i++) {
+      initGitRepo(path.join(portfolioRoot, `repo-${i}`));
+    }
+
+    const result = await scanPortfolio(portfolioRoot, { depth: 1, concurrency: 4 });
+    expect(result.scanned + result.noop).toBe(repoCount);
+
+    const registryPath = path.join(homeDir, '.navgator', 'projects.json');
+    const registry = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+    expect(registry.projects.length).toBe(repoCount);
+  }, 60000);
+
+  // f4 closure proof: the no-dir portfolio status path bypasses
+  // scanPortfolio entirely (src/cli/commands/portfolio.ts), so it needs its
+  // own call to the same shared-mode guard. Before the fix this path had
+  // no refusal at all and would fan out loadAllComponents/loadAllConnections
+  // across every registered project using the SAME shared storage path.
+  it('assertLocalStorageMode throws for shared and is a no-op for local', () => {
+    expect(() => assertLocalStorageMode({ storageMode: 'shared' })).toThrow(/shared storage mode/i);
+    expect(() => assertLocalStorageMode({ storageMode: 'local' })).not.toThrow();
+  });
+
+  it('the no-dir portfolio status path refuses in shared storage mode instead of returning a map (f4)', async () => {
+    await registerProject(path.join(portfolioRoot, 'repo-x'), { components: 1, connections: 0, prompts: 0 });
+    setConfig({ storageMode: 'shared' });
+
+    const program = new Command();
+    registerPortfolioCommand(program);
+
+    const errorSpy: string[] = [];
+    const origError = console.error;
+    console.error = (msg?: unknown) => {
+      errorSpy.push(String(msg));
+    };
+    const prevExitCode = process.exitCode;
+    try {
+      await program.parseAsync(['node', 'navgator', 'portfolio']);
+    } finally {
+      console.error = origError;
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(errorSpy.join('\n')).toMatch(/shared storage mode/i);
+    process.exitCode = prevExitCode;
   }, 30000);
 });

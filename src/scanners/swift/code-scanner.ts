@@ -155,7 +155,14 @@ const LLM_CALL_PATTERNS: { pattern: RegExp; provider: string }[] = [
 //      `streamResponse(`, `SystemLanguageModel`, or `@Guide(` — confirming
 //      signals only, never standalone (they collide with unrelated Swift
 //      APIs outside a FoundationModels-importing file).
-const FOUNDATION_MODELS_IMPORT = /^\s*import\s+FoundationModels\b/;
+// Anchor allows leading attributes (@preconcurrency, @_exported, ...) and an
+// access-level modifier (public/internal/package/fileprivate/private/open)
+// before `import` — Swift permits both forms and a bare `^\s*import` anchor
+// silently drops real detections in files using them (fact-checker finding
+// f5, 2026-08-03). Comments and `import FoundationModelsX` still don't match:
+// `//`/`*` prefixes aren't consumed by `\s*`, and `\b` blocks partial names.
+const FOUNDATION_MODELS_IMPORT =
+  /^\s*(?:@[A-Za-z_][A-Za-z0-9_]*\s+)*(?:public|internal|package|fileprivate|private|open)?\s*import\s+FoundationModels\b/;
 const FOUNDATION_MODELS_SESSION_CTOR = /LanguageModelSession\s*(?:\(|\{)/;
 const FOUNDATION_MODELS_CONFIRMING: RegExp[] = [
   /\.respond\(\s*to:/,
@@ -318,7 +325,12 @@ export async function scanSwiftCode(
     for (const conf of conformers) {
       connections.push({
         connection_id: generateConnectionId('conforms-to'),
-        from: { component_id: generateComponentId('other', conf.typeName), location: { file: conf.file, line: conf.line } },
+        // FILE: form, not a fresh generateComponentId('other', conf.typeName) —
+        // no component is ever pushed for the conforming type itself in this
+        // pass, so that id was never a real endpoint (fact-checker finding).
+        // scanner.ts:1578-1592 resolves FILE: refs where possible and
+        // runIntegrityCheck exempts them unconditionally otherwise.
+        from: { component_id: `FILE:${conf.file}`, location: { file: conf.file, line: conf.line } },
         to: { component_id: compId },
         connection_type: 'conforms-to',
         code_reference: {
@@ -411,10 +423,15 @@ export async function scanSwiftCode(
         last_verified: timestamp,
       });
     } else if (hit.type === 'main-actor') {
-      // Add tag to existing component or create new one
-      const compId = generateComponentId('component', hit.name);
-      let comp = components.find(c => c.component_id === compId);
+      // Look up by name+type (not a freshly generated id — generateComponentId()
+      // appends a random suffix, so a lookup keyed on a fresh call can never
+      // match a previously pushed component; same pattern as the LLM-calls
+      // fix above). Without this, repeat @MainActor hits for the same name
+      // always pushed a duplicate component instead of merging tags.
+      let comp = components.find(c => c.name === hit.name && c.type === 'component');
+      let compId: string;
       if (!comp) {
+        compId = generateComponentId('component', hit.name);
         comp = {
           component_id: compId,
           name: hit.name,
@@ -431,6 +448,7 @@ export async function scanSwiftCode(
         };
         components.push(comp);
       } else {
+        compId = comp.component_id;
         if (!comp.tags.includes('actor-isolation')) comp.tags.push('actor-isolation');
         if (!comp.tags.includes('main-actor')) comp.tags.push('main-actor');
       }
@@ -625,25 +643,57 @@ export async function scanSwiftCode(
     }
   }
 
+  // Neither endpoint was ever a real component before this fix: no
+  // `framework` component is pushed anywhere in this scanner, and no
+  // `entitlement:<key>` component was ever pushed either — both were
+  // dangling `generateComponentId(...)` ids (fact-checker finding). Push one
+  // real entitlement component per unique key (dedup, same pattern as the
+  // protocol/string-key groupings above) and use the `FILE:` form for the
+  // framework side, since the requirement is tied to the importing file, not
+  // to a framework component that doesn't exist.
+  const entitlementGroups = new Map<string, typeof entitlementReqs>();
   for (const req of entitlementReqs) {
-    connections.push({
-      connection_id: generateConnectionId('requires-entitlement'),
-      from: { component_id: generateComponentId('framework', req.framework), location: { file: req.file, line: req.line } },
-      to: { component_id: generateComponentId('other', `entitlement:${req.key}`) },
-      connection_type: 'requires-entitlement',
-      code_reference: {
-        file: req.file,
-        symbol: `import ${req.framework}`,
-        symbol_type: 'import',
-        line_start: req.line,
-        code_snippet: `import ${req.framework} → requires ${req.key}`,
-      },
-      description: `${req.framework} requires entitlement/plist key: ${req.key}`,
-      detected_from: 'swift-code-scanner',
-      confidence: 0.85,
+    if (!entitlementGroups.has(req.key)) entitlementGroups.set(req.key, []);
+    entitlementGroups.get(req.key)!.push(req);
+  }
+
+  for (const [key, reqs] of entitlementGroups) {
+    const entitlementCompId = generateComponentId('other', `entitlement:${key}`);
+    components.push({
+      component_id: entitlementCompId,
+      name: `entitlement:${key}`,
+      type: 'other',
+      role: { purpose: `Entitlement/plist key required: ${key}`, layer: 'infra', critical: false },
+      source: { detection_method: 'auto', config_files: [], confidence: 0.85 },
+      connects_to: [],
+      connected_from: [],
+      status: 'active',
+      tags: ['swift', 'entitlement'],
+      metadata: { key, frameworks: [...new Set(reqs.map(r => r.framework))] },
       timestamp,
-      last_verified: timestamp,
+      last_updated: timestamp,
     });
+
+    for (const req of reqs) {
+      connections.push({
+        connection_id: generateConnectionId('requires-entitlement'),
+        from: { component_id: `FILE:${req.file}`, location: { file: req.file, line: req.line } },
+        to: { component_id: entitlementCompId },
+        connection_type: 'requires-entitlement',
+        code_reference: {
+          file: req.file,
+          symbol: `import ${req.framework}`,
+          symbol_type: 'import',
+          line_start: req.line,
+          code_snippet: `import ${req.framework} → requires ${req.key}`,
+        },
+        description: `${req.framework} requires entitlement/plist key: ${req.key}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.85,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
   }
 
   // ---- Prompt patterns in Swift ----

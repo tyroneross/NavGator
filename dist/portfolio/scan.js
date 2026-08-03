@@ -13,16 +13,24 @@ import { discoverRepos } from './discover.js';
 const DEFAULT_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 4;
 /**
- * Scan every discovered repo under `dir`.
+ * Refuse shared storage mode for any multi-repo portfolio operation.
  *
- * Hard-refuses shared storage mode: in shared mode `getStoragePath` ignores
- * `projectRoot` entirely and resolves one path under $HOME
- * (src/config.ts:110-124), so every repo in the sweep would write to — and
- * silently overwrite — the same storage location. Refusing beats a scan
- * that appears to work.
+ * In shared mode `getStoragePath` ignores `projectRoot` entirely and
+ * resolves one path under $HOME (src/config.ts:114-118), so every repo
+ * touched in a portfolio sweep would read/write the SAME storage location.
+ * For a scan that means silent overwrite of the previous repo's
+ * architecture data; for a no-scan status read (see
+ * src/cli/commands/portfolio.ts) it means every registered project loads
+ * identical component/connection data, and `buildCrossRepoMap` fabricates
+ * cross-repo sharing and service-call edges that don't exist
+ * (src/portfolio/cross-repo.ts). Refusing beats either failure mode
+ * appearing to work.
+ *
+ * Exported so every portfolio entrypoint that fans out across registered
+ * projects — the CLI's no-dir status path and the MCP `portfolio` tool —
+ * can call the same guard instead of re-deriving the shared-mode check.
  */
-export async function scanPortfolio(dir, opts = {}) {
-    const config = getConfig();
+export function assertLocalStorageMode(config) {
     if (config.storageMode === 'shared') {
         throw new Error('navgator portfolio refuses to run in shared storage mode: NAVGATOR_MODE=shared ' +
             'resolves a single storage path under $HOME regardless of which repo is being scanned ' +
@@ -31,6 +39,16 @@ export async function scanPortfolio(dir, opts = {}) {
             'data. Switch to local mode (unset NAVGATOR_MODE/NAVGATOR_PATH, or set NAVGATOR_MODE=local) ' +
             'before running a portfolio scan.');
     }
+}
+/**
+ * Scan every discovered repo under `dir`.
+ *
+ * Hard-refuses shared storage mode via `assertLocalStorageMode` — see that
+ * function's doc comment for why.
+ */
+export async function scanPortfolio(dir, opts = {}) {
+    const config = getConfig();
+    assertLocalStorageMode(config);
     const discovered = discoverRepos(dir, { depth: opts.depth });
     const requestedConcurrency = opts.concurrency ?? DEFAULT_CONCURRENCY;
     const concurrency = Math.min(Math.max(1, Math.floor(requestedConcurrency)), MAX_CONCURRENCY);

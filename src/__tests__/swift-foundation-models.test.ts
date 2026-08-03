@@ -175,4 +175,104 @@ describe('scanSwiftCode — FoundationModels detection', () => {
       expect(fromId.startsWith('FILE:') || compIds.has(fromId)).toBe(true);
     }
   });
+
+  it('detects FoundationModels through attributed/access-level import forms (@preconcurrency public import)', async () => {
+    writeFixture(
+      'Shared/Services/AttributedImportCoach.swift',
+      [
+        'import Foundation',
+        '@preconcurrency public import FoundationModels',
+        '',
+        'final class AttributedImportCoachService {',
+        '    func coach() async throws {',
+        '        let session = LanguageModelSession(instructions: "You are a plan coach.")',
+        '        print(session)',
+        '    }',
+        '}',
+      ].join('\n')
+    );
+
+    const result = await scanSwiftCode(tmp);
+    const fmComponent = result.components.find(c => c.name === 'Apple Foundation Models' && c.type === 'llm');
+    expect(fmComponent).toBeDefined();
+    const fmConns = result.connections.filter(c => c.to.component_id === fmComponent!.component_id);
+    expect(fmConns.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT register a use case when the FoundationModels import is commented out', async () => {
+    writeFixture(
+      'Shared/Services/CommentedImportCoach.swift',
+      [
+        'import Foundation',
+        '// import FoundationModels',
+        '',
+        'final class CommentedImportCoachService {',
+        '    func coach() async throws {',
+        '        let session = LanguageModelSession(instructions: "You are a plan coach.")',
+        '        let response = try await session.respond(to: "Help me plan today")',
+        '        print(response)',
+        '    }',
+        '}',
+      ].join('\n')
+    );
+
+    const result = await scanSwiftCode(tmp);
+    const fmComponent = result.components.find(c => c.name === 'Apple Foundation Models');
+    expect(fmComponent).toBeUndefined();
+  });
+
+  it('whole-file endpoint integrity invariant: every connection endpoint resolves to a pushed component or a FILE: ref (protocol conformance + entitlements + FoundationModels)', async () => {
+    writeFixture(
+      'Shared/Services/HealthCoach.swift',
+      [
+        'import Foundation',
+        'import HealthKit',
+        'import FoundationModels',
+        '',
+        'struct HealthSummary: Codable {',
+        '    var value: Int',
+        '}',
+        '',
+        'struct HealthDetail: Codable {',
+        '    var note: String',
+        '}',
+        '',
+        '@Generable',
+        'struct HealthQuery {',
+        '    var goal: String',
+        '}',
+        '',
+        'final class HealthCoach {',
+        '    func coach() async throws {',
+        '        let session = LanguageModelSession(instructions: "You are a health coach.")',
+        '        let response = try await session.respond(to: "Summarize today")',
+        '        print(response)',
+        '    }',
+        '}',
+      ].join('\n')
+    );
+
+    const result = await scanSwiftCode(tmp);
+
+    // Sanity: this fixture actually exercises all three surfaces, otherwise
+    // the invariant below would pass vacuously.
+    expect(result.components.some(c => c.name === 'protocol:Codable')).toBe(true);
+    expect(result.components.some(c => (c.name as string).startsWith('entitlement:'))).toBe(true);
+    expect(result.components.some(c => c.name === 'Apple Foundation Models')).toBe(true);
+    expect(result.connections.length).toBeGreaterThan(0);
+
+    const compIds = new Set(result.components.map(c => c.component_id));
+    let endpointsChecked = 0;
+    for (const conn of result.connections) {
+      const fromId = conn.from.component_id;
+      const toId = conn.to.component_id;
+      expect(fromId?.startsWith('FILE:') || compIds.has(fromId as string)).toBe(true);
+      endpointsChecked++;
+      expect(toId?.startsWith('FILE:') || compIds.has(toId as string)).toBe(true);
+      endpointsChecked++;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`endpoint-integrity invariant checked ${endpointsChecked} endpoints across ${result.connections.length} connections`);
+    expect(endpointsChecked).toBeGreaterThan(0);
+  });
 });

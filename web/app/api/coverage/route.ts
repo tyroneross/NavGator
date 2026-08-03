@@ -8,17 +8,45 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import * as path from "path";
+import * as os from "os";
 import type { CoverageApiResponse, CoverageReport } from "@/lib/types";
 import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
-import { computeCoverage } from "@/lib/server/coverage";
+import {
+  computeCoverage,
+  isRegisteredProjectPath,
+  setBoundedCacheEntry,
+} from "@/lib/server/coverage";
+import { rejectNonLoopback } from "@/lib/server/request-guard";
 
 const coverageCache = new Map<string, { data: CoverageReport; timestamp: number }>();
 const CACHE_TTL = 60000;
+// Bounds coverageCache's memory footprint. Without a cap, an attacker-chosen
+// `path` (now constrained to registered projects, but bounded defensively
+// anyway) could otherwise grow the map without limit across many distinct
+// root directories.
+const CACHE_MAX_ENTRIES = 20;
+
+const REGISTRY_PATH = path.join(os.homedir(), ".navgator", "projects.json");
 
 export async function GET(request: NextRequest) {
+  const nonLoopback = rejectNonLoopback(request);
+  if (nonLoopback) return nonLoopback;
+
   const searchParams = request.nextUrl.searchParams;
   const refresh = searchParams.get("refresh") === "true";
   const projectPath = searchParams.get("path");
+
+  if (projectPath && !isRegisteredProjectPath(projectPath, REGISTRY_PATH)) {
+    return NextResponse.json<CoverageApiResponse>(
+      {
+        success: false,
+        error: "path must match a registered NavGator project",
+        source: "scan",
+      },
+      { status: 400 }
+    );
+  }
 
   const root =
     projectPath ||
@@ -45,7 +73,7 @@ export async function GET(request: NextRequest) {
       records.fileMap
     );
 
-    coverageCache.set(cacheKey, { data: report, timestamp: Date.now() });
+    setBoundedCacheEntry(coverageCache, cacheKey, report, CACHE_MAX_ENTRIES);
 
     return NextResponse.json<CoverageApiResponse>({
       success: true,

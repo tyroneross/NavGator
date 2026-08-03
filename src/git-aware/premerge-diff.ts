@@ -22,7 +22,7 @@
 import { computeArchitectureDiff, classifySignificance } from '../diff.js';
 import type { DiffResult, DiffSignificance, DiffTrigger, Snapshot } from '../types.js';
 import { readBranchSnapshot, readCanonicalSnapshot } from './canonical.js';
-import { getCurrentRef, isDefaultBranch } from './refs.js';
+import { getCurrentRef, getDefaultBranch, isDefaultBranch } from './refs.js';
 
 export interface PremergeDiffOptions {
   /** Named base ref to diff against (its branch-delta snapshot). Omit to use the canonical baseline. */
@@ -62,12 +62,25 @@ export async function premergeDiff(
   const head = await getCurrentRef(root);
   const baseLabel = opts.base ?? 'canonical';
 
-  const baseSnapshot: Snapshot | null = opts.base
-    ? await readBranchSnapshot(root, opts.base)
-    : await readCanonicalSnapshot(root);
+  // f6: `writeSnapshotForCurrentRef` (C4) writes the DEFAULT branch's
+  // snapshot to `canonical/` and NEVER to `branches/<slug>/` (see the
+  // comment on `onDefault` below). So when the caller's explicit `--base`
+  // ref names the default branch (e.g. `--base main`), the recorded
+  // baseline lives in `canonical/`, not `branches/main/` — reading
+  // `branches/main/` unconditionally would report "no snapshot" even though
+  // a real baseline exists. Resolve `--base` against the default branch
+  // first and read canonical in that case; only fall back to a branch-delta
+  // read when `--base` names some other ref.
+  const defaultBranch = opts.base ? await getDefaultBranch(root) : null;
+  const baseIsDefaultBranch = !!opts.base && defaultBranch !== null && opts.base === defaultBranch;
+
+  const baseSnapshot: Snapshot | null =
+    opts.base && !baseIsDefaultBranch
+      ? await readBranchSnapshot(root, opts.base)
+      : await readCanonicalSnapshot(root);
 
   if (!baseSnapshot) {
-    const reason = opts.base
+    const reason = opts.base && !baseIsDefaultBranch
       ? `No recorded snapshot for base ref "${opts.base}". Run \`navgator arch-diff --base ${opts.base} --record\` on that branch first (or check out that branch and run it there).`
       : 'No canonical snapshot exists yet. Run `navgator arch-diff --record` on the default branch first to establish a baseline.';
     return { base: baseLabel, head, available: false, reason };

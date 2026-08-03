@@ -104,6 +104,59 @@ export async function discoverSourceFiles(
   }
 }
 
+export interface RegisteredProjectsFile {
+  projects?: Array<{ path?: unknown }>;
+}
+
+/**
+ * Parse a NavGator project registry (the ~/.navgator/projects.json shape
+ * written by web/app/api/projects/route.ts) into a set of resolved absolute
+ * project root paths. Alias-free (no next/server, no @/ imports) so this can
+ * be exercised directly from src/__tests__ against a tmp registry file — see
+ * SEC-003: /api/coverage constrains its `path` query param to this allowlist
+ * instead of accepting an arbitrary filesystem path.
+ */
+export function loadRegisteredProjectPaths(registryPath: string): Set<string> {
+  try {
+    const raw = fs.readFileSync(registryPath, "utf-8");
+    const parsed = JSON.parse(raw) as RegisteredProjectsFile;
+    const entries = Array.isArray(parsed.projects) ? parsed.projects : [];
+    return new Set(
+      entries
+        .map((entry) => entry.path)
+        .filter((p): p is string => typeof p === "string" && p.length > 0)
+        .map((p) => path.resolve(p))
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** True when `requestedPath` resolves to a path present in the registry at `registryPath`. */
+export function isRegisteredProjectPath(requestedPath: string, registryPath: string): boolean {
+  return loadRegisteredProjectPaths(registryPath).has(path.resolve(requestedPath));
+}
+
+/**
+ * Insert an entry into a size-bounded cache map, evicting the oldest entry
+ * (by Map insertion order) once at capacity. Extracted out of the route
+ * handler so the bound itself can be exercised directly in src/__tests__
+ * without importing next/server (SEC-003: an attacker-chosen cache key must
+ * not be able to grow the map without limit).
+ */
+export function setBoundedCacheEntry<T>(
+  cache: Map<string, { data: T; timestamp: number }>,
+  key: string,
+  data: T,
+  maxEntries: number
+): void {
+  if (!cache.has(key) && cache.size >= maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
 /**
  * Compute architecture coverage for a project from loose JSON records
  * (as returned by loadArchitectureRecords). Numeric behavior mirrors

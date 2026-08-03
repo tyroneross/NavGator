@@ -122,7 +122,10 @@ export function slugifyRef(ref: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '_');
   const truncated = replaced.slice(0, MAX_SLUG_LENGTH);
 
-  if (truncated === ref) return truncated;
+  // `.` and `..` survive the character filter (both chars are in the preserved
+  // set), so an unchanged passthrough would resolve to the branches dir itself
+  // or one level above it. Always hash those instead of returning them.
+  if (truncated === ref && truncated !== '.' && truncated !== '..') return truncated;
 
   const hash = crypto.createHash('sha256').update(ref, 'utf8').digest('hex').slice(0, HASH_LENGTH);
   return `${truncated}_${hash}`;

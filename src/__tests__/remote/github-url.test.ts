@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGitHubUrl } from '../../remote/github-url.js';
+import { parseGitHubUrl, validateRef } from '../../remote/github-url.js';
 
 describe('parseGitHubUrl — accepted shapes', () => {
   it('accepts the https github.com owner/repo form', () => {
@@ -139,5 +139,36 @@ describe('parseGitHubUrl — rejected payloads', () => {
   it('rejects a ref containing parent-directory traversal', () => {
     const traversalRef = ['.', '.'].join('') + '/secrets';
     expect(parseGitHubUrl(`https://github.com/owner/repo/tree/${traversalRef}`)).toBeNull();
+  });
+});
+
+describe('validateRef — SEC-001 (a separately-supplied --ref must face the same controls)', () => {
+  it('accepts an ordinary branch/tag/commit-ish ref', () => {
+    expect(validateRef('v6.9')).toBe('v6.9');
+    expect(validateRef('feature/foo')).toBe('feature/foo');
+  });
+
+  it('rejects a leading-dash ref (git argv/option-injection payload)', () => {
+    const flagName = '-' + 'upload-pack' + '=' + 'x';
+    expect(validateRef(flagName)).toBeNull();
+  });
+
+  it('rejects a ref carrying parent-directory traversal', () => {
+    const traversalRef = ['.', '.'].join('') + '/secrets';
+    expect(validateRef(traversalRef)).toBeNull();
+  });
+
+  it('rejects an over-long ref', () => {
+    expect(validateRef('x'.repeat(300))).toBeNull();
+  });
+
+  it('rejects a ref carrying an embedded newline', () => {
+    expect(validateRef('main\nextra-line')).toBeNull();
+  });
+
+  it('rejects non-string, empty, and undefined input', () => {
+    expect(validateRef('')).toBeNull();
+    expect(validateRef(undefined)).toBeNull();
+    expect(validateRef(42)).toBeNull();
   });
 });

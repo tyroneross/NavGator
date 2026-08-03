@@ -10,6 +10,11 @@ import { type ParsedGitHubUrl } from './github-url.js';
 import { type EnsureCloneOptions } from './clone.js';
 import { scan } from '../scanner.js';
 type ScanOutcome = Awaited<ReturnType<typeof scan>>;
+/** Marks output derived from a clone whose contents are not authored by this machine's user. */
+export interface RemoteOrigin {
+    kind: 'remote';
+    url: string;
+}
 export interface ScanRemoteOptions {
     /** Explicit ref override — otherwise the ref parsed from the URL (e.g. `/tree/<ref>`) is used. */
     ref?: string;
@@ -22,6 +27,10 @@ export type ScanRemoteResult = {
     status: 'invalid_url';
     url: string;
 } | {
+    status: 'invalid_ref';
+    url: string;
+    ref: string;
+} | {
     status: 'busy';
     retryable: true;
     message: string;
@@ -32,6 +41,8 @@ export type ScanRemoteResult = {
     cloned: boolean;
     parsed: ParsedGitHubUrl;
     scan: ScanOutcome;
+    /** SEC-002: every field below came from a clone this machine's user did not author. */
+    origin: RemoteOrigin;
 };
 /**
  * Parse a GitHub URL, ensure the clone exists (or is refreshed), run the

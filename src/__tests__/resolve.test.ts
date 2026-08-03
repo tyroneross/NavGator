@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveComponent, findCandidates } from '../resolve.js';
 import { createMockComponent } from './helpers.js';
-import type { ArchitectureComponent } from '../types.js';
+import type { ArchitectureComponent, ConnectionRef } from '../types.js';
 
 describe('resolveComponent', () => {
   const components: ArchitectureComponent[] = [
@@ -196,6 +196,57 @@ describe('resolveComponent', () => {
       // confirms the new step 4b doesn't override existing precedence.
       const result = resolveComponent('Railway', aliasComponents);
       expect(result).toBeDefined();
+    });
+
+    it('f3 closure: resolves via 4b ONLY when no bare-name candidate and no step-4 substring match exist', () => {
+      // NOTE ON FIXTURE DESIGN: a query of plain "Railway" against "Railway Config" /
+      // "Railway (infra)" is already resolved by step 4 (substring match, since "railway" IS a
+      // literal substring of both names) — that fixture would NOT exercise step 4b at all, and
+      // would pass even with step 4b deleted (mutation-verified below). To build a genuine
+      // oracle for 4b, the query must fail BOTH step 2 (exact name) and step 4 (substring of
+      // name) while still sharing a base identity via componentBaseName() — so we query with a
+      // trailing parenthetical the fixture names don't literally contain. componentBaseName()
+      // strips that trailing parenthetical the same way it strips "Config" and "(infra)", so
+      // the base identity ("railway") still matches, but the raw query string is not a substring
+      // of either candidate name, so only step 4b can resolve it.
+      const ref = (target: string): ConnectionRef => ({
+        connection_id: `CONN_${target}`,
+        target_component_id: target,
+        connection_type: 'service-call',
+      });
+
+      const noBareRailway: ArchitectureComponent[] = [
+        createMockComponent({
+          component_id: 'COMP_infra_railway_config',
+          name: 'Railway Config',
+          type: 'infra',
+          connects_to: [ref('x')],
+          connected_from: [],
+        }),
+        createMockComponent({
+          component_id: 'COMP_infra_railway_infra',
+          name: 'Railway (infra)',
+          type: 'infra',
+          connects_to: [ref('x'), ref('y'), ref('z')],
+          connected_from: [ref('w')],
+        }),
+      ];
+
+      const query = 'Railway (production)';
+
+      // Sanity: confirm the fixture actually starves steps 2 and 4, so a pass here can only be
+      // attributed to step 4b.
+      const exactName = noBareRailway.find(c => c.name.toLowerCase() === query.toLowerCase());
+      expect(exactName).toBeUndefined();
+      const substringMatches = noBareRailway.filter(c =>
+        c.name.toLowerCase().includes(query.toLowerCase())
+      );
+      expect(substringMatches.length).toBe(0);
+
+      const result = resolveComponent(query, noBareRailway);
+      expect(result).toBeDefined();
+      // Connection-count tie-break: 'Railway (infra)' has 4 connections vs 'Railway Config''s 1.
+      expect(result?.component_id).toBe('COMP_infra_railway_infra');
     });
   });
 });

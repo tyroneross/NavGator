@@ -76,6 +76,25 @@ function finalize(rawOwner, rawRepo, rawRef) {
     if (rawRef === undefined) {
         return { owner, repo };
     }
+    const ref = validateRef(rawRef);
+    if (ref === null)
+        return null;
+    return { owner, repo, ref };
+}
+/**
+ * Validate a ref value (branch, tag, or commit-ish) against the same rules
+ * `finalize` applies to a `/tree/<ref>` suffix parsed out of a URL — control
+ * chars, a leading dash (argument injection), `..` traversal, an over-long
+ * value, and the allowlist character set. Exported so callers accepting a
+ * ref from a SEPARATE input (e.g. a CLI `--ref` flag, which never passes
+ * through `parseGitHubUrl`/`finalize`) can apply the identical control
+ * before that value reaches a subprocess argv (SEC-001).
+ */
+export function validateRef(rawRef) {
+    if (typeof rawRef !== 'string')
+        return null;
+    if (hasControlChar(rawRef))
+        return null;
     const ref = rawRef;
     if (!ref || ref.startsWith('-'))
         return null;
@@ -85,6 +104,6 @@ function finalize(rawOwner, rawRepo, rawRef) {
         return null;
     if (!REF_RE.test(ref))
         return null;
-    return { owner, repo, ref };
+    return ref;
 }
 //# sourceMappingURL=github-url.js.map

@@ -32,6 +32,7 @@ describe('ensureClone — argv construction (no network)', () => {
       '--depth',
       '1',
       '--single-branch',
+      '--',
       'https://github.com/torvalds/linux.git',
       path.join(cacheRoot, 'torvalds', 'linux'),
     ]);
@@ -57,6 +58,7 @@ describe('ensureClone — argv construction (no network)', () => {
       '--single-branch',
       '--branch',
       'v6.9',
+      '--',
       'https://github.com/torvalds/linux.git',
       path.join(cacheRoot, 'torvalds', 'linux'),
     ]);
@@ -82,6 +84,67 @@ describe('ensureClone — argv construction (no network)', () => {
     expect(env.GIT_TERMINAL_PROMPT).toBe('0');
     expect(env.GIT_CONFIG_NOSYSTEM).toBe('1');
     expect(env.GIT_ASKPASS).toBe('');
+
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  });
+
+  it('SEC-008: hardened env carries the LFS/global-config keys and no inherited GIT_* vars', async () => {
+    const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-clone-test-'));
+    const { impl, calls } = makeExecSpy();
+    const prevGitDir = process.env.GIT_DIR;
+    const prevGitAuthor = process.env.GIT_AUTHOR_NAME;
+    process.env.GIT_DIR = '/tmp/should-never-leak';
+    process.env.GIT_AUTHOR_NAME = 'should-never-leak';
+
+    await ensureClone({ owner: 'a', repo: 'b' }, { cacheRoot, execFileImpl: impl });
+
+    const env = calls[0].options as { env: Record<string, string> };
+    expect(env.env.GIT_LFS_SKIP_SMUDGE).toBe('1');
+    expect(env.env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
+    expect(env.env.GIT_DIR).toBeUndefined();
+    expect(env.env.GIT_AUTHOR_NAME).toBeUndefined();
+    for (const key of Object.keys(env.env)) {
+      if (key.startsWith('GIT_')) {
+        expect(
+          ['GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'GIT_SSH_COMMAND', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_LFS_SKIP_SMUDGE']
+        ).toContain(key);
+      }
+    }
+
+    process.env.GIT_DIR = prevGitDir;
+    process.env.GIT_AUTHOR_NAME = prevGitAuthor;
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+  });
+
+  it('SEC-007: rejects a clone destination reached via a symlink that escapes the cache root', async () => {
+    const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-clone-test-'));
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-outside-'));
+    fs.mkdirSync(path.join(cacheRoot, 'evil-owner'));
+    fs.symlinkSync(outsideDir, path.join(cacheRoot, 'evil-owner', 'evil-repo'));
+    const { impl } = makeExecSpy();
+
+    await expect(
+      ensureClone({ owner: 'evil-owner', repo: 'evil-repo' }, { cacheRoot, execFileImpl: impl })
+    ).rejects.toThrow(/escapes/);
+
+    fs.rmSync(cacheRoot, { recursive: true, force: true });
+    fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it('SEC-007: cleans up a partially-written destination when the clone exec fails', async () => {
+    const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-clone-test-'));
+    const dest = path.join(cacheRoot, 'torvalds', 'linux');
+    const failingImpl = vi.fn(async () => {
+      fs.mkdirSync(dest, { recursive: true });
+      fs.writeFileSync(path.join(dest, 'partial-file.txt'), 'partial');
+      throw new Error('simulated clone timeout');
+    });
+
+    await expect(
+      ensureClone({ owner: 'torvalds', repo: 'linux' }, { cacheRoot, execFileImpl: failingImpl })
+    ).rejects.toThrow('simulated clone timeout');
+
+    expect(fs.existsSync(dest)).toBe(false);
 
     fs.rmSync(cacheRoot, { recursive: true, force: true });
   });

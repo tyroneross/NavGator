@@ -46,7 +46,14 @@ interface ProjectRegistry {
  */
 export declare function loadRegistry(): Promise<ProjectRegistry>;
 /**
- * Save the project registry
+ * Save the project registry.
+ *
+ * Uses `atomicWriteJSON` (write-to-temp + rename) so a reader never observes
+ * a partially-written file. This does NOT by itself prevent the
+ * read-modify-write race between concurrent callers within this process —
+ * see `withRegistryLock` below, which serializes the load-mutate-save body
+ * of `registerProject`/`updateProjectMeta` so writers never clobber each
+ * other's in-memory mutations.
  */
 export declare function saveRegistry(registry: ProjectRegistry): Promise<void>;
 /**
@@ -63,6 +70,9 @@ export declare function registerProject(projectRoot: string, stats?: {
  * doesn't name in `patch`. Used by the remote-scan chunk (C7) to record a
  * remote origin without disturbing scan stats, git info, or portfolio data
  * a sibling writer already set.
+ *
+ * Serialized through `withRegistryLock` for the same reason as
+ * `registerProject` — see that function's comment.
  */
 export declare function updateProjectMeta(root: string, patch: Partial<Omit<ProjectEntry, 'path'>>): Promise<void>;
 /**

@@ -6,32 +6,45 @@
  * `scan()` already owns its own lease and already calls `registerProject()`
  * internally (src/scanner.ts) — this module does neither.
  */
-import { parseGitHubUrl } from './github-url.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { parseGitHubUrl, validateRef } from './github-url.js';
 import { ensureClone } from './clone.js';
 import { scan } from '../scanner.js';
-import * as projectsModule from '../projects.js';
+import { updateProjectMeta } from '../projects.js';
 /**
  * Read-modify-write helper for the project registry's origin metadata.
- *
- * Sibling chunk C6 is adding `updateProjectMeta(root, patch)` to
- * `src/projects.ts` in the same parallel batch as this chunk. It may not
- * exist yet at any given moment during that batch, so this is looked up
- * dynamically (not statically imported/typed) and is a no-op — never a
- * throw — when absent. Once C6 lands, this starts working with no further
- * change needed here.
+ * `updateProjectMeta` landed in `src/projects.ts` as part of chunk C6 (f8
+ * closure) — statically imported now instead of the prior dynamic
+ * `typeof mod.updateProjectMeta === 'function'` lookup, which defeated
+ * typecheck for this call and would have silently no-op'd on a rename.
  */
 async function recordRemoteOrigin(cloneDir, url, cachePath) {
-    const mod = projectsModule;
-    if (typeof mod.updateProjectMeta !== 'function')
-        return;
     try {
-        await mod.updateProjectMeta(cloneDir, {
+        await updateProjectMeta(cloneDir, {
             origin: { kind: 'remote', url, cachePath },
         });
     }
     catch {
         // Non-critical — mirrors registerProject's own swallow-and-continue policy.
     }
+}
+/**
+ * Delete any `.navgator/architecture/` a cloned repo shipped in its own
+ * commit history BEFORE the scan pipeline ever looks at it (SEC-002).
+ *
+ * Without this, an attacker-committed `index.json` + `hashes.json` that
+ * matches the repo's own files makes `scan(dir, { mode: 'auto' })` select
+ * the incremental/no-changes path and return the attacker's
+ * components/connections/NAVSUMMARY.md verbatim — no file of the clone is
+ * ever actually scanned. Deleting the directory first removes the fake
+ * state; passing `mode: 'full'` below removes the *decision point* itself,
+ * so a shipped index can never again select the noop path even if this
+ * delete step were ever skipped.
+ */
+async function purgeShippedArchitectureDir(cloneDir) {
+    const archDir = path.join(cloneDir, '.navgator');
+    await fs.promises.rm(archDir, { recursive: true, force: true });
 }
 /**
  * Parse a GitHub URL, ensure the clone exists (or is refreshed), run the
@@ -43,14 +56,34 @@ export async function scanRemote(url, opts = {}) {
     if (!parsed) {
         return { status: 'invalid_url', url };
     }
-    const ref = opts.ref ?? parsed.ref;
+    // SEC-001: `opts.ref` is a SEPARATE input from the URL — it never passes
+    // through `parseGitHubUrl`/`finalize`, so it must face the identical
+    // control before it can reach `ensureClone`'s argv. Validate whichever ref
+    // value wins (opts.ref, if given, otherwise the URL-parsed ref, which is
+    // already validated but re-checked here for defense in depth) BEFORE any
+    // subprocess is spawned.
+    const rawRef = opts.ref ?? parsed.ref;
+    let ref;
+    if (rawRef !== undefined) {
+        const validated = validateRef(rawRef);
+        if (validated === null) {
+            return { status: 'invalid_ref', url, ref: rawRef };
+        }
+        ref = validated;
+    }
     const cloneResult = await ensureClone({ owner: parsed.owner, repo: parsed.repo, ref }, {
         cacheRoot: opts.cacheRoot,
         refresh: opts.refresh,
         timeoutMs: opts.timeoutMs,
         execFileImpl: opts.execFileImpl,
     });
-    const outcome = await scan(cloneResult.dir, { mode: 'auto' });
+    // SEC-002: a cloned repo may ship its own `.navgator/architecture/` with a
+    // fabricated index/hashes/components/NAVSUMMARY.md designed to make the
+    // scanner's `auto` mode select the no-changes noop path and return the
+    // attacker's content verbatim. Delete whatever the clone shipped, then
+    // force `mode: 'full'` so the noop path can never be selected regardless.
+    await purgeShippedArchitectureDir(cloneResult.dir);
+    const outcome = await scan(cloneResult.dir, { mode: 'full', clearFirst: true });
     if (outcome.status === 'busy') {
         return {
             status: 'busy',
@@ -66,6 +99,7 @@ export async function scanRemote(url, opts = {}) {
         cloned: cloneResult.cloned,
         parsed,
         scan: outcome,
+        origin: { kind: 'remote', url },
     };
 }
 //# sourceMappingURL=scan-remote.js.map

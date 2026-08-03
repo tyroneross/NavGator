@@ -66,4 +66,41 @@ describe('projects registry', () => {
     expect(entry?.origin).toEqual({ kind: 'local' });
     expect(entry?.portfolio).toEqual({ root: '/repos' });
   });
+
+  // f1 closure proof (updateProjectMeta side): fired concurrently rather
+  // than sequentially, each call must still see the previous call's
+  // in-memory mutation rather than racing a shared pre-image read. Before
+  // the withRegistryLock fix, concurrent load-mutate-save calls could each
+  // load the same pre-image and the last save to land would drop whichever
+  // field(s) the other call had set.
+  it('concurrent updateProjectMeta calls on the same project do not lose fields', async () => {
+    await Promise.all([
+      updateProjectMeta('/repos/concurrent', { origin: { kind: 'local' } }),
+      updateProjectMeta('/repos/concurrent', { portfolio: { root: '/repos' } }),
+      updateProjectMeta('/repos/concurrent', { lastSignificance: 'minor' }),
+    ]);
+
+    const registry = await loadRegistry();
+    const entry = registry.projects.find((p) => p.path === '/repos/concurrent');
+    expect(entry).toBeDefined();
+    expect(entry?.origin).toEqual({ kind: 'local' });
+    expect(entry?.portfolio).toEqual({ root: '/repos' });
+    expect(entry?.lastSignificance).toBe('minor');
+  });
+
+  // f1 closure proof (registerProject side): N concurrent registrations of
+  // distinct projects must all land — this is the in-process shape of what
+  // scanPortfolio's workers do (each finishes and calls registerProject on
+  // its own repo path). Auditor measured 2 of 6 surviving before the fix.
+  it('concurrent registerProject calls for distinct projects all register', async () => {
+    const count = 6;
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        registerProject(`/repos/concurrent-${i}`, { components: 1, connections: 0, prompts: 0 })
+      )
+    );
+
+    const registry = await loadRegistry();
+    expect(registry.projects.length).toBe(count);
+  });
 });

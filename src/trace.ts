@@ -219,6 +219,15 @@ export function traceDataflow(
       continue;
     }
 
+    // Tracks whether any connection in this batch actually advanced the BFS (queued a new
+    // step). Resolving a FILE: reference to an owning component that's already on this path
+    // (src/trace.ts:254 `continue`) must NOT silently drop the path — it must be recorded as
+    // a dead end, exactly like the `filteredConnections.length === 0` case above. Without this,
+    // `resolveFileNodes: true` (the default) can report fewer paths than `resolveFileNodes:
+    // false` for the same graph, which breaks the contract that only node identity may differ
+    // between the two modes.
+    let advanced = false;
+
     for (const { conn, nextId: rawNextId } of filteredConnections) {
       let nextId = rawNextId;
       let nextComp = componentMap.get(nextId);
@@ -253,6 +262,7 @@ export function traceDataflow(
       if (!nextComp) continue;
       if (current.visited.has(nextId)) continue; // resolving to an owner may re-hit an already-visited node
 
+      advanced = true;
       touchedIds.add(nextId);
       layerSet.add(nextComp.role.layer);
 
@@ -274,10 +284,11 @@ export function traceDataflow(
       });
     }
 
-    // If no connections were followed and we haven't queued anything,
-    // and this isn't just the starting node
-    if (filteredConnections.length === 0 && current.path.length === 1) {
-      // Only the start node, no paths
+    // Every candidate connection was dropped (owner-resolution re-hit an already-visited node,
+    // or a dangling reference had no resolvable component) — record the dead end so this path
+    // isn't silently lost. Matches the `filteredConnections.length === 0` dead-end recorder above.
+    if (!advanced && current.path.length > 1) {
+      paths.push({ steps: current.path });
     }
   }
 

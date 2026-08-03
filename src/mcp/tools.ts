@@ -30,11 +30,12 @@ import { getConfig, getPromptsPath } from "../config.js";
 import { getGitInfo } from "../git.js";
 import type { ArchitectureLayer } from "../types.js";
 import { listProjects } from "../projects.js";
-import { scanPortfolio } from "../portfolio/scan.js";
+import { scanPortfolio, assertLocalStorageMode } from "../portfolio/scan.js";
 import { buildCrossRepoMap } from "../portfolio/cross-repo.js";
 import type { CrossRepoMap, CrossRepoRepoInput, PortfolioScanResult } from "../portfolio/types.js";
 import { writeSnapshotForCurrentRef } from "../git-aware/canonical.js";
 import { premergeDiff } from "../git-aware/premerge-diff.js";
+import { defaultCacheRoot } from "../remote/clone.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -287,14 +288,14 @@ export const TOOLS = [
   {
     name: "portfolio",
     description:
-      "Cross-repo architecture map. With 'dir', discovers and scans a folder of local repos and builds a shared-dependency and cross-repo service-call map. Without 'dir', reports status over already-registered projects without scanning anything. Service-call edges are heuristic (host or service-name match), never a verified call graph — always labeled as such.",
+      "Cross-repo architecture map. With 'dir', re-scans an already-registered NavGator project root and builds a shared-dependency and cross-repo service-call map (run `navgator scan` there first, or use the CLI, if it isn't registered yet — this tool will not sweep an arbitrary, previously-unseen filesystem path). Without 'dir', reports status over already-registered projects without scanning anything. Service-call edges are heuristic (host or service-name match), never a verified call graph — always labeled as such.",
     inputSchema: {
       type: "object" as const,
       properties: {
         dir: {
           type: "string",
           description:
-            "Local directory to search for repos (each containing a .git dir or file). Omit to report over already-registered projects instead of scanning.",
+            "Path to an already-registered NavGator project root (each containing a .git dir or file). Must exactly match a path already known to the project registry; never a directory under the remote-scan cache root. Omit to report over already-registered projects instead of scanning.",
         },
         depth: {
           type: "number",
@@ -309,7 +310,7 @@ export const TOOLS = [
     annotations: {
       title: "Portfolio Scan",
       readOnlyHint: false,
-      destructiveHint: false,
+      destructiveHint: true,
       idempotentHint: true,
       openWorldHint: false,
     },
@@ -1030,6 +1031,17 @@ async function handlePortfolio(
   const config = getConfig();
 
   if (!dir) {
+    // f4: scanPortfolio() refuses shared storage mode internally, but this
+    // no-dir status path bypasses scanPortfolio entirely — it fans out
+    // loadAllComponents/loadAllConnections directly across every registered
+    // project (below). In shared mode getStoragePath ignores projectRoot
+    // and resolves one path under $HOME (src/config.ts:114-118), so every
+    // project would load the SAME data and buildCrossRepoMap would fabricate
+    // cross-repo sharing/service-call edges across all of them. Repeat the
+    // same guard scanPortfolio uses rather than assume this path is safe by
+    // omission.
+    assertLocalStorageMode(config);
+
     const projects = await listProjects();
     const inputs: CrossRepoRepoInput[] = [];
     for (const p of projects) {
@@ -1041,9 +1053,42 @@ async function handlePortfolio(
     return textResponse(formatPortfolioMap(map));
   }
 
+  // SEC-004: 'dir' was previously a free-form path handed straight to
+  // path.resolve() -> scanPortfolio(), which both reads from an arbitrary
+  // filesystem location on an LLM's instruction and writes a managed
+  // .gitignore/.git/info/exclude block into every repo it discovers
+  // (src/gitignore-safety.ts) — destructiveHint:false understated that.
+  // Constrain 'dir' to a path the project registry already knows about
+  // (mirrors the no-dir branch above, which only ever touches registered
+  // projects), and explicitly refuse the remote-scan cache root regardless
+  // of registration status: that's the one location a human-gated
+  // `navgator scan-remote` deliberately deposits untrusted cloned code, and
+  // an injected instruction routing through this MCP-reachable tool would
+  // otherwise be an unguarded back door to `scan_remote`'s deliberately
+  // withheld network fetch (AGENTS.md:148).
+  const resolvedDir = path.resolve(dir);
+  const cacheRoot = path.resolve(defaultCacheRoot());
+  if (resolvedDir === cacheRoot || resolvedDir.startsWith(cacheRoot + path.sep)) {
+    return errorResponse(
+      `Refusing 'dir' under the remote-scan cache root (${cacheRoot}): this is where ` +
+        "`navgator scan-remote` deposits shallow clones of untrusted, human-approved repos. " +
+        "The MCP 'portfolio' tool will not scan it — use the CLI directly if this is genuinely intended."
+    );
+  }
+
+  const projects = await listProjects();
+  const registeredRoots = new Set(projects.map((p) => path.resolve(p.path)));
+  if (!registeredRoots.has(resolvedDir)) {
+    return errorResponse(
+      `Refusing 'dir' that is not an already-registered NavGator project root: ${resolvedDir}. ` +
+        "The MCP 'portfolio' tool only re-scans directories NavGator already knows about " +
+        "(run `navgator scan` there once, or use the CLI directly) — it will not sweep an " +
+        "arbitrary, previously-unseen filesystem path on an LLM's instruction."
+    );
+  }
+
   const depth = typeof args.depth === "number" ? args.depth : 1;
   const concurrency = typeof args.concurrency === "number" ? args.concurrency : 1;
-  const resolvedDir = path.resolve(dir);
   const scanResult = await scanPortfolio(resolvedDir, { depth, concurrency });
 
   const inputs: CrossRepoRepoInput[] = [];

@@ -5,6 +5,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { atomicWriteJSON } from './storage.js';
 // =============================================================================
 // REGISTRY I/O
 // =============================================================================
@@ -37,12 +38,47 @@ export async function loadRegistry() {
     }
 }
 /**
- * Save the project registry
+ * Save the project registry.
+ *
+ * Uses `atomicWriteJSON` (write-to-temp + rename) so a reader never observes
+ * a partially-written file. This does NOT by itself prevent the
+ * read-modify-write race between concurrent callers within this process —
+ * see `withRegistryLock` below, which serializes the load-mutate-save body
+ * of `registerProject`/`updateProjectMeta` so writers never clobber each
+ * other's in-memory mutations.
  */
 export async function saveRegistry(registry) {
-    const registryDir = getRegistryDir();
-    await fs.promises.mkdir(registryDir, { recursive: true });
-    await fs.promises.writeFile(getRegistryPath(), JSON.stringify(registry, null, 2), 'utf-8');
+    await atomicWriteJSON(getRegistryPath(), registry);
+}
+// =============================================================================
+// CONCURRENCY
+// =============================================================================
+/**
+ * In-process mutex for registry read-modify-write sections.
+ *
+ * `scanPortfolio` runs N concurrent workers in a single process
+ * (src/portfolio/scan.ts), each of which calls `registerProject` via
+ * `scan()`. Without serialization, two workers finishing close together
+ * both `loadRegistry()` the same pre-image, mutate their own in-memory copy,
+ * and `saveRegistry()` — the last writer wins and the other worker's
+ * registration is silently lost (measured: 6 workers registered only 2 of 6
+ * entries at concurrency 4). Chaining every load-mutate-save body onto a
+ * single promise queue makes them run one at a time, so each sees the
+ * previous writer's result.
+ *
+ * This is an in-process mutex ONLY. It does nothing for cross-process
+ * contention (two separate `navgator` invocations writing projects.json at
+ * the same time) — that is a separate, pre-existing concern, out of scope
+ * here.
+ */
+let registryLock = Promise.resolve();
+function withRegistryLock(fn) {
+    const result = registryLock.then(fn, fn);
+    // Swallow rejections in the chain itself so one failed writer doesn't
+    // permanently wedge the queue for everyone after it; the real result
+    // (including its rejection) is still returned to this call's caller.
+    registryLock = result.catch(() => undefined);
+    return result;
 }
 // =============================================================================
 // REGISTRATION
@@ -52,74 +88,87 @@ export async function saveRegistry(registry) {
  * Replaces the inline registry code previously in cli/index.ts.
  */
 export async function registerProject(projectRoot, stats, significance, gitInfo) {
-    try {
-        const registry = await loadRegistry();
-        const existing = registry.projects.find((p) => p.path === projectRoot);
-        if (existing) {
-            existing.lastScan = Date.now();
-            existing.scanCount = (existing.scanCount || 0) + 1;
-            if (stats)
-                existing.stats = stats;
-            if (significance && significance !== 'patch') {
-                existing.lastSignificantChange = Date.now();
-                existing.lastSignificance = significance;
+    await withRegistryLock(async () => {
+        try {
+            const registry = await loadRegistry();
+            const existing = registry.projects.find((p) => p.path === projectRoot);
+            if (existing) {
+                existing.lastScan = Date.now();
+                existing.scanCount = (existing.scanCount || 0) + 1;
+                if (stats)
+                    existing.stats = stats;
+                if (significance && significance !== 'patch') {
+                    existing.lastSignificantChange = Date.now();
+                    existing.lastSignificance = significance;
+                }
+                if (gitInfo) {
+                    existing.git = { branch: gitInfo.branch, commit: gitInfo.commit };
+                }
             }
-            if (gitInfo) {
-                existing.git = { branch: gitInfo.branch, commit: gitInfo.commit };
+            else {
+                const dirName = projectRoot.split(path.sep).pop() || 'project';
+                const name = dirName
+                    .replace(/[-_]/g, ' ')
+                    .replace(/\b\w/g, (c) => c.toUpperCase())
+                    .trim();
+                registry.projects.push({
+                    path: projectRoot,
+                    name,
+                    addedAt: Date.now(),
+                    lastScan: Date.now(),
+                    scanCount: 1,
+                    stats,
+                    lastSignificantChange: significance && significance !== 'patch' ? Date.now() : undefined,
+                    lastSignificance: significance && significance !== 'patch' ? significance : undefined,
+                    git: gitInfo ? { branch: gitInfo.branch, commit: gitInfo.commit } : undefined,
+                });
             }
+            // Intentionally NOT wrapped in a try/catch that also swallows this:
+            // a save failure must not be reported as a silent success. The outer
+            // catch below still keeps registerProject itself non-fatal to the
+            // scan, but it no longer pretends the write succeeded when it didn't.
+            await saveRegistry(registry);
         }
-        else {
-            const dirName = projectRoot.split(path.sep).pop() || 'project';
-            const name = dirName
-                .replace(/[-_]/g, ' ')
-                .replace(/\b\w/g, (c) => c.toUpperCase())
-                .trim();
-            registry.projects.push({
-                path: projectRoot,
-                name,
-                addedAt: Date.now(),
-                lastScan: Date.now(),
-                scanCount: 1,
-                stats,
-                lastSignificantChange: significance && significance !== 'patch' ? Date.now() : undefined,
-                lastSignificance: significance && significance !== 'patch' ? significance : undefined,
-                git: gitInfo ? { branch: gitInfo.branch, commit: gitInfo.commit } : undefined,
-            });
+        catch (err) {
+            // Non-critical to the caller's scan — but surface it so it isn't
+            // completely invisible (was a bare `catch {}` before this fix).
+            console.error(`navgator: failed to register project ${projectRoot} in ~/.navgator/projects.json: ${err instanceof Error ? err.message : String(err)}`);
         }
-        await saveRegistry(registry);
-    }
-    catch {
-        // Non-critical — don't fail the scan
-    }
+    });
 }
 /**
  * Read-modify-write a project's metadata, preserving every field the caller
  * doesn't name in `patch`. Used by the remote-scan chunk (C7) to record a
  * remote origin without disturbing scan stats, git info, or portfolio data
  * a sibling writer already set.
+ *
+ * Serialized through `withRegistryLock` for the same reason as
+ * `registerProject` — see that function's comment.
  */
 export async function updateProjectMeta(root, patch) {
-    const registry = await loadRegistry();
-    const existing = registry.projects.find((p) => p.path === root);
-    if (existing) {
-        Object.assign(existing, patch);
-    }
-    else {
-        const dirName = root.split(path.sep).pop() || 'project';
-        const name = dirName
-            .replace(/[-_]/g, ' ')
-            .replace(/\b\w/g, (c) => c.toUpperCase())
-            .trim();
-        registry.projects.push({
-            path: root,
-            name,
-            addedAt: Date.now(),
-            lastScan: null,
-            scanCount: 0,
-            ...patch,
-        });
-    }
-    await saveRegistry(registry);
+    await withRegistryLock(async () => {
+        const registry = await loadRegistry();
+        const existing = registry.projects.find((p) => p.path === root);
+        if (existing) {
+            Object.assign(existing, patch);
+        }
+        else {
+            const dirName = root.split(path.sep).pop() || 'project';
+            const name = dirName
+                .replace(/[-_]/g, ' ')
+                .replace(/\b\w/g, (c) => c.toUpperCase())
+                .trim();
+            registry.projects.push({
+                path: root,
+                name,
+                addedAt: Date.now(),
+                lastScan: null,
+                scanCount: 0,
+                ...patch,
+            });
+        }
+        await saveRegistry(registry);
+    });
 }
 // =============================================================================
 // LISTING

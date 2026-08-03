@@ -178,3 +178,18 @@ describe('git-aware refs', () => {
     });
   });
 });
+
+describe('slugifyRef path-traversal guard', () => {
+  it('never returns a slug that resolves outside the branches dir', () => {
+    for (const ref of ['..', '.']) {
+      const slug = slugifyRef(ref);
+      expect(slug).not.toBe(ref);
+      // The slug must stay a single, non-relative path segment.
+      expect(path.normalize(path.join('branches', slug)).startsWith('branches' + path.sep)).toBe(true);
+    }
+  });
+
+  it('still leaves an ordinary dotted ref unchanged', () => {
+    expect(slugifyRef('release-1.2.3')).toBe('release-1.2.3');
+  });
+});

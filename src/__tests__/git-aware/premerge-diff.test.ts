@@ -3,7 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { execFileSync } from 'child_process';
+import { Command } from 'commander';
 import { premergeDiff } from '../../git-aware/premerge-diff.js';
+import { registerArchDiffCommand } from '../../cli/commands/arch-diff.js';
 import {
   canonicalSnapshotPath,
   branchSnapshotPath,
@@ -226,5 +228,68 @@ describe('premergeDiff — pre-merge architecture diff (slice 4)', () => {
     // Comparing canonical to itself: available, zero changes, no throw.
     expect(result.available).toBe(true);
     expect(result.diff!.stats.total_changes).toBe(0);
+  });
+
+  // f6: `--base <default-branch>` must resolve to the canonical snapshot,
+  // not `branches/<default-branch>/`, since `writeSnapshotForCurrentRef`
+  // never writes a branch-delta snapshot for the default branch.
+  it('f6: --base <default-branch> resolves the canonical snapshot rather than reporting no baseline', async () => {
+    writeSnapshotAt(canonicalSnapshotPath(tmp), snapshot([component({ name: 'from-canonical' })], []));
+    writeSnapshotAt(
+      branchSnapshotPath(tmp, slugifyRef('feat/x')),
+      snapshot([component({ name: 'from-canonical' }), component({ component_id: 'COMP_new', name: 'feature-only' })], [])
+    );
+
+    const result = await premergeDiff(tmp, { base: 'main' });
+
+    expect(result.available).toBe(true);
+    expect(result.reason).toBeUndefined();
+    expect(result.base).toBe('main');
+    expect(result.diff!.components.added.map((c) => c.name)).toEqual(['feature-only']);
+    // "from-canonical" must not appear as removed — proves the canonical
+    // snapshot (not an absent branches/main/ file) was read as the base.
+    expect(result.diff!.components.removed).toEqual([]);
+  });
+
+  it('f6: --base <default-branch> still reports unavailable when no canonical snapshot has ever been recorded', async () => {
+    // No canonical snapshot written — only a branch-delta snapshot for feat/x.
+    writeSnapshotAt(branchSnapshotPath(tmp, slugifyRef('feat/x')), snapshot([component()], []));
+
+    const result = await premergeDiff(tmp, { base: 'main' });
+
+    expect(result.available).toBe(false);
+    expect(result.reason).toBeTruthy();
+    expect(result.reason).toMatch(/canonical snapshot/i);
+  });
+
+  // f9: `pruneBranchSnapshots` (src/git-aware/canonical.ts:102-127) had no
+  // production caller before this fix — branch-delta snapshots accumulated
+  // under branches/ forever. Wired behind `navgator arch-diff --prune`.
+  it('f9: arch-diff --prune removes branch snapshots for refs that no longer exist as a live branch', async () => {
+    // A snapshot for the still-current branch (feat/x) must survive.
+    writeSnapshotAt(branchSnapshotPath(tmp, slugifyRef('feat/x')), snapshot([component()], []));
+
+    // A snapshot for a branch that has since been deleted must be pruned.
+    git(tmp, ['branch', 'stale-branch']);
+    writeSnapshotAt(branchSnapshotPath(tmp, slugifyRef('stale-branch')), snapshot([component()], []));
+    git(tmp, ['branch', '-D', 'stale-branch']);
+
+    const prevCwd = process.cwd();
+    process.chdir(tmp);
+    const origLog = console.log;
+    console.log = () => {};
+    const prevExitCode = process.exitCode;
+    try {
+      const program = new Command();
+      registerArchDiffCommand(program);
+      await program.parseAsync(['node', 'navgator', 'arch-diff', '--prune', '--json']);
+    } finally {
+      console.log = origLog;
+      process.exitCode = prevExitCode;
+      process.chdir(prevCwd);
+    }
+
+    expect(fs.existsSync(branchSnapshotPath(tmp, slugifyRef('feat/x')))).toBe(true);
+    expect(fs.existsSync(branchSnapshotPath(tmp, slugifyRef('stale-branch')))).toBe(false);
   });
 });

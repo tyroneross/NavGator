@@ -19,29 +19,67 @@ export function defaultCacheRoot() {
     return path.join(os.homedir(), '.navgator', 'cache', 'remote');
 }
 /**
- * Harden the child environment so git can never block waiting on input or
- * silently pick up host/system git config:
+ * Harden the child environment so git can never block waiting on input,
+ * silently pick up host/system/user git config, inherit ambient `GIT_*`
+ * state, or run an LFS smudge filter against an attacker-controlled URL:
+ *  - Every inherited `GIT_*` variable is stripped first (matches
+ *    src/temporal/git-store.ts's `runGit`) so a caller's `GIT_DIR`,
+ *    `GIT_SSH_COMMAND`, etc. can never leak into this subprocess.
  *  - GIT_TERMINAL_PROMPT=0 disables the interactive credential prompt.
  *  - GIT_ASKPASS/SSH_ASKPASS are blanked so no askpass helper can be invoked.
  *  - GIT_SSH_COMMAND forces ssh BatchMode so a host-key prompt fails fast
  *    instead of hanging (defense in depth; https:// is the default URL).
- *  - GIT_CONFIG_NOSYSTEM=1 ignores /etc/gitconfig and any system-wide config.
+ *  - GIT_CONFIG_NOSYSTEM=1 ignores /etc/gitconfig; GIT_CONFIG_GLOBAL=/dev/null
+ *    ignores ~/.gitconfig (a cloned repo's committed `.lfs.url`/hooks config
+ *    should never combine with the user's own global git config).
+ *  - GIT_LFS_SKIP_SMUDGE=1 stops `git-lfs` from running its smudge filter on
+ *    checkout, which would otherwise fetch from an attacker-chosen
+ *    `lfs.url` supplied by the cloned repo's own `.lfsconfig` (SEC-008).
  */
 function hardenedEnv() {
-    return {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: '0',
-        GIT_ASKPASS: '',
-        SSH_ASKPASS: '',
-        GIT_SSH_COMMAND: 'ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new',
-        GIT_CONFIG_NOSYSTEM: '1',
-    };
+    const clean = {};
+    for (const [key, value] of Object.entries(process.env)) {
+        if (!key.startsWith('GIT_'))
+            clean[key] = value;
+    }
+    clean.GIT_TERMINAL_PROMPT = '0';
+    clean.GIT_ASKPASS = '';
+    clean.SSH_ASKPASS = '';
+    clean.GIT_SSH_COMMAND = 'ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new';
+    clean.GIT_CONFIG_NOSYSTEM = '1';
+    clean.GIT_CONFIG_GLOBAL = '/dev/null';
+    clean.GIT_LFS_SKIP_SMUDGE = '1';
+    return clean;
+}
+/**
+ * Resolve the deepest existing ancestor of `dest` with `fs.realpathSync` and
+ * compare THAT against the (also realpath-resolved) cache root, so a
+ * pre-existing symlink at `<cacheRoot>/<owner>` (or any path component) can't
+ * redirect the clone outside the root while a purely lexical `path.resolve`
+ * comparison would still see it as contained (SEC-007).
+ */
+function realpathOfDeepestExistingAncestor(target) {
+    let current = target;
+    while (!fs.existsSync(current)) {
+        const parent = path.dirname(current);
+        if (parent === current)
+            break;
+        current = parent;
+    }
+    return fs.realpathSync(current);
 }
 function assertInsideCacheRoot(dest, cacheRoot) {
     const resolvedDest = path.resolve(dest);
     const resolvedRoot = path.resolve(cacheRoot);
     if (resolvedDest !== resolvedRoot && !resolvedDest.startsWith(resolvedRoot + path.sep)) {
         throw new Error(`Refusing to clone outside the cache root: resolved destination "${resolvedDest}" escapes "${resolvedRoot}"`);
+    }
+    const realDest = realpathOfDeepestExistingAncestor(dest);
+    const realRoot = fs.existsSync(resolvedRoot)
+        ? fs.realpathSync(resolvedRoot)
+        : resolvedRoot;
+    if (realDest !== realRoot && !realDest.startsWith(realRoot + path.sep)) {
+        throw new Error(`Refusing to clone outside the cache root: a symlink resolves destination "${dest}" to "${realDest}", which escapes "${realRoot}"`);
     }
 }
 /**
@@ -64,9 +102,29 @@ export async function ensureClone(target, opts = {}) {
         await fs.promises.rm(dest, { recursive: true, force: true });
     }
     if (gitDirExists && !opts.refresh) {
-        const fetchArgs = ['fetch', '--depth', '1', 'origin', ...(target.ref ? [target.ref] : [])];
-        await exec('git', fetchArgs, { cwd: dest, timeout, env });
-        await exec('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: dest, timeout, env });
+        // '--' terminates option parsing before the positional `origin`/ref
+        // arguments — defense in depth so a caller-influenced ref value can
+        // never be interpreted as a git flag, even if a future validation gap
+        // let one through (SEC-001).
+        const fetchArgs = [
+            'fetch',
+            '--depth',
+            '1',
+            '--',
+            'origin',
+            ...(target.ref ? [target.ref] : []),
+        ];
+        try {
+            await exec('git', fetchArgs, { cwd: dest, timeout, env });
+            await exec('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: dest, timeout, env });
+        }
+        catch (err) {
+            // Leave a half-fetched dest around and the next call may still see a
+            // `.git` dir and retry the fetch branch against a half-clone. Clean up
+            // on failure so the next call starts from a fresh clone instead (SEC-007).
+            await fs.promises.rm(dest, { recursive: true, force: true });
+            throw err;
+        }
         return { dir: dest, cloned: false };
     }
     await fs.promises.mkdir(path.dirname(dest), { recursive: true });
@@ -77,10 +135,20 @@ export async function ensureClone(target, opts = {}) {
         '1',
         '--single-branch',
         ...(target.ref ? ['--branch', target.ref] : []),
+        '--',
         url,
         dest,
     ];
-    await exec('git', cloneArgs, { cwd: cacheRoot, timeout, env });
+    try {
+        await exec('git', cloneArgs, { cwd: cacheRoot, timeout, env });
+    }
+    catch (err) {
+        // A timed-out or failed clone can leave a partially-written `dest`
+        // behind; clean it up so a retry doesn't see a stray `.git` and take
+        // the fetch branch against a half-clone (SEC-007).
+        await fs.promises.rm(dest, { recursive: true, force: true });
+        throw err;
+    }
     return { dir: dest, cloned: true };
 }
 //# sourceMappingURL=clone.js.map
