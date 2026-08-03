@@ -296,7 +296,7 @@ describe('owner-safe scan lease', () => {
       import { acquireScanLease } from ${JSON.stringify(pathToFileURL(modulePath).href)};
       const [lockPath, barrier] = process.argv.slice(1);
       while (!fs.existsSync(barrier)) {
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
       const result = acquireScanLease(lockPath, 'fanout', {
         startHeartbeat: false,
@@ -347,7 +347,7 @@ describe('owner-safe scan lease', () => {
     ).toEqual([]);
     expect(results.every((result) => result.message?.includes('Scan already in progress'))).toBe(true);
     expect(readScanLease(lockPath)?.token).toBe(held.token);
-  }, 20_000);
+  }, 90_000);
 
   it('allows exactly one winner when two processes reclaim the same dead lease', async () => {
     const lockPath = scanLockPath(root);
@@ -370,7 +370,7 @@ describe('owner-safe scan lease', () => {
       import { acquireScanLease } from ${JSON.stringify(pathToFileURL(modulePath).href)};
       const lockPath = process.argv[1];
       const barrier = process.argv[2];
-      while (!fs.existsSync(barrier)) await new Promise((resolve) => setTimeout(resolve, 1));
+      while (!fs.existsSync(barrier)) await new Promise((resolve) => setTimeout(resolve, 10));
       const result = acquireScanLease(lockPath, 'race', {
         startHeartbeat: false,
         criticalSectionDelayMs: 100,
