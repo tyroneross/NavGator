@@ -37,6 +37,18 @@ export interface ProjectEntry {
         root: string;
     };
 }
+/**
+ * The four component/connection deltas a scan already computed
+ * (`TimelineEntry.diff` in `src/types.ts`) reduced to the four counts
+ * gator-memory's `architecture.changed` event carries. Optional and
+ * trailing on `registerProject` so every existing caller compiles unchanged.
+ */
+export interface ProjectChangeSummary {
+    componentsAdded: number;
+    componentsRemoved: number;
+    connectionsAdded: number;
+    connectionsRemoved: number;
+}
 export interface ProjectRegistry {
     version: number;
     /**
@@ -99,7 +111,7 @@ export declare function registerProject(projectRoot: string, stats?: {
     components: number;
     connections: number;
     prompts: number;
-}, significance?: DiffSignificance, gitInfo?: GitInfo): Promise<void>;
+}, significance?: DiffSignificance, gitInfo?: GitInfo, changeSummary?: ProjectChangeSummary): Promise<void>;
 /**
  * Read-modify-write a project's metadata, preserving every field the caller
  * doesn't name in `patch`. Used by the remote-scan chunk (C7) to record a
@@ -119,6 +131,26 @@ export declare function updateProjectMeta(root: string, patch: Partial<Omit<Proj
  * registry rather than overwriting it with a stale list.
  */
 export declare function removeProject(root: string): Promise<boolean>;
+/**
+ * Remove a fixed, explicit list of projects in one registry write.
+ *
+ * Takes an explicit path list, NOT a predicate — this is a correctness
+ * requirement, not a style choice. `mutateRegistry` replays its mutation
+ * closure against the winner's registry on a detected CAS conflict
+ * (see that function's comment). Replaying a filesystem-dependent predicate
+ * like "tmp-rooted AND missing" would re-evaluate against fresh state on
+ * every replay and could consume an entry a concurrent writer added AFTER
+ * the caller showed the user a confirmation list and AFTER any backup was
+ * taken — not idempotent, and silently so. An explicit path list makes the
+ * closure a pure exact-path filter, which IS idempotent under replay: the
+ * confirmed set, the backed-up set, and the pruned set are provably
+ * identical regardless of how many times the closure re-runs. Any
+ * filesystem check (tmp-rooted, missing, etc.) belongs in the caller,
+ * evaluated once, before this is called.
+ */
+export declare function pruneProjects(paths: string[]): Promise<{
+    removed: ProjectEntry[];
+}>;
 /**
  * List all registered projects
  */

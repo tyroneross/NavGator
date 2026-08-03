@@ -2136,7 +2136,17 @@ export async function scan(
         prompts: promptScanResultHolder?.prompts.length ?? 0,
       },
       timelineEntry?.significance,
-      gitInfo
+      gitInfo,
+      // Already computed above (Phase 5); previously discarded at this
+      // boundary. Feeds gator-memory's 'architecture.changed' event.
+      timelineEntry?.diff
+        ? {
+            componentsAdded: timelineEntry.diff.components.added.length,
+            componentsRemoved: timelineEntry.diff.components.removed.length,
+            connectionsAdded: timelineEntry.diff.connections.added.length,
+            connectionsRemoved: timelineEntry.diff.connections.removed.length,
+          }
+        : undefined
     );
   } catch {
     // Non-critical

@@ -16,13 +16,15 @@ export { generateMermaidDiagram, generateComponentDiagram, generateLayerDiagram,
 // Diff engine
 export { computeArchitectureDiff, classifySignificance, loadTimeline, saveTimelineEntry, loadLatestSnapshot, buildCurrentSnapshot, formatTimeline, formatDiffSummary, formatDiffForSummary, } from './diff.js';
 // Project registry
-export { registerProject, listProjects, formatProjectsList, updateProjectMeta, removeProject, } from './projects.js';
+export { registerProject, listProjects, formatProjectsList, updateProjectMeta, removeProject, pruneProjects, } from './projects.js';
 // Registry operation journal — every read and write of the project registry
 export { readJournal, formatJournal, appendJournalEvent, appendJournalEventSync, defaultRegistryDir, journalPathForDir, } from './registry-journal.js';
 // Git utilities
 export { getGitInfo } from './git.js';
 // gator-memory — durable narrative store for ~/.navgator/memory/
 export { memoryEnabled, memoryDir, projectMemoryPath, recordMemoryEvent, readProjectMemory, listProjectMemories, readMemoryEvents, memoryStoreStats, removeProjectMemory, rebuildMemoryIndex, reconcileMemory, slug as memoryProjectSlug, MEMORY_SCHEMA_VERSION, DEFAULT_MAX_EVENT_BYTES, MAX_MILESTONES, } from './memory/store.js';
+// gator-memory mirror — optional one-way export into a build-loop-memory tree
+export { mirrorStatus, mirrorProjectMemory, mirrorAll, } from './memory/mirror.js';
 // Home-scoped configuration — ~/.navgator/config.json
 export { loadHomeConfig, homeConfigPath, resetHomeConfigCache, } from './home-config.js';
 // Component identity — base-name normalization and alias merging

@@ -52,8 +52,10 @@ export {
   formatProjectsList,
   updateProjectMeta,
   removeProject,
+  pruneProjects,
   type ProjectEntry,
   type ProjectRegistry,
+  type ProjectChangeSummary,
 } from './projects.js';
 
 // Registry operation journal — every read and write of the project registry
@@ -94,6 +96,14 @@ export {
   type ProjectMemory,
   type RecordMemoryEventInput,
 } from './memory/store.js';
+
+// gator-memory mirror — optional one-way export into a build-loop-memory tree
+export {
+  mirrorStatus,
+  mirrorProjectMemory,
+  mirrorAll,
+  type MirrorStatus,
+} from './memory/mirror.js';
 
 // Home-scoped configuration — ~/.navgator/config.json
 export {

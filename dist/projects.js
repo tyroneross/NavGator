@@ -8,6 +8,8 @@ import * as path from 'path';
 import { atomicWriteJSON } from './storage.js';
 import { appendJournalEvent, registryDigest, } from './registry-journal.js';
 import { withRegistryFileLock } from './registry-lock.js';
+import { recordMemoryEvent } from './memory/store.js';
+import { mirrorProjectMemory } from './memory/mirror.js';
 // =============================================================================
 // REGISTRY I/O
 // =============================================================================
@@ -257,17 +259,31 @@ async function mutateRegistry(op, mutate, note) {
 // =============================================================================
 // REGISTRATION
 // =============================================================================
+/** Build gator-memory `detail` from what a scan call site already has on hand. */
+function scanEventDetail(stats, significance, gitInfo) {
+    return {
+        ...(stats
+            ? { components: stats.components, connections: stats.connections, prompts: stats.prompts }
+            : {}),
+        // MemoryEvent['detail']['significance'] only admits 'major' | 'minor' —
+        // 'patch' and absent both mean "nothing worth a milestone", so neither is
+        // ever forwarded.
+        ...(significance === 'major' || significance === 'minor' ? { significance } : {}),
+        ...(gitInfo ? { branch: gitInfo.branch, commit: gitInfo.commit } : {}),
+    };
+}
 /**
  * Register or update a project after scan.
  * Replaces the inline registry code previously in cli/index.ts.
  */
-export async function registerProject(projectRoot, stats, significance, gitInfo) {
+export async function registerProject(projectRoot, stats, significance, gitInfo, changeSummary) {
+    let created;
     try {
         // The mutation is expressed as a closure so `mutateRegistry` can replay it
         // against a fresh registry after a detected conflict. Find-or-create is
         // idempotent under replay, and `scanCount + 1` recomputes off the winner's
         // count rather than double-incrementing a stale one.
-        await mutateRegistry('register', (registry) => {
+        ({ created } = await mutateRegistry('register', (registry) => {
             const existing = registry.projects.find((p) => p.path === projectRoot);
             if (existing) {
                 existing.lastScan = Date.now();
@@ -300,14 +316,78 @@ export async function registerProject(projectRoot, stats, significance, gitInfo)
                     git: gitInfo ? { branch: gitInfo.branch, commit: gitInfo.commit } : undefined,
                 });
             }
-            return { commit: true, value: undefined };
-        }, 'register');
+            return { commit: true, value: { created: !existing } };
+        }, 'register'));
     }
     catch (err) {
         // Non-critical to the caller's scan — but surface it so it isn't
         // completely invisible (was a bare `catch {}` before this fix). A save
         // failure must not be reported as a silent success.
         console.error(`navgator: failed to register project ${projectRoot} in ~/.navgator/projects.json: ${err instanceof Error ? err.message : String(err)}`);
+        return; // The registry write itself failed — there is nothing to capture.
+    }
+    // Memory capture runs in its OWN try/catch, AFTER the block above has
+    // already returned. Not merely after `mutateRegistry` — after the whole
+    // registry try/catch, whose message ("failed to register project ... in
+    // ~/.navgator/projects.json") is specific to a registry write failure. A
+    // memory-store defect surfacing through that catch would tell the user
+    // their registry write failed when it had already succeeded.
+    try {
+        if (created) {
+            await recordMemoryEvent({
+                projectPath: projectRoot,
+                kind: 'project.registered',
+                summary: `Registered ${projectRoot}`,
+                detail: scanEventDetail(stats, significance, gitInfo),
+            });
+        }
+        else if (significance === 'major' || significance === 'minor') {
+            // Routine 'patch'/absent-significance rescans emit nothing — see
+            // gator-memory's module header: a per-scan write would fill the store
+            // with the same volume that forces the journal to rotate, defeating
+            // the reason the store exists.
+            await recordMemoryEvent({
+                projectPath: projectRoot,
+                kind: 'project.scanned',
+                summary: `Scanned ${projectRoot} (${significance})`,
+                detail: scanEventDetail(stats, significance, gitInfo),
+            });
+        }
+        const architectureChanged = Boolean(changeSummary) && significance !== 'patch';
+        if (architectureChanged && changeSummary) {
+            await recordMemoryEvent({
+                projectPath: projectRoot,
+                kind: 'architecture.changed',
+                summary: `Architecture changed in ${projectRoot}`,
+                detail: {
+                    componentsAdded: changeSummary.componentsAdded,
+                    componentsRemoved: changeSummary.componentsRemoved,
+                    connectionsAdded: changeSummary.connectionsAdded,
+                    connectionsRemoved: changeSummary.connectionsRemoved,
+                },
+            });
+        }
+        // The mirror's ONLY production call site. Without it `mirrorProjectMemory`
+        // is code that exists, is tested, and never runs — the failure class where
+        // a capability ships without an activation path.
+        //
+        // Gated to registration and significant architecture change, never a
+        // routine rescan: the mirror target is typically a git repo, and writing
+        // to it on every scan would turn a knowledge export into churn. It is a
+        // no-op unless the user opted in AND the target exists, so this costs one
+        // config read on the common path.
+        if (created || architectureChanged) {
+            await mirrorProjectMemory(projectRoot);
+        }
+    }
+    catch {
+        // `recordMemoryEvent` already fails open internally (see
+        // memory/store.ts's module header) — this catch is belt-and-braces. The
+        // real failure mode it closes is Node's default
+        // `--unhandled-rejections=throw`: an un-awaited `void
+        // recordMemoryEvent(...)` call would let a rejection here escape both
+        // this function's control flow and the caller's own catch, crashing an
+        // otherwise-successful scan.
     }
 }
 /**
@@ -352,12 +432,84 @@ export async function updateProjectMeta(root, patch) {
  * registry rather than overwriting it with a stale list.
  */
 export async function removeProject(root) {
-    return mutateRegistry('remove', (registry) => {
+    const removed = await mutateRegistry('remove', (registry) => {
         const before = registry.projects.length;
         registry.projects = registry.projects.filter((p) => p.path !== root);
         const removed = registry.projects.length !== before;
         return { commit: removed, value: removed };
     }, 'remove');
+    // Capture in its own try/catch, AFTER `mutateRegistry` has fully returned —
+    // `removeProject` had no try/catch at all before this fix, so an unguarded
+    // `await recordMemoryEvent(...)` here would propagate a rejection straight
+    // to the caller instead of degrading quietly the way the memory store
+    // promises to.
+    if (removed) {
+        try {
+            await recordMemoryEvent({
+                projectPath: root,
+                kind: 'project.removed',
+                summary: `Removed ${root}`,
+            });
+        }
+        catch {
+            // `recordMemoryEvent` already fails open internally; belt-and-braces
+            // against an unhandled rejection under --unhandled-rejections=throw.
+        }
+    }
+    return removed;
+}
+/**
+ * Remove a fixed, explicit list of projects in one registry write.
+ *
+ * Takes an explicit path list, NOT a predicate — this is a correctness
+ * requirement, not a style choice. `mutateRegistry` replays its mutation
+ * closure against the winner's registry on a detected CAS conflict
+ * (see that function's comment). Replaying a filesystem-dependent predicate
+ * like "tmp-rooted AND missing" would re-evaluate against fresh state on
+ * every replay and could consume an entry a concurrent writer added AFTER
+ * the caller showed the user a confirmation list and AFTER any backup was
+ * taken — not idempotent, and silently so. An explicit path list makes the
+ * closure a pure exact-path filter, which IS idempotent under replay: the
+ * confirmed set, the backed-up set, and the pruned set are provably
+ * identical regardless of how many times the closure re-runs. Any
+ * filesystem check (tmp-rooted, missing, etc.) belongs in the caller,
+ * evaluated once, before this is called.
+ */
+export async function pruneProjects(paths) {
+    const targets = new Set(paths.map((p) => path.resolve(p)));
+    const removed = await mutateRegistry('remove', (registry) => {
+        const removedEntries = [];
+        const remaining = [];
+        for (const entry of registry.projects) {
+            if (targets.has(path.resolve(entry.path))) {
+                removedEntries.push(entry);
+            }
+            else {
+                remaining.push(entry);
+            }
+        }
+        registry.projects = remaining;
+        // commit: false when nothing matched — no write, no revision bump, and
+        // no spurious conflict presented to the next writer.
+        return { commit: removedEntries.length > 0, value: removedEntries };
+    }, 'remove');
+    // One `project.removed` memory event per removed entry, after the single
+    // mutation has fully returned, each swallowed independently so one bad
+    // capture can't stop the rest of the batch from being recorded (and none
+    // of them can touch the registry write, which has already committed).
+    for (const entry of removed) {
+        try {
+            await recordMemoryEvent({
+                projectPath: entry.path,
+                kind: 'project.removed',
+                summary: `Removed ${entry.path}`,
+            });
+        }
+        catch {
+            // fail-open; see removeProject's capture comment above.
+        }
+    }
+    return { removed };
 }
 // =============================================================================
 // LISTING

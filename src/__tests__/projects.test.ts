@@ -7,6 +7,7 @@ import {
   registerProject,
   updateProjectMeta,
   listProjects,
+  pruneProjects,
 } from '../projects.js';
 
 let homeDir: string;
@@ -102,5 +103,19 @@ describe('projects registry', () => {
 
     const registry = await loadRegistry();
     expect(registry.projects.length).toBe(count);
+  });
+
+  // C3: pruneProjects removes an explicit path list in one registry write,
+  // rather than looping removeProject per path.
+  it('pruneProjects removes exactly the given paths and leaves the rest untouched', async () => {
+    await registerProject('/repos/keep-1', { components: 1, connections: 0, prompts: 0 });
+    await registerProject('/repos/drop-1', { components: 1, connections: 0, prompts: 0 });
+    await registerProject('/repos/drop-2', { components: 1, connections: 0, prompts: 0 });
+
+    const { removed } = await pruneProjects(['/repos/drop-1', '/repos/drop-2']);
+    expect(removed.map((p) => p.path).sort()).toEqual(['/repos/drop-1', '/repos/drop-2']);
+
+    const registry = await loadRegistry();
+    expect(registry.projects.map((p) => p.path)).toEqual(['/repos/keep-1']);
   });
 });
