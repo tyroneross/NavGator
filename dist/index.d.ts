@@ -16,6 +16,7 @@ export { readJournal, formatJournal, appendJournalEvent, appendJournalEventSync,
 export { getGitInfo } from './git.js';
 export { memoryEnabled, memoryDir, projectMemoryPath, recordMemoryEvent, readProjectMemory, listProjectMemories, readMemoryEvents, memoryStoreStats, removeProjectMemory, rebuildMemoryIndex, reconcileMemory, slug as memoryProjectSlug, MEMORY_SCHEMA_VERSION, DEFAULT_MAX_EVENT_BYTES, MAX_MILESTONES, type MemoryEvent, type MemoryEventKind, type ProjectMemory, type RecordMemoryEventInput, } from './memory/store.js';
 export { mirrorStatus, mirrorProjectMemory, mirrorAll, type MirrorStatus, } from './memory/mirror.js';
+export { computeHealth, isTmpRootedPath, classifyRegistryEntries, selectPrunableEntries, HEALTH_SCHEMA_VERSION, type HealthReport, type HealthFinding, type RegistryEntryClassification, } from './memory/health.js';
 export { loadHomeConfig, homeConfigPath, resetHomeConfigCache, type NavGatorHomeConfig, } from './home-config.js';
 export { componentBaseName, identityKey, mergeComponentAliases } from './component-identity.js';
 export { writeSnapshotForCurrentRef, readCanonicalSnapshot, readBranchSnapshot, type WriteSnapshotResult, } from './git-aware/canonical.js';

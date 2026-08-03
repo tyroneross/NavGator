@@ -105,6 +105,18 @@ export {
   type MirrorStatus,
 } from './memory/mirror.js';
 
+// gator-memory / registry health — the single computation behind `navgator doctor`
+export {
+  computeHealth,
+  isTmpRootedPath,
+  classifyRegistryEntries,
+  selectPrunableEntries,
+  HEALTH_SCHEMA_VERSION,
+  type HealthReport,
+  type HealthFinding,
+  type RegistryEntryClassification,
+} from './memory/health.js';
+
 // Home-scoped configuration — ~/.navgator/config.json
 export {
   loadHomeConfig,

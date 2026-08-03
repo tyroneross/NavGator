@@ -315,6 +315,12 @@ export interface RegistryHealthReport {
     registersInWindow: number;
     registersPerDay: number;
     estimated: boolean;
+    /**
+     * True when the retained journal window is too short to support a per-day
+     * rate. Prefer this over `registersPerDay`: when set, the rate is 0
+     * because it is unknowable, not because nothing happened.
+     */
+    insufficientWindow: boolean;
     conflicts: number;
     degradedWrites: number;
   };

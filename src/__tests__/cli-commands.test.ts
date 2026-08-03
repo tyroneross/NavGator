@@ -249,6 +249,15 @@ describe('CLI command modules', () => {
     expect(cmd).toBeDefined();
   });
 
+  // C5 — navgator doctor: registry + memory hygiene
+  it('doctor command registers without error', async () => {
+    const { registerDoctorCommand } = await import('../cli/commands/doctor.js');
+    const program = new Command();
+    expect(() => registerDoctorCommand(program)).not.toThrow();
+    const cmd = program.commands.find(c => c.name() === 'doctor');
+    expect(cmd).toBeDefined();
+  });
+
   it('portfolio, scan-remote, and arch-diff coexist with the original 17 without collisions', async () => {
     const [
       { registerScanCommand },

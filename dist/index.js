@@ -25,6 +25,8 @@ export { getGitInfo } from './git.js';
 export { memoryEnabled, memoryDir, projectMemoryPath, recordMemoryEvent, readProjectMemory, listProjectMemories, readMemoryEvents, memoryStoreStats, removeProjectMemory, rebuildMemoryIndex, reconcileMemory, slug as memoryProjectSlug, MEMORY_SCHEMA_VERSION, DEFAULT_MAX_EVENT_BYTES, MAX_MILESTONES, } from './memory/store.js';
 // gator-memory mirror — optional one-way export into a build-loop-memory tree
 export { mirrorStatus, mirrorProjectMemory, mirrorAll, } from './memory/mirror.js';
+// gator-memory / registry health — the single computation behind `navgator doctor`
+export { computeHealth, isTmpRootedPath, classifyRegistryEntries, selectPrunableEntries, HEALTH_SCHEMA_VERSION, } from './memory/health.js';
 // Home-scoped configuration — ~/.navgator/config.json
 export { loadHomeConfig, homeConfigPath, resetHomeConfigCache, } from './home-config.js';
 // Component identity — base-name normalization and alias merging

@@ -193,9 +193,17 @@ export function RegistryHealthPanel() {
               ) : (
                 <div>
                   <p className="text-sm text-foreground">
-                    {data.journal.estimated ? "≈" : ""}
-                    {data.journal.registersPerDay.toFixed(1)} new entries/day, estimated over the
-                    last {data.journal.windowDays.toFixed(1)} days of retained journal
+                    {data.journal.insufficientWindow ? (
+                      <>
+                        Not enough retained journal history to estimate a daily rate
+                      </>
+                    ) : (
+                      <>
+                        {data.journal.estimated ? "≈" : ""}
+                        {data.journal.registersPerDay.toFixed(1)} new entries/day, estimated over
+                        the last {data.journal.windowDays.toFixed(1)} days of retained journal
+                      </>
+                    )}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {data.journal.registersInWindow} registrations in window

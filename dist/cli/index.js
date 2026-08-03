@@ -27,6 +27,7 @@ import { registerSetupCommand, registerUICommand, registerHistoryCommand, regist
 import { registerPortfolioCommand } from './commands/portfolio.js';
 import { registerScanRemoteCommand } from './commands/remote.js';
 import { registerArchDiffCommand } from './commands/arch-diff.js';
+import { registerDoctorCommand } from './commands/doctor.js';
 const NAVGATOR_LOGO = `
   _   _             ____       _
  | \\ | | __ ___   _/ ___| __ _| |_ ___  _ __
@@ -79,6 +80,7 @@ registerLessonsCommand(program);
 registerPortfolioCommand(program);
 registerScanRemoteCommand(program);
 registerArchDiffCommand(program);
+registerDoctorCommand(program);
 // =============================================================================
 // PARSE AND RUN
 // =============================================================================
