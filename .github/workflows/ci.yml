@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ['20.11.0', '22']
+        node-version: ['20.19.0', '22']
     runs-on: ubuntu-latest
     permissions:
       contents: read

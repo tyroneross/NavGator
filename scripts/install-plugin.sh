@@ -101,14 +101,14 @@ command -v npm >/dev/null 2>&1 || {
   exit 1
 }
 command -v node >/dev/null 2>&1 || {
-  err "Node.js >=20.11.0 is required to run NavGator."
+  err "Node.js >=20.19.0 is required to run NavGator."
   exit 1
 }
 if ! node -e '
 const [major, minor] = process.versions.node.split(".").map(Number)
-process.exit(major > 20 || (major === 20 && minor >= 11) ? 0 : 1)
+process.exit(major > 20 || (major === 20 && minor >= 19) ? 0 : 1)
 '; then
-  err "NavGator requires Node.js >=20.11.0 (found $(node --version 2>/dev/null || echo unknown))."
+  err "NavGator requires Node.js >=20.19.0 (found $(node --version 2>/dev/null || echo unknown))."
   exit 1
 fi
 

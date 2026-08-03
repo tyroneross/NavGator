@@ -88,7 +88,7 @@
     "url": "https://github.com/tyroneross/NavGator/issues"
   },
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "commander": "^14.0.0",

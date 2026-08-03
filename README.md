@@ -21,7 +21,7 @@ NavGator tracks architecture connections across your entire stack—packages, se
 
 ### As a CLI Tool
 
-Requires Node.js 20.11 or newer.
+Requires Node.js 20.19 or newer.
 
 ```bash
 # Install globally
@@ -468,6 +468,19 @@ Pre-merge architecture diff: shows how the current branch's architecture differs
 |--------|-------------|
 | `--base <ref>` | Diff against this ref's recorded snapshot instead of the canonical baseline |
 | `--record` | Also write the current ref's snapshot before diffing |
+| `--json` | Output as JSON |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
+### `navgator registry-log`
+
+The project registry (`~/.navgator/projects.json`) has readers and writers living in two separate processes — the CLI/MCP process and the dashboard — so a lost update in one is invisible to the other. This command shows the append-only journal of every read and write of that registry, including any detected lost-update conflicts. Records carry a content digest and an entry-count delta rather than the registry payload itself, and the journal file rotates by size, so it can't grow unbounded.
+
+| Option | Description |
+|--------|-------------|
+| `--limit <n>` | Most recent N entries (default: 50) |
+| `--actor <actor>` | Filter to `cli`, `mcp`, or `web-route` |
+| `--op <op>` | Filter to `load`, `save`, `register`, `update`, `remove`, or `conflict` |
+| `--conflicts` | Only lost-update conflict records |
 | `--json` | Output as JSON |
 | `--agent` | Output wrapped in agent envelope (implies `--json`) |
 

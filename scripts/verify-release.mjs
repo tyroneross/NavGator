@@ -128,7 +128,11 @@ async function verifyIdentity(packageDir, packageJson) {
     ['Codex manifest', codexManifest],
   ]) {
     assert.equal(manifest.name, 'navgator', `${label} name`)
-    assert.equal(manifest.version, packageJson.version, `${label} version`)
+    // Plugin manifests intentionally omit version (auto-SHA identity, 99961eb);
+    // assert equality only when a version is present, mirroring the manifest test.
+    if (manifest.version !== undefined) {
+      assert.equal(manifest.version, packageJson.version, `${label} version`)
+    }
     assert.equal(manifest.license, packageJson.license, `${label} license`)
   }
 

@@ -26,7 +26,7 @@ describe('release contract', () => {
     expect(NAVGATOR_PACKAGE_NAME).toBe('@tyroneross/navgator');
     expect(NAVGATOR_VERSION).toBe(packageJson.version);
     expect(NAVGATOR_LICENSE).toBe(packageJson.license);
-    expect(packageJson.engines.node).toBe('>=20.11.0');
+    expect(packageJson.engines.node).toBe('>=20.19.0');
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[''].version).toBe(packageJson.version);
     expect(packageLock.packages[''].engines.node).toBe(packageJson.engines.node);
@@ -127,7 +127,7 @@ describe('release contract', () => {
       expect(workflow).not.toContain('scanner-incremental.test.ts');
       expect(workflow).not.toMatch(/uses:\s+actions\/[\w-]+@v\d/);
     }
-    expect(ci).toContain("node-version: ['20.11.0', '22']");
+    expect(ci).toContain("node-version: ['20.19.0', '22']");
     expect(publish).toContain('Verify tag matches package version');
     expect(publish).toContain('EXPECTED_TAG="v${PACKAGE_VERSION}"');
     expect(publish).toContain("node-version: ${{ env.PUBLISH_NODE_VERSION }}");
@@ -147,8 +147,8 @@ describe('release contract', () => {
     const verifier = text('scripts/verify-release.mjs');
 
     for (const hostInstaller of [claudeInstaller, installer]) {
-      expect(hostInstaller).toContain('Node.js >=20.11.0 is required');
-      expect(hostInstaller).toContain('major === 20 && minor >= 11');
+      expect(hostInstaller).toContain('Node.js >=20.19.0 is required');
+      expect(hostInstaller).toContain('major === 20 && minor >= 19');
       expect(hostInstaller).toContain('Refusing symlinked destination component');
     }
     expect(installer).toContain('npm install');
