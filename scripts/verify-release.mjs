@@ -154,6 +154,36 @@ function resolveMcpLaunch(packageDir, configPath, fallbackCwd = packageDir) {
   return { server, args, cwd }
 }
 
+/**
+ * Home directory the MCP probes run under.
+ *
+ * The `scan` tool calls `registerProject()`, which writes
+ * `~/.navgator/projects.json`. Without this redirect the probes inherit the
+ * real HOME and register their own throwaway temp workspaces into the
+ * developer's actual registry — measured on 2026-08-03: two entries pointing
+ * at `navgator-release-<id>/codex-<scope>-cache-workspace`, both already
+ * deleted by the time the run finished.
+ *
+ * That is the same defect class the vitest `setupFiles` hook closed for
+ * `npm test` (see `src/__tests__/setup/home-redirect.ts`), reached by a
+ * different path: a release verifier is a test too, and a verifier that
+ * mutates the machine it is verifying is not hermetic.
+ *
+ * Set once per run from `main()`. Left null the probes simply inherit, which
+ * keeps this file runnable piecemeal.
+ */
+let mcpProbeHome = null
+
+function setMcpProbeHome(dir) {
+  mcpProbeHome = dir
+}
+
+/** Env overlay isolating an MCP probe from the real home. */
+function mcpProbeEnv() {
+  if (!mcpProbeHome) return {}
+  return { HOME: mcpProbeHome, USERPROFILE: mcpProbeHome }
+}
+
 function probeMcp(packageDir, configPath, host, options = {}) {
   const { server, args, cwd } = resolveMcpLaunch(
     packageDir,
@@ -166,7 +196,7 @@ function probeMcp(packageDir, configPath, host, options = {}) {
     JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     '',
   ].join('\n')
-  const output = run(server.command, args, { cwd, input, timeout: 10_000 })
+  const output = run(server.command, args, { cwd, input, timeout: 10_000, env: mcpProbeEnv() })
   const responses = output.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
   const initialized = responses.find((response) => response.id === 1)
   const listed = responses.find((response) => response.id === 2)
@@ -190,6 +220,7 @@ function probeMcpTool(packageDir, configPath, host, cwd, name, args = {}) {
     cwd: launch.cwd,
     input,
     timeout: 20_000,
+    env: mcpProbeEnv(),
   })
   const responses = output.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
   const called = responses.find((response) => response.id === 3)
@@ -1294,6 +1325,10 @@ async function main() {
   // string comparisons stable even when a transient clone rewrite makes a
   // later realpathSync() fall back to the unresolved path.
   const tempRoot = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'navgator-release-')))
+  // Isolate every MCP probe's home before any of them run — see setMcpProbeHome.
+  const mcpHome = path.join(tempRoot, 'mcp-probe-home')
+  await mkdir(mcpHome, { recursive: true })
+  setMcpProbeHome(mcpHome)
   let tarballPath
   let removeTarball = false
 

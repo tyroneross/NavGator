@@ -51,6 +51,17 @@ import { NAVGATOR_VERSION } from '../version.js';
 // =============================================================================
 const PROJECTS_DIRNAME = 'projects';
 const ARCHITECTURE_DIRNAME = 'architecture';
+/**
+ * Owner-only, matching `store.ts`'s DIR_MODE/FILE_MODE exactly.
+ *
+ * The mirrored files carry the same content as `~/.navgator/memory/` — every
+ * project path on the machine, with first-seen dates and a change chronology.
+ * The store keeps that 0700/0600 because on a shared host it is nobody else's
+ * business; writing the identical data at the default umask on the way OUT
+ * would quietly retire that decision.
+ */
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
 const JSON_FILENAME = 'navgator-memory.json';
 const MD_FILENAME = 'navgator-memory.md';
 // =============================================================================
@@ -214,7 +225,7 @@ function formatMilestoneLine(event) {
         const significance = detail.significance ? ` (${detail.significance})` : '';
         return `- ${date} — ${event.kind}: ${body}${significance}`;
     }
-    return `- ${date} — ${event.kind}: ${event.summary}`;
+    return `- ${date} — ${event.kind}: ${stripControlChars(event.summary)}`;
 }
 function renderMarkdown(record, targetSlug, gatorMemorySlug, createdAt, updatedAt) {
     const name = stripControlChars(record.name);
@@ -241,7 +252,7 @@ last_updated_at: ${updatedAt}
 
 # ${name}
 
-- Path: \`${record.path}\`
+- Path: \`${stripControlChars(record.path)}\`
 - Status: ${record.status}
 - First seen: ${createdAt}
 - Last seen: ${updatedAt}
@@ -315,13 +326,21 @@ export async function mirrorProjectMemory(projectPath) {
         // Create only OUR OWN `projects/<slug>/architecture/` path. Never touches
         // `snapshot.json`, `graph.json`, `INDEX.jsonl`, or anything else in the
         // target -- those belong to build-loop's own tooling. See module header.
-        await fs.promises.mkdir(architectureDir, { recursive: true });
+        // Mode 0o700 / 0o600 below: this is the SAME project inventory that
+        // `store.ts` deliberately keeps owner-only (see its DIR_MODE/FILE_MODE and
+        // the reasoning that on a shared host it is nobody else's business).
+        // Exporting it at the default umask (0755/0644) would silently undo that
+        // posture for the exact same data, just in a different directory.
+        await fs.promises.mkdir(architectureDir, { recursive: true, mode: DIR_MODE });
         const createdAt = new Date(record.firstSeen).toISOString();
         const updatedAt = new Date(record.lastSeen).toISOString();
         const json = buildJsonMirror(record, gatorMemorySlug, createdAt, updatedAt);
         const markdown = renderMarkdown(record, targetSlug, gatorMemorySlug, createdAt, updatedAt);
-        await fs.promises.writeFile(path.join(architectureDir, JSON_FILENAME), JSON.stringify(json, null, 2) + '\n', 'utf-8');
-        await fs.promises.writeFile(path.join(architectureDir, MD_FILENAME), markdown, 'utf-8');
+        await fs.promises.writeFile(path.join(architectureDir, JSON_FILENAME), JSON.stringify(json, null, 2) + '\n', { encoding: 'utf-8', mode: FILE_MODE });
+        await fs.promises.writeFile(path.join(architectureDir, MD_FILENAME), markdown, {
+            encoding: 'utf-8',
+            mode: FILE_MODE,
+        });
         return true;
     }
     catch {

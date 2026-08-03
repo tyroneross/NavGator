@@ -16,11 +16,12 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import * as readline from 'readline';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { computeHealth, classifyRegistryEntries, selectPrunableEntries, } from '../../memory/health.js';
 import { loadRegistry, pruneProjects } from '../../projects.js';
-import { removeProjectMemory, rebuildMemoryIndex } from '../../memory/store.js';
+import { removeProjectMemory, rebuildMemoryIndex, projectMemoryPath, slug as memoryProjectSlug, } from '../../memory/store.js';
 import { mirrorAll, mirrorStatus } from '../../memory/mirror.js';
 import { defaultRegistryDir } from '../../registry-journal.js';
 export function registerDoctorCommand(program) {
@@ -88,7 +89,7 @@ function formatHealthReport(report, prunableEntries) {
     if (prunableEntries.length > 0) {
         lines.push('  Prunable entries (run `navgator doctor --fix` to remove):');
         for (const entry of prunableEntries) {
-            lines.push(`    ${pad(entry.name, 24)}${entry.path}`);
+            lines.push(`    ${pad(renderSafe(entry.name), 24)}${renderSafe(entry.path)}`);
         }
     }
     lines.push('');
@@ -152,6 +153,25 @@ function formatHealthReport(report, prunableEntries) {
 // =============================================================================
 // --fix
 // =============================================================================
+/**
+ * Neutralize control characters in filesystem-controlled text before it is
+ * rendered to a terminal.
+ *
+ * A registered project's `name` and `path` come from a directory on disk, and
+ * `src/projects.ts` stores them unsanitized (it only does `[-_]` -> space and
+ * title-case). A directory named with ESC/CR sequences can therefore rewrite
+ * or hide lines in the preview a user reads before answering [y/N] on a
+ * DESTRUCTIVE operation — the single worst place in this tool to render
+ * untrusted text verbatim.
+ *
+ * `store.ts` makes the same argument for its own write path (neutralize once,
+ * so every renderer is safe); this render path reads the registry directly
+ * and so has to do it here.
+ */
+function renderSafe(value) {
+    // eslint-disable-next-line no-control-regex
+    return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
 /** `2026-08-03T09:15:00.000Z` -> `20260803T091500`. */
 function compactISOTimestamp(date = new Date()) {
     return date.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '');
@@ -195,7 +215,7 @@ export async function fixRegistry(options) {
     console.error(`The following ${targets.length} ${targets.length === 1 ? 'entry' : 'entries'} will be removed from ` +
         'the registry and gator-memory:');
     for (const t of targets) {
-        console.error(`  ${t.name}  ${t.path}`);
+        console.error(`  ${renderSafe(t.name)}  ${renderSafe(t.path)}`);
     }
     if (!options.yes) {
         // A non-interactive pipe (cron, CI, a script that redirected stdin) has
@@ -219,10 +239,17 @@ export async function fixRegistry(options) {
     // written or doesn't parse as JSON, abort rather than mutate a registry we
     // could no longer restore.
     const registryPath = path.join(defaultRegistryDir(), 'projects.json');
-    const backupPath = `${registryPath}.backup-${compactISOTimestamp()}`;
+    // COPYFILE_EXCL plus a random suffix: the timestamp is second-resolution,
+    // so two --fix runs in the same second (two dashboard tabs, a retry, a
+    // script) would otherwise have the second run overwrite the pre-mutation
+    // backup with ALREADY-PRUNED state — destroying the only copy of what was
+    // deleted. `store.ts` closed this same collision class for its temp names
+    // with random hex; the backup path needs to inherit that lesson.
+    const backupPath = `${registryPath}.backup-${compactISOTimestamp()}-` +
+        `${crypto.randomBytes(3).toString('hex')}`;
     let backupOk = false;
     try {
-        fs.copyFileSync(registryPath, backupPath);
+        fs.copyFileSync(registryPath, backupPath, fs.constants.COPYFILE_EXCL);
         const parsed = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
         backupOk = parsed !== null && typeof parsed === 'object';
     }
@@ -242,8 +269,29 @@ export async function fixRegistry(options) {
     // This bounds the memory store's project-file count — without it, pruning
     // the registry entry alone leaves an orphaned gator-memory record behind
     // forever.
+    //
+    // The memory records are backed up FIRST, into a sibling of the registry
+    // backup. `store.ts` calls `projects/<slug>.json` the source of truth that
+    // — unlike index.json and events.jsonl — cannot be deleted without losing
+    // knowledge. Telling the user "backup written" while irreversibly unlinking
+    // exactly those files would make the reassurance false for the only data
+    // here that is not reconstructible. The prune predicate is also not a proof
+    // of deadness: a tmp-rooted project on an unmounted volume reads as missing
+    // because `existsSync` is false, not because it was deleted.
+    const memoryBackupDir = `${backupPath}.memory`;
     let removedFromMemory = 0;
     for (const entry of removed) {
+        try {
+            const recordPath = projectMemoryPath(memoryProjectSlug(entry.path));
+            if (fs.existsSync(recordPath)) {
+                fs.mkdirSync(memoryBackupDir, { recursive: true, mode: 0o700 });
+                fs.copyFileSync(recordPath, path.join(memoryBackupDir, path.basename(recordPath)));
+            }
+        }
+        catch {
+            // Best-effort: a memory record we cannot copy must not block pruning
+            // the registry entry, which is the operation the user asked for.
+        }
         if (removeProjectMemory(entry.path))
             removedFromMemory += 1;
     }

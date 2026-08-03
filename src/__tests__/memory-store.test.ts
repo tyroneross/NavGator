@@ -636,3 +636,35 @@ describe('reconcileMemory', () => {
     expect(reconcileMemory(['/repos/live']).orphaned).toEqual([]);
   });
 });
+
+// =============================================================================
+// SYMLINK RESISTANCE
+// =============================================================================
+
+describe('events.jsonl append refuses a pre-planted symlink', () => {
+  it('does not write through a symlinked events.jsonl', async () => {
+    // The O_NOFOLLOW flag on the append path was documented in the module
+    // header and asserted NOWHERE — the security review (2026-08-03, SEC-008)
+    // flagged that the control's most-cited property had no test. Without it,
+    // anything able to write to ~/.navgator could pre-plant the journal path
+    // as a link and redirect every append into an arbitrary file.
+    if (process.platform === 'win32') return;
+
+    const victim = path.join(homeDir, 'victim.txt');
+    fs.writeFileSync(victim, 'original\n');
+
+    const memDir = memoryDir();
+    fs.mkdirSync(path.join(memDir, 'projects'), { recursive: true, mode: 0o700 });
+    fs.symlinkSync(victim, path.join(memDir, 'events.jsonl'));
+
+    // Fail-open: this must not throw regardless of the outcome.
+    await recordMemoryEvent({
+      projectPath: '/repos/symlink-probe',
+      kind: 'project.registered',
+      summary: 'registered',
+    });
+
+    // The victim file must be untouched — the append refused to follow.
+    expect(fs.readFileSync(victim, 'utf-8')).toBe('original\n');
+  });
+});

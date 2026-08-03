@@ -315,3 +315,54 @@ describe('mirrorAll', () => {
     expect(fs.readdirSync(targetDir)).toEqual([]);
   });
 });
+
+// =============================================================================
+// SECURITY POSTURE
+// =============================================================================
+
+describe('mirror preserves the owner-only posture of the data it exports', () => {
+  it('writes 0700 dirs and 0600 files into the target', async () => {
+    // REGRESSION (security review 2026-08-03, SEC-003). The mirror exports the
+    // SAME content the store keeps at 0700/0600 — every project path on the
+    // machine, with dates and a change chronology. Writing it at the default
+    // umask (0755/0644) on the way out would silently retire that decision and
+    // let any other local user enumerate the inventory.
+    if (process.platform === 'win32') return;
+
+    enableMirror();
+    await recordMemoryEvent({
+      projectPath: '/repos/mode-check',
+      kind: 'project.registered',
+      summary: 'registered',
+    });
+    expect(await mirrorProjectMemory('/repos/mode-check')).toBe(true);
+
+    const archDir = path.join(targetDir, 'projects', 'mode-check', 'architecture');
+    expect(fs.statSync(archDir).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(archDir, 'navgator-memory.json')).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.join(archDir, 'navgator-memory.md')).mode & 0o777).toBe(0o600);
+  });
+
+  it('strips control characters from the project path it renders into markdown', async () => {
+    // REGRESSION (SEC-004). The mirrored markdown is read by OTHER agents as
+    // reference material, so filesystem-controlled text reaching it verbatim
+    // is a trust-boundary crossing, not just a cosmetic issue.
+    enableMirror();
+    const hostile = '/repos/inj' + String.fromCharCode(27) + '[31m' + 'ected';
+    await recordMemoryEvent({
+      projectPath: hostile,
+      kind: 'project.registered',
+      summary: 'registered',
+    });
+    await mirrorProjectMemory(hostile);
+
+    const files = fs
+      .readdirSync(path.join(targetDir, 'projects'))
+      .map((d) => path.join(targetDir, 'projects', d, 'architecture', 'navgator-memory.md'))
+      .filter((f) => fs.existsSync(f));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      expect(fs.readFileSync(f, 'utf-8')).not.toContain(String.fromCharCode(27));
+    }
+  });
+});
