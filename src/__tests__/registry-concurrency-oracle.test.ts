@@ -69,22 +69,10 @@ let navDir: string;
 let registryPath: string;
 let prevHome: string | undefined;
 
-/** Mtime of the developer's real journal, to prove the suite never wrote to it. */
+/** The developer's real journal, to prove THIS suite's writes never reach it. */
 const REAL_NAVGATOR_DIR = path.join(os.homedir(), '.navgator');
-let realJournalBefore: string;
-
-function snapshotRealJournal(): string {
-  const real = path.join(REAL_NAVGATOR_DIR, 'registry-journal.jsonl');
-  try {
-    const stat = fs.statSync(real);
-    return `${stat.size}:${stat.mtimeMs}`;
-  } catch {
-    return 'absent';
-  }
-}
 
 beforeEach(() => {
-  realJournalBefore = snapshotRealJournal();
   homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-oracle-home-'));
   navDir = path.join(homeDir, '.navgator');
   registryPath = path.join(navDir, 'projects.json');
@@ -652,7 +640,15 @@ describe('journal coverage', () => {
     await registerProject('/repos/isolation');
 
     expect(fs.existsSync(journalPathForDir(navDir))).toBe(true);
-    expect(snapshotRealJournal()).toBe(realJournalBefore);
+    // Sibling test files in parallel workers legitimately append to the real
+    // home journal (the known npm-test pollution), so a size/mtime-equality
+    // snapshot races. Assert by attribution instead: this test's unique path
+    // must never appear there. A regression to an import-time-cached real-home
+    // path would land '/repos/isolation' in this file and still fail.
+    const realJournal = path.join(REAL_NAVGATOR_DIR, 'registry-journal.jsonl');
+    if (fs.existsSync(realJournal)) {
+      expect(fs.readFileSync(realJournal, 'utf-8')).not.toContain('/repos/isolation');
+    }
   });
 });
 
