@@ -4,6 +4,7 @@ import * as path from 'path';
 import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { mergeComponentAliases } from '../../component-identity.js';
 
 export function registerListCommand(program: Command): void {
   program
@@ -49,28 +50,7 @@ export function registerListCommand(program: Command): void {
 
         // Deduplicate: merge components with same base name + type
         // "Railway Config" and "Railway" → keep the one with more connections
-        const seen = new Map<string, typeof components[0]>();
-        for (const c of components) {
-          // Extract base name: "Railway Config" → "railway", "Heroku/Procfile Config (worker)" → "heroku"
-          const baseName = c.name.toLowerCase()
-            .replace(/\s*config\b.*$/i, '')     // Remove "Config" and anything after
-            .replace(/\s*\(.*\)$/i, '')          // Remove parenthetical
-            .replace(/[@/].*/g, '')              // Remove @scope/version
-            .trim();
-          const key = `${baseName}|${c.type}`;
-          const existing = seen.get(key);
-          if (!existing) {
-            seen.set(key, c);
-          } else {
-            // Keep the one with more connections
-            const existingConns = existing.connects_to.length + existing.connected_from.length;
-            const newConns = c.connects_to.length + c.connected_from.length;
-            if (newConns > existingConns) {
-              seen.set(key, c);
-            }
-          }
-        }
-        const dedupedComponents = [...seen.values()];
+        const dedupedComponents = mergeComponentAliases(components);
 
         console.log(`NavGator - Components (${dedupedComponents.length})\n`);
 

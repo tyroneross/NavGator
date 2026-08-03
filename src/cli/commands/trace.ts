@@ -16,6 +16,7 @@ export function registerTraceCommand(program: Command): void {
     .option('--all', 'Show all paths (overrides --max-paths)')
     .option('--production', 'Show only production paths')
     .option('--classification <class>', 'Filter by semantic classification')
+    .option('--raw-file-nodes', 'Render FILE: references as synthetic nodes instead of resolving to their owning component (restores pre-0.9.2 behavior)')
     .option('--json', 'Output as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (componentName, options) => {
@@ -50,6 +51,7 @@ export function registerTraceCommand(program: Command): void {
           filterClassification: options.production ? 'production' : options.classification,
           maxPaths: options.maxPaths ? parseInt(options.maxPaths, 10) : undefined,
           showAll: options.all,
+          resolveFileNodes: options.rawFileNodes ? false : true,
         });
 
         if (options.agent) {

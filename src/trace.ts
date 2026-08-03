@@ -38,6 +38,10 @@ export interface TraceOptions {
   filterClassification?: string;
   maxPaths?: number;           // Limit output to top N paths (default: 10)
   showAll?: boolean;           // Override maxPaths, show everything
+  // When true (default), a FILE:<path> connection endpoint that a real component owns via
+  // source.config_files resolves to that owning component instead of a synthetic FILE: node.
+  // Set false to restore the pre-existing behavior (always synthesize).
+  resolveFileNodes?: boolean;
 }
 
 /**
@@ -52,8 +56,24 @@ export function traceDataflow(
 ): TraceResult {
   const maxDepth = options.maxDepth ?? 5;
   const direction = options.direction ?? 'both';
+  const resolveFileNodes = options.resolveFileNodes ?? true;
 
   const componentMap = new Map(allComponents.map(c => [c.component_id, c]));
+
+  // Map FILE:<path> ids to the real component that owns that path via source.config_files,
+  // so trace can resolve to the owner instead of synthesizing a FILE: node for it.
+  // NOTE: web/app/api/trace/route.ts:147-152 and web/app/api/subgraph/route.ts:114-119
+  // independently synthesize FILE: nodes and are NOT touched by this change — CLI trace and
+  // dashboard trace/subgraph now differ on this specific behavior. Tracked as a followup.
+  const fileOwnerMap = new Map<string, ArchitectureComponent>();
+  if (resolveFileNodes) {
+    for (const comp of allComponents) {
+      for (const f of comp.source.config_files || []) {
+        const fileId = `FILE:${f}`;
+        if (!fileOwnerMap.has(fileId)) fileOwnerMap.set(fileId, comp);
+      }
+    }
+  }
   const paths: TracePath[] = [];
   const touchedIds = new Set<string>();
   const layerSet = new Set<ArchitectureLayer>();
@@ -199,10 +219,23 @@ export function traceDataflow(
       continue;
     }
 
-    for (const { conn, nextId } of filteredConnections) {
+    for (const { conn, nextId: rawNextId } of filteredConnections) {
+      let nextId = rawNextId;
       let nextComp = componentMap.get(nextId);
 
-      // Handle FILE: references — create a synthetic component so trace can continue
+      // Resolve a FILE: reference to its owning component (via source.config_files) when one
+      // exists, instead of synthesizing a placeholder node for it. Default on; `resolveFileNodes:
+      // false` restores the always-synthesize behavior below.
+      if (!nextComp && resolveFileNodes && nextId.startsWith('FILE:')) {
+        const owner = fileOwnerMap.get(nextId);
+        if (owner) {
+          nextId = owner.component_id;
+          nextComp = owner;
+        }
+      }
+
+      // Handle FILE: references with no resolvable owner — create a synthetic component so
+      // trace can continue (today's behavior).
       if (!nextComp && nextId.startsWith('FILE:')) {
         const filePath = nextId.slice(5);
         nextComp = {
@@ -218,6 +251,7 @@ export function traceDataflow(
       }
 
       if (!nextComp) continue;
+      if (current.visited.has(nextId)) continue; // resolving to an owner may re-hit an already-visited node
 
       touchedIds.add(nextId);
       layerSet.add(nextComp.role.layer);

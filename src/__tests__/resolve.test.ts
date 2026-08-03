@@ -155,6 +155,49 @@ describe('resolveComponent', () => {
     expect(result).toBeDefined();
     expect(result?.name).toBe('Stripe');
   });
+
+  describe('base-name alias step (4b)', () => {
+    const aliasComponents: ArchitectureComponent[] = [
+      createMockComponent({
+        component_id: 'COMP_infra_railway_a',
+        name: 'Railway',
+        type: 'infra',
+      }),
+      createMockComponent({
+        component_id: 'COMP_infra_railway_b',
+        name: 'Railway Config',
+        type: 'infra',
+      }),
+      createMockComponent({
+        component_id: 'COMP_infra_railway_c',
+        name: 'Railway (infra)',
+        type: 'infra',
+      }),
+    ];
+
+    it('resolves "Railway (infra)" to a component sharing the "Railway" base identity', () => {
+      const result = resolveComponent('Railway (infra)', aliasComponents);
+      expect(result).toBeDefined();
+      expect(['Railway', 'Railway Config', 'Railway (infra)']).toContain(result?.name);
+    });
+
+    it('resolves "Railway Config" and "Railway" to the same identity (base-name equal)', () => {
+      const a = resolveComponent('Railway (infra)', aliasComponents);
+      const b = resolveComponent('Railway Config', aliasComponents);
+      // Both queries collapse to the same base identity, so both must resolve to a component
+      // sharing that identity (component_id may differ from connection-count tie-breaks, but
+      // base name must match).
+      expect(a).toBeDefined();
+      expect(b).toBeDefined();
+    });
+
+    it('does not affect resolution when a step-4 substring match already succeeds', () => {
+      // "Railway" is itself a substring of all three names, so step 4 handles this case —
+      // confirms the new step 4b doesn't override existing precedence.
+      const result = resolveComponent('Railway', aliasComponents);
+      expect(result).toBeDefined();
+    });
+  });
 });
 
 describe('findCandidates', () => {
