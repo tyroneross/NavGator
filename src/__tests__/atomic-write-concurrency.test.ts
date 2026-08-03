@@ -24,7 +24,10 @@ afterEach(() => {
 });
 
 describe('atomicWriteFile under concurrency', () => {
-  it('never rejects and never publishes a torn file with 8 concurrent writers', async () => {
+  // Explicit timeout: this test writes ~64MB (40 rounds x 8 writers x 200KB).
+  // Under the 5s default it can time out on a cold first run when parallel
+  // workers contend for disk and vite transform I/O.
+  it('never rejects and never publishes a torn file with 8 concurrent writers', { timeout: 30_000 }, async () => {
     const target = path.join(dir, 'registry.json');
     // A payload large enough that a truncating peer is observable. The original
     // defect needed size to reproduce; a few bytes always won the race cleanly.

@@ -11,8 +11,8 @@ import * as fs from "fs/promises";
 import { readFileSync } from "fs";
 import * as path from "path";
 import * as os from "os";
-import { randomBytes } from "crypto";
 import { rejectUnsafeMutation } from "@/lib/server/request-guard";
+import { atomicWriteFile } from "@/lib/server/atomic-write";
 
 // =============================================================================
 // TYPES
@@ -73,35 +73,16 @@ async function loadRegistry(): Promise<ProjectRegistry> {
 
 async function saveRegistry(registry: ProjectRegistry): Promise<void> {
   await fs.mkdir(REGISTRY_DIR, { recursive: true });
-  // Write through a temp file and rename. A plain writeFile here can be observed
-  // half-written by src/projects.ts's loadRegistry, which parse-fails to an EMPTY
-  // registry rather than an error — so a torn write from this route reads as
-  // "no projects registered" on the CLI side. Rename is atomic on the same
-  // filesystem, so a concurrent reader sees either the old file or the new one.
-  //
-  // This is the same defect class as the in-process registry race fixed in
-  // src/projects.ts, at the one writer that lives outside that module's mutex.
-  //
-  // The suffix must be unique PER CALL. Next.js serves concurrent requests in one
-  // process, so `pid + Date.now()` collides whenever two saves land in the same
-  // millisecond: one writer truncates the shared temp while another is still
-  // writing it, and the torn content then gets renamed into place. Measured at 8
-  // concurrent writers: 1398 of 2400 renames failed ENOENT and 123 of 400 rounds
-  // published unparseable JSON. The random suffix removes both.
+  // Same defect class as the in-process registry race fixed in src/projects.ts,
+  // at the one writer that lives outside that module's mutex. The atomicity
+  // rationale and measurements live with the helper.
   //
   // Scope, stated precisely: this makes each individual write atomic. It does NOT
   // serialize the load-mutate-save above, so lost updates remain possible BOTH
   // between concurrent requests to this route AND cross-process between this route
   // and the CLI. Only src/projects.ts's mutex covers the in-process case, and this
   // route deliberately does not share it.
-  const tmp = `${REGISTRY_PATH}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify(registry, null, 2), "utf-8");
-    await fs.rename(tmp, REGISTRY_PATH);
-  } catch (error) {
-    await fs.rm(tmp, { force: true }).catch(() => {});
-    throw error;
-  }
+  await atomicWriteFile(REGISTRY_PATH, JSON.stringify(registry, null, 2));
 }
 
 function extractProjectName(projectPath: string): string {

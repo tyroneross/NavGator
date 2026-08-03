@@ -855,11 +855,22 @@ async function handlePortfolio(args) {
         // The cache root is the durable signal, and the `dir` branch below already
         // treats it as one.
         const projects = await listProjects();
-        const cacheRoot = path.resolve(defaultCacheRoot());
+        // realpath both sides so a registry entry recorded through a symlinked or
+        // case-variant path cannot evade the prefix check; fall back to resolve for
+        // paths that no longer exist on disk.
+        const realpathOrResolve = (p) => {
+            try {
+                return fs.realpathSync(p);
+            }
+            catch {
+                return path.resolve(p);
+            }
+        };
+        const cacheRoot = realpathOrResolve(defaultCacheRoot());
         const isRemote = (p) => {
             if (p.origin?.kind === 'remote')
                 return true;
-            const resolved = path.resolve(p.path);
+            const resolved = realpathOrResolve(p.path);
             return resolved === cacheRoot || resolved.startsWith(cacheRoot + path.sep);
         };
         const localProjects = projects.filter((p) => !isRemote(p));
