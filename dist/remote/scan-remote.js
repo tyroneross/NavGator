@@ -83,6 +83,12 @@ export async function scanRemote(url, opts = {}) {
     // attacker's content verbatim. Delete whatever the clone shipped, then
     // force `mode: 'full'` so the noop path can never be selected regardless.
     await purgeShippedArchitectureDir(cloneResult.dir);
+    // Mark the origin BEFORE scanning, not after. scan() registers the project
+    // itself, so marking afterwards leaves a window in which a remote clone is
+    // registered with no `origin` — and any interruption in that window (Ctrl-C,
+    // lease contention, machine sleep) makes it permanent. Consumers that exclude
+    // remote content by flag would then fail open on it.
+    await recordRemoteOrigin(cloneResult.dir, url, cloneResult.dir);
     const outcome = await scan(cloneResult.dir, { mode: 'full', clearFirst: true });
     if (outcome.status === 'busy') {
         return {
@@ -92,6 +98,9 @@ export async function scanRemote(url, opts = {}) {
             clonePath: cloneResult.dir,
         };
     }
+    // Re-assert after the scan: registerProject inside scan() does a
+    // load-mutate-save that can drop the pre-scan marker if it read the registry
+    // before it was written. Idempotent, so the belt-and-suspenders costs nothing.
     await recordRemoteOrigin(cloneResult.dir, url, cloneResult.dir);
     return {
         status: outcome.status,

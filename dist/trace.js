@@ -201,6 +201,11 @@ export function traceDataflow(startComponent, allComponents, allConnections, opt
                 // but it is real — record it as a terminal step so the path survives. Deduplication
                 // below collapses the case where several blocked edges resolve to the same owner.
                 advanced = true;
+                // A component that references its own file resolves to itself, which would emit a
+                // degenerate `x -> x` step carrying no architectural information. Both sibling
+                // dead-end recorders guard on `path.length > 1` for the same reason; match them.
+                if (nextId === current.componentId)
+                    continue;
                 paths.push({
                     steps: [
                         ...current.path,

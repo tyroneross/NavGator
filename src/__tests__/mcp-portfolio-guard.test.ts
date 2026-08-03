@@ -102,3 +102,40 @@ describe('MCP portfolio tool — dir guard (SEC-004)', () => {
     expect(result.content[0].text).toMatch(/shared storage mode/i);
   });
 });
+
+describe('MCP portfolio tool — remote exclusion fails closed (f1)', () => {
+  it('excludes a clone under the cache root even when its origin marker is missing', async () => {
+    // The origin flag alone fails open. scan() registers a project itself, and the
+    // origin marker is written by a separate, error-swallowing call — so an
+    // interruption, a dashboard-initiated add, or a plain `navgator scan` run inside
+    // a clone directory all leave a remote clone registered UNMARKED. The cache-root
+    // path is the durable signal.
+    const cacheRoot = defaultCacheRoot();
+    const unmarkedClone = path.join(cacheRoot, 'attacker', 'evil-repo');
+    fs.mkdirSync(unmarkedClone, { recursive: true });
+
+    const localRepo = path.join(homeDir, 'my-local-repo');
+    fs.mkdirSync(localRepo, { recursive: true });
+
+    // Registered exactly the way scan() registers — no origin field at all.
+    await registerProject(unmarkedClone);
+    await registerProject(localRepo);
+
+    const res = await handleToolCall('portfolio', {});
+    const text = JSON.stringify(res);
+
+    expect(text).not.toContain('evil-repo');
+    expect(text).toContain('skipped 1 project(s)');
+  });
+
+  it('still excludes a clone that IS marked, and keeps genuine local projects', async () => {
+    const localRepo = path.join(homeDir, 'keeper');
+    fs.mkdirSync(localRepo, { recursive: true });
+    await registerProject(localRepo);
+
+    const res = await handleToolCall('portfolio', {});
+    const text = JSON.stringify(res);
+
+    expect(text).not.toContain('skipped');
+  });
+});

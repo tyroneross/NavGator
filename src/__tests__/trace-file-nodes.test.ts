@@ -194,3 +194,34 @@ describe('traceDataflow FILE: node resolution', () => {
     expect(result.components_touched).toContain('FILE:src/x.ts');
   });
 });
+
+describe('degenerate self-reference (f7)', () => {
+  it('a component referencing its own file emits no x -> x path', () => {
+    // Both sibling dead-end recorders guard on path.length > 1 so a lone start node
+    // never becomes a "path". The blocked-branch push must agree, or a component that
+    // references its own file renders as the meaningless 'a -> a'.
+    const a = createComponent({ name: 'a', layer: 'frontend', file: 'src/a.ts' });
+    const components = [a];
+    const connections = [createConnection(a, 'FILE:src/a.ts')];
+
+    const resolved = traceDataflow(a, components, connections, { direction: 'forward' });
+
+    expect(resolved.paths.length).toBe(0);
+  });
+
+  it('a mid-path self-reference does not append a repeated node', () => {
+    const a = createComponent('a', { layer: 'frontend' });
+    const b = createComponent({ name: 'b', layer: 'backend', file: 'src/b.ts' });
+    const components = [a, b];
+    const connections = [createConnection(a, b), createConnection(b, 'FILE:src/b.ts')];
+
+    const resolved = traceDataflow(a, components, connections, { direction: 'forward' });
+
+    for (const p of resolved.paths) {
+      const ids = p.steps.map((s) => s.component.id);
+      for (let i = 1; i < ids.length; i++) {
+        expect(ids[i]).not.toBe(ids[i - 1]);
+      }
+    }
+  });
+});

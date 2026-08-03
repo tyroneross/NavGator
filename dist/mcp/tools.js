@@ -845,8 +845,24 @@ async function handlePortfolio(args) {
         // into this fan-out — an agent-reachable surface — with no marking at all.
         // Skip remote-origin projects on this path. Their content is attacker-authored
         // by construction, and a portfolio map is not the place to surface it.
+        // Exclude by PATH as well as by flag. The `origin` marker alone fails open:
+        // scanRemote calls scan() first, and scan() registers the project via
+        // registerProject with no origin field (src/scanner.ts) — origin is patched in
+        // afterwards by recordRemoteOrigin, whose body swallows every error. Any
+        // interruption in that window, a dashboard-initiated add, or a plain
+        // `navgator scan` run inside a clone directory all leave a remote clone
+        // registered UNMARKED. Measured: such an entry was included in this map.
+        // The cache root is the durable signal, and the `dir` branch below already
+        // treats it as one.
         const projects = await listProjects();
-        const localProjects = projects.filter((p) => p.origin?.kind !== 'remote');
+        const cacheRoot = path.resolve(defaultCacheRoot());
+        const isRemote = (p) => {
+            if (p.origin?.kind === 'remote')
+                return true;
+            const resolved = path.resolve(p.path);
+            return resolved === cacheRoot || resolved.startsWith(cacheRoot + path.sep);
+        };
+        const localProjects = projects.filter((p) => !isRemote(p));
         const skippedRemote = projects.length - localProjects.length;
         const inputs = [];
         for (const p of localProjects) {
