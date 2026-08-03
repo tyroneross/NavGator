@@ -85,4 +85,53 @@ describe('dashboard consolidated architecture storage', () => {
       }),
     ]);
   });
+
+  it('unwraps a wrapped file_map.json into fileMap', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-web-storage-'));
+    roots.push(root);
+    const architecture = path.join(root, '.navgator', 'architecture');
+    fs.mkdirSync(architecture, { recursive: true });
+    fs.writeFileSync(path.join(architecture, 'file_map.json'), JSON.stringify({
+      schema_version: '1.1.0',
+      generated_at: 123,
+      files: { 'src/web.ts': 'COMP_web' },
+    }));
+
+    const records = await loadArchitectureRecords(root);
+    expect(records.fileMap).toEqual({ 'src/web.ts': 'COMP_web' });
+  });
+
+  it('returns a bare file_map.json map as-is', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-web-storage-'));
+    roots.push(root);
+    const architecture = path.join(root, '.navgator', 'architecture');
+    fs.mkdirSync(architecture, { recursive: true });
+    fs.writeFileSync(path.join(architecture, 'file_map.json'), JSON.stringify({
+      'src/web.ts': 'COMP_web',
+      'src/db.ts': 'COMP_db',
+    }));
+
+    const records = await loadArchitectureRecords(root);
+    expect(records.fileMap).toEqual({ 'src/web.ts': 'COMP_web', 'src/db.ts': 'COMP_db' });
+  });
+
+  it('yields fileMap === undefined when file_map.json is absent, without throwing', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-web-storage-'));
+    roots.push(root);
+    fs.mkdirSync(path.join(root, '.navgator', 'architecture'), { recursive: true });
+
+    const records = await loadArchitectureRecords(root);
+    expect(records.fileMap).toBeUndefined();
+  });
+
+  it('yields fileMap === undefined when file_map.json is corrupt, without throwing', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-web-storage-'));
+    roots.push(root);
+    const architecture = path.join(root, '.navgator', 'architecture');
+    fs.mkdirSync(architecture, { recursive: true });
+    fs.writeFileSync(path.join(architecture, 'file_map.json'), '{ not valid json');
+
+    const records = await loadArchitectureRecords(root);
+    expect(records.fileMap).toBeUndefined();
+  });
 });

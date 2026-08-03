@@ -7,6 +7,7 @@ export interface ArchitectureRecords {
   components: ArchitectureRecord[];
   connections: ArchitectureRecord[];
   generatedAt?: number;
+  fileMap?: Record<string, string>;
 }
 
 async function readJson(filePath: string): Promise<ArchitectureRecord | null> {
@@ -43,6 +44,22 @@ async function readJsonLines(filePath: string): Promise<ArchitectureRecord[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Read file_map.json, accepting both the wrapped shape written by
+ * buildFileMap (src/storage.ts:601-645 — { schema_version, generated_at,
+ * files }) and a bare { path: componentId } map, preserving the route's
+ * historical `parsed.files || parsed` fallback exactly. Missing or corrupt
+ * input yields undefined, never a throw, matching readJson's tolerance.
+ */
+async function readFileMap(filePath: string): Promise<Record<string, string> | undefined> {
+  const parsed = await readJson(filePath);
+  if (!parsed) return undefined;
+  const files = parsed.files || parsed;
+  return files && typeof files === "object" && !Array.isArray(files)
+    ? (files as Record<string, string>)
+    : undefined;
 }
 
 function inflateGraphNode(node: ArchitectureRecord): ArchitectureRecord {
@@ -108,9 +125,11 @@ export async function loadArchitectureRecords(root: string): Promise<Architectur
         : graphEdges.map(inflateConnection);
 
   const metadata = graph?.metadata as ArchitectureRecord | undefined;
+  const fileMap = await readFileMap(path.join(architectureDir, "file_map.json"));
   return {
     components,
     connections,
     generatedAt: typeof metadata?.generated_at === "number" ? metadata.generated_at : undefined,
+    fileMap,
   };
 }
