@@ -187,7 +187,7 @@ Skills have different auto-trigger patterns — check each `SKILL.md` before mod
 
 ---
 
-## Storage Model (Three-Tier Context)
+## Storage Model (Three-Tier Context + Home Stores)
 
 Architecture data lives in `<project-root>/.navgator/architecture/`.
 
@@ -222,6 +222,46 @@ Versioned JSON outputs use `schema_version: "1.1.0"`. Agent-mode output (`--agen
 The `*.full.jsonl` files are the canonical consolidated store. Per-entity directories are disabled by default and duplicate those records when enabled. Graph and compact formats are derived views and may omit fields.
 
 Lessons accumulate in `.navgator/lessons/lessons.json`.
+
+### Home-scoped stores (`~/.navgator/`)
+
+Everything above is per-project and regenerable by rescanning. Four things live
+in the user's home directory instead:
+
+```
+~/.navgator/
+├── projects.json              # The registry — journaled + locked writes only
+├── registry-journal.jsonl     # Forensic op log (digests, not identity; rotates)
+├── lessons/global-lessons.json# Promoted cross-project patterns
+└── memory/                    # gator-memory — durable narrative
+    ├── index.json             #   materialized rollup (rebuildMemoryIndex only)
+    ├── events.jsonl           #   append-only chronology, size-rotated
+    └── projects/<slug>.json   #   DURABLE per-project record — source of truth
+```
+
+**gator-memory** answers *what happened over time* — which projects exist, when
+they entered, what materially changed. Populated automatically on scan; no
+setup, no dependency, no network. Only meaningful events are recorded
+(`project.registered`, `project.scanned`, `architecture.changed`,
+`project.removed`); a `patch`-significance rescan writes nothing.
+
+**Rules for anything touching these:**
+
+- Never write `projects.json` directly. Every mutation goes through
+  `registerProject` / `updateProjectMeta` / `removeProject` / `pruneProjects`,
+  which route via `mutateRegistry` (in-process mutex + cross-process file lock
+  + compare-and-swap + journal record).
+- Never put a shared-rollup write on the capture path. `index.json` is written
+  only by `rebuildMemoryIndex()`, because `scanPortfolio` runs concurrent
+  workers that all reach `registerProject`.
+- Memory writes are fail-open and must stay outside both locks and outside
+  `registerProject`'s registry try/catch.
+- `~/.navgator/config.json` is the home-scoped config (`src/home-config.ts`);
+  absent file means all defaults. Distinct from `src/config.ts`, which is
+  project/storage-scoped and env-only.
+
+`navgator doctor` reports hygiene across all of these. Design rationale:
+`docs/plans/2026-08-03-gator-memory.md`.
 
 ---
 

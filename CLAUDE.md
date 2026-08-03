@@ -129,6 +129,7 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `navgator scan-remote <url>` | Shallow-clone a GitHub repo by URL and scan it (CLI-only, human-initiated) |
 | `navgator arch-diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `--base` ref) |
 | `navgator registry-log` | Show recent reads and writes of the project registry |
+| `navgator doctor` | Registry + gator-memory hygiene report; `--fix` prunes accumulated temp fixtures behind a backup and confirmation |
 
 ## Agent/Machine Output
 
@@ -184,8 +185,9 @@ Record lessons manually with `/navgator:review learn "description"`. Lessons are
 
 ### Lessons: Per-Project vs Global (Three-Tier Data Model)
 
-NavGator uses a three-tier data model so architecture details stay local to each
-repo while transferable patterns become shareable across projects.
+NavGator uses a four-tier data model so architecture details stay local to each
+repo while transferable patterns and durable history become shareable across
+projects.
 
 **Tier 1 — Per-project architecture** (`<project>/.navgator/architecture/`)
 Full scan output includes canonical `components.full.jsonl` and
@@ -208,6 +210,58 @@ tags, and `promoted_at` so you can trace provenance.
 global, the local lesson stays in place but gets marked `promoted: true`. The
 global lesson gets a full copy plus traceability fields. There is no automatic
 cross-project application — global lessons are for recall and reference.
+
+**Tier 4 — gator-memory** (`~/.navgator/memory/`)
+The durable narrative: which projects exist, when they entered, and what
+materially changed. Tiers 1–3 answer *what is here* and *what patterns apply*;
+none of them answer *what happened over time*. Populated automatically on every
+scan — no setup, no dependency, no network.
+
+```
+~/.navgator/memory/
+├── index.json            materialized rollup — written only by rebuildMemoryIndex()
+├── events.jsonl          append-only chronology — size-rotated, one generation
+└── projects/<slug>.json  DURABLE per-project record — the source of truth
+```
+
+`projects/<slug>.json` is authoritative. `index.json` and `events.jsonl` are
+derived and can both be deleted without losing a fact about any project, since
+every event is also folded into its project's `milestones[]`. Slug is
+`kebab(basename)-<8 hex of sha256(path)>`, so two directories named `web` stay
+distinct.
+
+Four event kinds: `project.registered`, `project.scanned`,
+`architecture.changed`, `project.removed`. **Routine scans emit nothing** — a
+`patch`-significance rescan produces no event. That is the difference between
+this and `registry-journal.jsonl`: the journal records every operation and must
+therefore rotate; this records only what is worth remembering.
+
+Bounded by construction: milestones capped per project (oldest evicted),
+`events.jsonl` rotated to one generation, and `navgator doctor --fix` removes
+records for pruned projects. Fail-open by construction: a broken memory store
+can never break a scan or a registry write.
+
+Project removal is **reconciled on read**, not mirrored on write — the dashboard
+deletes through a separately compiled unit that cannot import the memory store,
+so any record missing from the live registry is reported as orphaned and
+repaired by `doctor --fix`, regardless of which surface deleted it.
+
+**Optional mirror to build-loop-memory.** Default OFF. When enabled in
+`~/.navgator/config.json` *and* the target exists on disk, each project's memory
+is exported one-way to
+`<target>/projects/<name-slug>/architecture/navgator-memory.{json,md}`:
+
+```json
+{ "memory": { "mirror": { "enabled": true, "target": "~/dev/git-folder/build-loop-memory" } } }
+```
+
+If the target does not exist, the mirror is a silent no-op — no warning, no
+error. For almost every user that tree does not exist, and that is the normal
+case. NavGator never creates the target root (its absence *is* the signal) and
+never touches `snapshot.json`, `graph.json`, or `INDEX.jsonl` — those belong to
+build-loop's own tooling.
+
+Full design rationale: `docs/plans/2026-08-03-gator-memory.md`.
 
 **CLI**:
 

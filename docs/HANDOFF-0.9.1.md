@@ -21,8 +21,8 @@ The release approach is sound:
 - scans return typed `completed | noop | busy` outcomes and use one owner-safe writer lease;
 - lease ownership covers legacy migration, setup scans, MCP scans, and freshness reconciliation;
 - the default graph uses complete consolidated records while derived compact views stay explicitly lossy;
-- Claude receives 13 commands, 4 subagents, 6 skills, and 10 MCP tools;
-- Codex receives the portable intersection: 6 skills and 10 MCP tools;
+- Claude receives 13 commands, 4 subagents, 6 skills, and 12 MCP tools;
+- Codex receives the portable intersection: 6 skills and 12 MCP tools;
 - Codex executes its versioned installed cache, not a mutable registration source, while scanning the active task workspace;
 - the packaged dashboard reads consolidated data, bounds graph traversal, rejects cross-origin/host attacks, denies framing, and forces loopback binding even when launched directly;
 - CI and publishing audit production dependencies, pin Actions by commit, verify one tarball, hash it, and pass only that artifact into the credentialed publish job.
@@ -91,7 +91,7 @@ Final post-mutation evidence:
 | Final full suite | 49 files, 558 tests passed after all setup, launcher, and gitignore hardening |
 | Production dependency audit | Root: 0 vulnerabilities; web: 0 vulnerabilities |
 | Clean production build | Passed with Next 16.2.10; one non-fatal dynamic file-tracing warning remains because dashboard routes read user-selected project paths |
-| Required host verifier | Final run passed with Claude plus bundled Codex 0.144, including user/workspace registration, cache independence, 6 Codex skills, 10 tools, direct-launch loopback, dashboard security, and runtime probes |
+| Required host verifier | Final run passed with Claude plus bundled Codex 0.144, including user/workspace registration, cache independence, 6 Codex skills, 12 tools, direct-launch loopback, dashboard security, and runtime probes |
 | Self-scan | 339 components, 820 connections, 0 warnings |
 | Bounded agent output | Summary 53,059 bytes; rules returned 50 of 386; coverage returned 50 of 222 with explicit truncation metadata |
 | Build Loop advisory contracts | Skill resolution, manifest, trigger, and bridge tests passed; MCP tests skipped where the Build Loop manifest intentionally declares no inline server |

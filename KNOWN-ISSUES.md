@@ -6,6 +6,44 @@ Track issues with known repro and clear remediation paths. Closed issues move to
 
 ## Closed
 
+### `npm test` registered tmp scan fixtures into the developer's real `~/.navgator`
+
+**Status:** closed 2026-08-03 (commit `35dfb99`)
+**Reported:** 2026-08-03 · **Pre-existing**, not introduced by the registry-journal work — that work only made it *visible*, which is the journal doing its job.
+
+`scan()` calls `registerProject()` (`src/scanner.ts:2131`), which writes
+`~/.navgator/projects.json`. Test files that built a tmp project and called
+`scan()` without redirecting `$HOME` wrote the developer's real registry.
+Measured drift on clean HEAD: **+42 entries per full `npm test` run**, which had
+accumulated to **1,433 tmp-fixture entries** (723 pointing at paths that no
+longer existed) and grown the registry from ~425 KB to ~503 KB.
+
+**Fix:** a vitest `setupFiles` hook (`src/__tests__/setup/home-redirect.ts`)
+redirects `HOME`, `USERPROFILE`, and `NAVGATOR_HOME` to a per-file `mkdtemp`
+before any test module imports. `pool: 'forks'` was already pinned, so each
+test file gets its own process and its own fake home.
+
+The audit found exactly one test with a legitimate dependency on the real home
+— `registry-concurrency-oracle.test.ts`'s attribution assertion, which captured
+`os.homedir()` at module scope and would have silently started checking the
+*fake* home, reporting green while proving nothing. It now reads
+`NAVGATOR_TEST_REAL_HOME`, captured once by the hook before it redirects.
+
+**Closure proof** (mutation-verified, run against a scratch `HOME` so proving
+the fix did not itself pollute the registry):
+
+```
+full suite, real registry before -> after:  2 -> 2   (821/821 pass)
+hook removed, scratch HOME:                 26 entries from ONE test file
+hook active,  scratch HOME:                  0 entries, no registry created
+```
+
+Residual cleanup of the 1,433 accumulated entries is available to any user via
+`navgator doctor --fix`, which backs up first and removes only entries that are
+both tmp-rooted and no longer on disk.
+
+---
+
 ### llm-map: Apple FoundationModels `@Generable` types not detected
 
 **Status:** closed

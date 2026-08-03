@@ -484,6 +484,40 @@ The project registry (`~/.navgator/projects.json`) has readers and writers livin
 | `--json` | Output as JSON |
 | `--agent` | Output wrapped in agent envelope (implies `--json`) |
 
+### `navgator doctor`
+
+Reports the health of your registry and gator-memory store, and offers a
+guided cleanup of accumulated temp fixtures.
+
+```bash
+navgator doctor                        # Read-only report
+navgator doctor --json                 # Machine-readable (same data the dashboard uses)
+navgator doctor --fix                  # Guided cleanup, with confirmation
+navgator doctor --fix --yes            # Skip the prompt (for scripts)
+navgator doctor --fix --include-missing # Also remove non-temp paths that are gone
+navgator doctor --mirror               # Export to build-loop-memory, if enabled
+```
+
+The report covers registered entries, how many point at temp directories or
+paths that no longer exist, registration growth, lock conflicts and degraded
+writes, gator-memory status, and mirror status.
+
+**Growth is only estimated when there is enough history to support it.** The
+journal rotates, so on a fresh install the retained window is short — the
+report gives raw counts and says so rather than extrapolating a large,
+meaningless daily rate.
+
+**`--fix` is deliberately conservative.** By default it removes only entries
+that are *both* under a temp root *and* no longer on disk — the accumulated
+test fixtures, never your work. Before anything is deleted it prints the exact
+entries, asks for confirmation, and writes a verified
+`projects.json.backup-<timestamp>`. It aborts rather than assuming consent if
+stdin isn't a terminal and `--yes` wasn't passed. Removals go through the same
+locked, journaled write path as every other registry mutation.
+
+A project on an unmounted volume is missing but real, so removing non-temp
+missing paths requires the explicit `--include-missing`.
+
 ## What Gets Detected
 
 ### Components
@@ -564,6 +598,56 @@ Data is stored in `.navgator/architecture/` within your project:
 ```
 
 The complete record format uses schema version `1.1.0`. The two `*.full.jsonl` files are the canonical consolidated records. `graph.json`, `index.json`, `file_map.json`, and `connections.jsonl` are compact or indexed views and can omit record fields. Per-entity directories are disabled by default and duplicate the canonical records when explicitly enabled.
+
+### gator-memory — durable history across projects
+
+Everything above is *this* project's current architecture, and it is regenerable
+by rescanning. gator-memory is the part that isn't: a durable record of which
+projects exist, when they entered, and what materially changed. It lives in your
+home directory, is populated automatically on every scan, and needs no setup,
+no dependency, and no network.
+
+```
+~/.navgator/memory/
+├── index.json            # Materialized rollup (regenerable)
+├── events.jsonl          # Append-only chronology, size-rotated
+├── events.1.jsonl        # Previous generation
+└── projects/
+    └── <slug>.json       # Durable per-project record — source of truth
+```
+
+`projects/<slug>.json` is authoritative; `index.json` and `events.jsonl` are
+derived and can be deleted without losing anything, because every event is also
+folded into its project's milestone list.
+
+Only meaningful events are recorded — a project entering or leaving the
+registry, and scans whose architecture diff is `major` or `minor`. **A routine
+rescan writes nothing.** That is what separates this from
+`~/.navgator/registry-journal.jsonl`, which logs every read and write and
+therefore has to rotate away its own history.
+
+Growth is bounded in three ways: milestones are capped per project, the event
+log rotates to a single previous generation, and `navgator doctor --fix` removes
+records for projects that are gone. If the store is ever unwritable or corrupt,
+NavGator degrades silently — a broken memory store can never fail a scan.
+
+**Optional: mirror into build-loop-memory.** Off by default. If you keep a
+`build-loop-memory` tree, enable a one-way export in `~/.navgator/config.json`:
+
+```json
+{
+  "memory": {
+    "mirror": { "enabled": true, "target": "~/dev/git-folder/build-loop-memory" }
+  }
+}
+```
+
+Each project's memory is then written to
+`<target>/projects/<name-slug>/architecture/navgator-memory.{json,md}`. If the
+target directory doesn't exist, nothing happens — no warning, no error.
+NavGator never creates the target and never touches files it doesn't own.
+
+Design rationale and rejected alternatives: [`docs/plans/2026-08-03-gator-memory.md`](docs/plans/2026-08-03-gator-memory.md).
 
 ## AI Prompt Tracking
 
