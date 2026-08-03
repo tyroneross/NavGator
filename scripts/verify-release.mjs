@@ -236,7 +236,22 @@ function assertCodexSkillsFromCache(result, cacheDir, workspace, label) {
   const cacheSkills = entry.skills.filter((skill) => {
     if (typeof skill.path !== 'string') return false
     const relative = path.relative(canonicalCache, realpathSync(skill.path))
-    return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    const insideCache =
+      relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+    if (!insideCache) return false
+    // Ignore skills the HOST generated inside the cache rather than ones
+    // NavGator ships. Codex >= ~0.14x materializes
+    // `.codex-plugin/migrated-command-skills/source-command-<name>/SKILL.md`
+    // for some commands at install time, so on codex 0.146.0 this assertion
+    // saw 9 where the repo ships 6 — a failure that says nothing about
+    // NavGator's surface and everything about the host's version.
+    //
+    // This is a no-op on the CI-pinned 0.130.0, which generates no such
+    // directory. Scoping the assertion to `skills/` keeps it measuring the
+    // thing it is named for — the skills NavGator ships — instead of
+    // re-breaking every time a host changes what else it writes into its own
+    // cache.
+    return !relative.split(path.sep).includes('.codex-plugin')
   })
   assert.equal(cacheSkills.length, 6, `${label} exposes exactly six skills from the installed cache`)
   assert.deepEqual(
