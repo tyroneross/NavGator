@@ -72,7 +72,19 @@ async function loadRegistry(): Promise<ProjectRegistry> {
 
 async function saveRegistry(registry: ProjectRegistry): Promise<void> {
   await fs.mkdir(REGISTRY_DIR, { recursive: true });
-  await fs.writeFile(REGISTRY_PATH, JSON.stringify(registry, null, 2), "utf-8");
+  // Write through a temp file and rename. A plain writeFile here can be observed
+  // half-written by src/projects.ts's loadRegistry, which parse-fails to an EMPTY
+  // registry rather than an error — so a torn write from this route reads as
+  // "no projects registered" on the CLI side. Rename is atomic on the same
+  // filesystem, so a concurrent reader sees either the old file or the new one.
+  //
+  // This is the same defect class as the in-process registry race fixed in
+  // src/projects.ts, at the one writer that lives outside that module's mutex.
+  // Cross-PROCESS lost-update between this route and the CLI remains possible
+  // and is out of scope; atomicity only removes the torn-file failure.
+  const tmp = `${REGISTRY_PATH}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(registry, null, 2), "utf-8");
+  await fs.rename(tmp, REGISTRY_PATH);
 }
 
 function extractProjectName(projectPath: string): string {

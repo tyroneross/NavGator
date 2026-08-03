@@ -64,8 +64,17 @@ describe('traceDataflow FILE: node resolution', () => {
     // resolves back to `a`, which is already on the BFS path (start node) — a naive
     // `if (current.visited.has(nextId)) continue;` silently drops the branch and the path is
     // never recorded. resolveFileNodes:false (always-synthesize) has no such collision and
-    // reports the path. The contract: only node IDENTITY may differ between the two modes,
-    // never the number of paths reported.
+    // reports the path.
+    //
+    // The contract is NOT "the two modes always report the same path count" — that framing
+    // is wrong, and a fix built on it only clamps the count. Owner resolution is ALLOWED to
+    // merge two branches whose endpoints resolve to the SAME component, because they are one
+    // architectural relationship expressed through two files. What it must never do is drop a
+    // branch's representation. So the real contract is:
+    //   1. branches that resolve to DIFFERENT components stay distinct (see the CE1 case below);
+    //   2. every real component reachable with resolveFileNodes:false is still reachable with
+    //      it on (see the direction case below);
+    //   3. a blocked branch is recorded as a terminal step, not discarded.
     const a: ArchitectureComponent = createComponent({
       name: 'a',
       layer: 'frontend',
@@ -88,6 +97,78 @@ describe('traceDataflow FILE: node resolution', () => {
     // Before the fix: resolved.paths.length === 0, unresolved.paths.length === 1.
     expect(resolved.paths.length).toBe(unresolved.paths.length);
     expect(resolved.paths.length).toBeGreaterThan(0);
+  });
+
+  it('f2 CE1: a blocked branch beside a surviving one is still reported', () => {
+    // The defect the first fix missed. A node-level "did anything advance" flag is masked by
+    // any surviving sibling edge, so this shape regressed to 1 path vs 2 even after that fix.
+    // Measured before the per-edge fix: resolved 1, unresolved 2. The two FILE:/real targets
+    // are DIFFERENT components, so no merge is permitted here.
+    const a = createComponent({ name: 'a', layer: 'frontend', file: 'src/f1.ts' });
+    const b = createComponent('b', { layer: 'backend' });
+    const c = createComponent('c', { layer: 'backend' });
+    const components = [a, b, c];
+    const connections = [
+      createConnection(a, b),
+      createConnection(b, 'FILE:src/f1.ts'),
+      createConnection(b, c),
+    ];
+
+    const resolved = traceDataflow(a, components, connections, { direction: 'forward' });
+    const unresolved = traceDataflow(a, components, connections, {
+      direction: 'forward',
+      resolveFileNodes: false,
+    });
+
+    expect(resolved.paths.length).toBe(unresolved.paths.length);
+  });
+
+  it('f2 CE2: two edges onto the SAME owner merge, and the branch stays represented', () => {
+    // Deliberately NOT a count-equality assertion. Both FILE: hops resolve to `a`, so they are
+    // one relationship and merging them to a single path is the correct answer under owner
+    // resolution. What must hold is that the branch is represented at all — the path closes
+    // back on the owner rather than vanishing.
+    const a = createComponent({ name: 'a', layer: 'frontend', file: 'src/f1.ts' });
+    a.source.config_files = ['src/f1.ts', 'src/f2.ts'];
+    const b = createComponent('b', { layer: 'backend' });
+    const components = [a, b];
+    const connections = [
+      createConnection(a, b),
+      createConnection(b, 'FILE:src/f1.ts'),
+      createConnection(b, 'FILE:src/f2.ts'),
+    ];
+
+    const resolved = traceDataflow(a, components, connections, { direction: 'forward' });
+
+    expect(resolved.paths.length).toBeGreaterThan(0);
+    const ids = resolved.paths[0].steps.map((s) => s.component.id);
+    expect(ids).toEqual([a.component_id, b.component_id, a.component_id]);
+  });
+
+  it('f2: no real component reachable with resolveFileNodes:false is lost, in any direction', () => {
+    // `both` is the default for the explore MCP tool, so the earlier forward-only coverage
+    // left the most-used direction untested.
+    const a = createComponent({ name: 'a', layer: 'frontend', file: 'src/f1.ts' });
+    const b = createComponent('b', { layer: 'backend' });
+    const c = createComponent('c', { layer: 'backend' });
+    const components = [a, b, c];
+    const connections = [
+      createConnection(a, b),
+      createConnection(b, 'FILE:src/f1.ts'),
+      createConnection(b, c),
+    ];
+
+    for (const direction of ['forward', 'backward', 'both'] as const) {
+      const resolved = traceDataflow(c, components, connections, { direction });
+      const unresolved = traceDataflow(c, components, connections, {
+        direction,
+        resolveFileNodes: false,
+      });
+      const realReachable = unresolved.components_touched.filter((id) => !id.startsWith('FILE:'));
+      for (const id of realReachable) {
+        expect(resolved.components_touched).toContain(id);
+      }
+    }
   });
 
   it('resolveFileNodes: false restores the synthetic node', () => {

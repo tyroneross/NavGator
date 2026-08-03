@@ -158,13 +158,13 @@ export function traceDataflow(startComponent, allComponents, allConnections, opt
             paths.push({ steps: current.path });
             continue;
         }
-        // Tracks whether any connection in this batch actually advanced the BFS (queued a new
-        // step). Resolving a FILE: reference to an owning component that's already on this path
-        // (src/trace.ts:254 `continue`) must NOT silently drop the path — it must be recorded as
-        // a dead end, exactly like the `filteredConnections.length === 0` case above. Without this,
-        // `resolveFileNodes: true` (the default) can report fewer paths than `resolveFileNodes:
-        // false` for the same graph, which breaks the contract that only node identity may differ
-        // between the two modes.
+        // A branch that owner-resolution blocks must be recorded PER EDGE, not per node.
+        // A node-level "did anything advance" flag is not enough: one surviving sibling edge
+        // would mask every blocked edge at the same node, so `resolveFileNodes: true` (the
+        // default) would still report fewer paths than `false` for a graph like
+        // a(owns f1.ts) → b, b → FILE:f1.ts, b → c. Recording the cycle-closing step at the
+        // point of the block keeps the branch represented and preserves the contract that only
+        // node identity differs between the two modes.
         let advanced = false;
         for (const { conn, nextId: rawNextId } of filteredConnections) {
             let nextId = rawNextId;
@@ -196,8 +196,24 @@ export function traceDataflow(startComponent, allComponents, allConnections, opt
             }
             if (!nextComp)
                 continue;
-            if (current.visited.has(nextId))
-                continue; // resolving to an owner may re-hit an already-visited node
+            if (current.visited.has(nextId)) {
+                // Owner-resolution re-hit a node already on this path. The branch cannot advance,
+                // but it is real — record it as a terminal step so the path survives. Deduplication
+                // below collapses the case where several blocked edges resolve to the same owner.
+                advanced = true;
+                paths.push({
+                    steps: [
+                        ...current.path,
+                        {
+                            component: toCompactComponent(nextComp),
+                            connection: toCompactConnection(conn),
+                            file: conn.code_reference?.file,
+                            line: conn.code_reference?.line_start,
+                        },
+                    ],
+                });
+                continue;
+            }
             advanced = true;
             touchedIds.add(nextId);
             layerSet.add(nextComp.role.layer);

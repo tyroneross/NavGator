@@ -839,15 +839,28 @@ async function handlePortfolio(args) {
         // same guard scanPortfolio uses rather than assume this path is safe by
         // omission.
         assertLocalStorageMode(config);
+        // The 'dir' branch below refuses the remote-scan cache root, but that guard
+        // does nothing here: `scan-remote` REGISTERS the clone, so a remote repo's
+        // fabricated component names, descriptions, and prompt strings would flow
+        // into this fan-out — an agent-reachable surface — with no marking at all.
+        // Skip remote-origin projects on this path. Their content is attacker-authored
+        // by construction, and a portfolio map is not the place to surface it.
         const projects = await listProjects();
+        const localProjects = projects.filter((p) => p.origin?.kind !== 'remote');
+        const skippedRemote = projects.length - localProjects.length;
         const inputs = [];
-        for (const p of projects) {
+        for (const p of localProjects) {
             const components = await loadAllComponents(config, p.path);
             const connections = await loadAllConnections(config, p.path);
             inputs.push({ repo: p.path, components, connections, lastScan: p.lastScan });
         }
         const map = buildCrossRepoMap(inputs);
-        return textResponse(formatPortfolioMap(map));
+        const note = skippedRemote > 0
+            ? `\n\nNote: skipped ${skippedRemote} project(s) registered from a remote clone. ` +
+                'Their scanned content originates from an untrusted repository and is excluded ' +
+                'from the portfolio map. Inspect them with the CLI if that is intended.'
+            : '';
+        return textResponse(formatPortfolioMap(map) + note);
     }
     // SEC-004: 'dir' was previously a free-form path handed straight to
     // path.resolve() -> scanPortfolio(), which both reads from an arbitrary
