@@ -13,10 +13,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '..')
 const expectedTools = [
+  'arch_diff',
   'connections',
   'diagram',
   'explore',
   'impact',
+  'portfolio',
   'review',
   'rules',
   'scan',
@@ -171,7 +173,7 @@ function probeMcp(packageDir, configPath, host, options = {}) {
 
   assert.equal(initialized?.result?.serverInfo?.name, 'navgator', `${host} MCP initialized`)
   const tools = listed?.result?.tools?.map((tool) => tool.name).sort()
-  assert.deepEqual(tools, expectedTools, `${host} MCP exposes the expected 10 tools`)
+  assert.deepEqual(tools, expectedTools, `${host} MCP exposes the expected 12 tools`)
   return initialized.result.serverInfo.version
 }
 

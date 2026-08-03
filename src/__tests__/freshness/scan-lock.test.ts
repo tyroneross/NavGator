@@ -305,7 +305,10 @@ describe('owner-safe scan lease', () => {
         gatePollMs: 1,
       });
       if (result.ok) result.lease.release();
-      process.stdout.write(JSON.stringify(result.ok
+      // fs.writeSync: a pipe write via process.stdout.write is async and can be
+      // lost when the child exits immediately after — on slow runners the parent
+      // then sees exit 0 with empty stdout and JSON.parse('') throws.
+      fs.writeSync(1, JSON.stringify(result.ok
         ? { ok: true }
         : { ok: false, retryable: result.retryable, message: result.message }) + '\\n');
     `;
@@ -375,10 +378,11 @@ describe('owner-safe scan lease', () => {
         gatePollMs: 2,
       });
       if (!result.ok) {
-        process.stdout.write(JSON.stringify(result) + '\\n');
+        // fs.writeSync: process.exit(0) does not flush async pipe writes.
+        fs.writeSync(1, JSON.stringify(result) + '\\n');
         process.exit(0);
       }
-      process.stdout.write(JSON.stringify({ ok: true, token: result.lease.token }) + '\\n');
+      fs.writeSync(1, JSON.stringify({ ok: true, token: result.lease.token }) + '\\n');
       await new Promise((resolve) => setTimeout(resolve, 250));
       result.lease.release();
     `;
