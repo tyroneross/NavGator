@@ -176,6 +176,53 @@ describe('scan degradation (sandbox capability gating)', () => {
     }
   });
 
+  // CODEX=1 sets BOTH noChildProcess and readOnlyFs (src/sandbox.ts). This is
+  // the shape the whole degradation change targets, but it was previously
+  // untested: `message` only ever named `noChildProcess`, so under CODEX=1 the
+  // human banner / JSON `degraded.message` would list `readOnlyFs` in
+  // `restrictions` without ever explaining it. Asserted structurally (every
+  // restriction name must appear in `message`) rather than against one
+  // hardcoded sentence, so this keeps working when the wording changes.
+  //
+  // NavGator's own `readOnlyFs` flag is advisory: nothing in this codebase
+  // gates a filesystem write on it (see the comment above `detectSandbox()`
+  // call in scanner.ts), so it does not make this test's tmpdir actually
+  // read-only, and `acquireScanLease`'s unguarded `fs.mkdirSync` (a known,
+  // documented gap — see that same comment) does not throw here. That is
+  // consistent with "scan() throws instead of degrading" being a real but
+  // untriggered-in-this-harness limitation, not a claim this test can
+  // exercise without a genuinely read-only filesystem.
+  it('runs a complete degraded scan under CODEX=1 and names every restriction in message', async () => {
+    delete process.env.NAVGATOR_SANDBOX;
+    process.env.CODEX = '1';
+    delete process.env.CI;
+
+    const fixture = llmFixture();
+    try {
+      const result = await scan(fixture.root, {
+        mode: 'full',
+        useAST: true,
+        prompts: true,
+      });
+
+      expect(result.status).toBe('completed');
+      if (result.status !== 'completed') return;
+
+      expect(result.degraded).toBeDefined();
+      expect(result.degraded?.restrictions).toEqual(['noChildProcess', 'readOnlyFs']);
+      expect(result.degraded?.disabled_capabilities).toEqual(['scip']);
+
+      // Structural completeness check: every named restriction must be
+      // mentioned in the human-readable message, not just the first one.
+      const message = result.degraded?.message ?? '';
+      for (const restriction of result.degraded?.restrictions ?? []) {
+        expect(message).toContain(restriction);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
   it('leaves degraded undefined for a normal (non-sandbox) scan', async () => {
     delete process.env.NAVGATOR_SANDBOX;
     delete process.env.CODEX;

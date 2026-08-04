@@ -572,19 +572,55 @@ export async function scan(
   // the code CI needs to exercise.
   //
   // Per-capability rule (do not force `quick`, `prompts: false`, or
-  // `useAST: false` from sandbox detection — that was the prior bug):
+  // `useAST: false` from sandbox detection — that was the prior bug). Scope:
+  // the four bullets below describe the Phase-3 ANALYSIS capabilities only
+  // (src/scanners/, src/parsers/). scan() also does pre-analysis lease
+  // acquisition and post-analysis housekeeping that are NOT restriction-aware
+  // — see the paragraph after the bullets for those two exceptions.
   // - SCIP (`options.scip` / NAVGATOR_SCIP=1) is the only genuine
-  //   child-process dependency: scip-runner.ts shells out via spawnSync.
-  //   Disable it under `noChildProcess`.
+  //   child-process dependency among the analysis capabilities: scip-runner.ts
+  //   shells out via spawnSync. Disable it under `noChildProcess`.
   // - `useAST` (ts-morph) and `prompts` (traceLLMCalls) both run in-process
-  //   and write nothing during analysis. Neither needs a child process nor
-  //   write access, so no restriction here disables them.
+  //   and write nothing during analysis (verified: no spawn*/exec* and no
+  //   write call anywhere under src/scanners/ or src/parsers/ except
+  //   scip-runner.ts). Neither needs a child process nor write access, so no
+  //   restriction here disables them.
   // - `quick` skips ALL of Phase 3 connection detection — a much bigger
   //   hammer than any single restriction justifies. Never force it here.
-  // - `readOnlyFs` is recorded in `restrictions` for visibility, but disables
-  //   nothing: scan() performs no filesystem writes during analysis itself
-  //   (persistence happens in the separate storage.ts write path after scan()
-  //   returns), so there is currently no analysis capability to gate on it.
+  // - `readOnlyFs` is recorded in `restrictions` for visibility. It disables
+  //   no analysis capability, since analysis itself performs no filesystem
+  //   writes (persistence happens in the separate storage.ts write path
+  //   after scan() returns).
+  //
+  // Two spots outside Phase-3 analysis do reach a child process or a real
+  // write, and neither is gated on these restrictions — both are safe under
+  // `noChildProcess` because the spawn call is try/caught with a fallback;
+  // `readOnlyFs` has one known gap, documented rather than fixed here:
+  // - `acquireScanLease` (below, ~line 637) runs BEFORE analysis starts.
+  //   `execFileSync('sysctl'/'ps'/'powershell.exe')` for owner-fingerprinting
+  //   (src/scan-lock.ts:88,112,124) is wrapped in try/catch per call and
+  //   falls back to a best-effort fingerprint on failure, so
+  //   `noChildProcess` degrades it gracefully. `fs.mkdirSync` + the lease-file
+  //   publish (src/scan-lock.ts:445,475) are real writes: the publish itself
+  //   is caught and returned as a structured `ScanLeaseResult` failure, but
+  //   the leading `mkdirSync` is not caught — on a filesystem that is
+  //   actually read-only it throws uncaught, and scan()'s
+  //   `!acquisition.retryable` branch a few lines below also throws rather
+  //   than returning a `degraded` result. This is a real, currently-unfixed
+  //   gap in `readOnlyFs` coverage (NavGator's own `readOnlyFs` flag is
+  //   advisory — nothing in this codebase gates a write on it, so nothing
+  //   here actually enforces a read-only mount, and the gap does not
+  //   reproduce against a normal filesystem). Behavior is unchanged from
+  //   before this comment was corrected; not addressed here to avoid turning
+  //   this change into a lease-subsystem refactor.
+  // - `ensureSafeGitignore` (below, ~line 2268) runs AFTER analysis
+  //   completes. `execFileSync('git', ...)` (src/gitignore-safety.ts:87) is
+  //   try/caught internally and falls back to treating the project as
+  //   outside a git worktree. The `.gitignore` rewrite is a real write, but
+  //   the call site wraps the whole `ensureSafeGitignore` call in a
+  //   non-fatal try/catch — a failure there never fails the scan. The
+  //   orphan-file purge after analysis (scanner.ts ~1852) is a real write
+  //   too, but each unlink is individually swallowed (`.catch(() => {})`).
   const sandbox = detectSandbox();
   let degraded: ScanDegradation | undefined;
   {
@@ -599,11 +635,18 @@ export async function scan(
       restrictions.push('readOnlyFs');
     }
     if (disabledCapabilities.length > 0) {
+      const messageParts: string[] = [
+        'Scan ran without the SCIP overlay because the environment restricts child processes (noChildProcess).',
+      ];
+      if (restrictions.includes('readOnlyFs')) {
+        messageParts.push(
+          'The environment also reports a read-only filesystem (readOnlyFs); no additional capability was disabled for it because Phase-3 analysis performs no filesystem writes.'
+        );
+      }
       degraded = {
         restrictions,
         disabled_capabilities: disabledCapabilities,
-        message:
-          'Scan ran without the SCIP overlay because the environment restricts child processes (noChildProcess).',
+        message: messageParts.join(' '),
       };
     }
   }
