@@ -125,13 +125,12 @@ update_marketplace() {
   local marketplace_root="$1"
   local marketplace_path="$2"
   local source_path="$3"
-  local manifest_path="$4"
 
-  node - "$marketplace_root" "$marketplace_path" "$source_path" "$manifest_path" <<'NODE'
+  node - "$marketplace_root" "$marketplace_path" "$source_path" <<'NODE'
 const fs = require('fs')
 const path = require('path')
 
-const [marketplaceRootInput, marketplacePath, sourcePath, manifestPath] = process.argv.slice(2)
+const [marketplaceRootInput, marketplacePath, sourcePath] = process.argv.slice(2)
 const marketplaceRoot = fs.realpathSync(marketplaceRootInput)
 const relative = path.relative(marketplaceRoot, path.resolve(marketplacePath))
 if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
@@ -153,7 +152,6 @@ function assertNoSymlinkComponents() {
 }
 assertNoSymlinkComponents()
 
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
 let data = {
   name: 'navgator',
   interface: { displayName: 'NavGator Plugins' },
@@ -180,7 +178,10 @@ const entry = {
     authentication: 'ON_INSTALL',
   },
   category: 'Coding',
-  version: manifest.version,
+  // No `version` key: Codex resolves the plugin version itself and ignores
+  // this field for a local source — it reported an empty VERSION column with a
+  // semver written here, then `local` once installed. Writing one would only
+  // create a second place for the version to drift.
 }
 
 const index = data.plugins.findIndex((plugin) => plugin?.name === 'navgator')
@@ -559,15 +560,29 @@ if [ "$WITH_MCP" = "true" ] && [ ! -f "$MCP_TEMPLATE" ]; then
   exit 1
 fi
 
-EXPECTED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version" "$MANIFEST")"
-CACHE_DIR="$CODEX_HOME_ROOT/plugins/cache/navgator/navgator/$EXPECTED_VERSION"
+# CODEX_CACHE_REF names the last path segment of the cache Codex creates at
+# install time. It is NOT a version we choose — the host resolves it, and it is
+# whatever `codex plugin list` reports in its VERSION column. Observed directly
+# against codex 0.130.0: this installer registers a `{"source":"local"}` entry,
+# the manifest omits `version` by policy, and Codex therefore names the cache
+# `.../plugins/cache/navgator/navgator/local` and reports the version as
+# `local`. That is the same rule as the auto-SHA policy itself — absent a
+# manifest version the host substitutes its own reference for the source (a
+# commit SHA for a git source, `local` here).
+#
+# Deriving this segment from ANY version field we control is the defect class
+# that produced `.../navgator/undefined` when the manifest version was removed.
+# package.json's semver is equally wrong: it yields `.../0.9.1`, a directory
+# Codex never creates, which silently breaks every cache operation below.
+CODEX_CACHE_REF="local"
+CACHE_DIR="$CODEX_HOME_ROOT/plugins/cache/navgator/navgator/$CODEX_CACHE_REF"
 assert_safe_tree \
   "$CODEX_HOME_ROOT" \
   "plugins" \
   "plugins/cache" \
   "plugins/cache/navgator" \
   "plugins/cache/navgator/navgator" \
-  "plugins/cache/navgator/navgator/$EXPECTED_VERSION" >/dev/null
+  "plugins/cache/navgator/navgator/$CODEX_CACHE_REF" >/dev/null
 
 # Codex copies the marketplace source into its versioned cache. Keep runtime
 # dependencies inside the plugin root so that cache remains self-contained.
@@ -590,10 +605,25 @@ if [ "$WITH_MCP" = "true" ]; then
 else
   rm -f "$MCP_CONFIG"
   disable_manifest_mcp_servers "$MANIFEST"
-  revoke_cached_mcp_registration "$CACHE_DIR"
+  # Revoke from every cache Codex actually created, not only the one we
+  # predict. The host owns that directory's name, so a single predicted path
+  # silently no-ops against a cache named anything else — and a no-op here
+  # means one --with-mcp opt-in stays registered forever, which is exactly the
+  # invariant the opt-out exists to hold. Discovering beats predicting on a
+  # removal path; it also reaches caches left behind under the old
+  # version-named scheme. Symlinked entries are refused, not followed.
+  for cached_dir in "$CODEX_HOME_ROOT/plugins/cache/navgator/navgator"/*; do
+    [ -e "$cached_dir" ] || continue
+    if [ -L "$cached_dir" ]; then
+      warn "Refusing to touch a symlinked Codex plugin cache: $cached_dir"
+      continue
+    fi
+    [ -d "$cached_dir" ] || continue
+    revoke_cached_mcp_registration "$cached_dir"
+  done
 fi
 
-update_marketplace "$MARKETPLACE_ROOT" "$MARKETPLACE_PATH" "$SOURCE_PATH" "$MANIFEST"
+update_marketplace "$MARKETPLACE_ROOT" "$MARKETPLACE_PATH" "$SOURCE_PATH"
 
 echo ""
 ok "NavGator marketplace entry registered."

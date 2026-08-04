@@ -30,6 +30,11 @@ describe('release contract', () => {
     expect(packageLock.version).toBe(packageJson.version);
     expect(packageLock.packages[''].version).toBe(packageJson.version);
     expect(packageLock.packages[''].engines.node).toBe(packageJson.engines.node);
+    // Marketplace CATALOG metadata, not a plugin version — the host never reads
+    // it for identity, which is why the omit-version policy leaves it in place
+    // (99961eb kept it deliberately). Pin it anyway: an unasserted semver in a
+    // repo whose defect was a stale version string is a silent drift surface.
+    expect(claudeMarketplace.metadata.version).toBe(packageJson.version);
     expect(webPackage.dependencies.next).toBe('16.2.12');
     expect(webPackage.overrides.postcss).toBe('$postcss');
     for (const manifest of [claudeManifest, claudeEntry, codexManifest]) {
@@ -37,9 +42,134 @@ describe('release contract', () => {
         name: 'navgator',
         license: packageJson.license,
       });
-      if (manifest.version !== undefined) {
-        expect(manifest.version).toBe(packageJson.version);
-      }
+    }
+  });
+
+  it('pins no version on any plugin surface — git-sourced auto-SHA identity', () => {
+    // NavGator installs from a git source (the toolkit hub on GitHub). Omitting
+    // `version` makes the host resolve identity to the commit SHA, so every
+    // push ships. A pinned version freezes `/plugin update` for every installed
+    // user until someone remembers to bump it — that is how the fleet drifts.
+    //
+    // This assertion exists because the policy was reverted under CI pressure:
+    // `claude plugin validate --strict` emits "No version specified" as a
+    // WARNING and --strict promotes warnings to errors, so adding a version is
+    // the obvious way to force the host-verify job green. It is the wrong fix.
+    // There is no supported way to satisfy --strict while correctly omitting
+    // version on a git source; the answer is to not use --strict (see
+    // scripts/verify-release.mjs). The previous form of this test asserted
+    // equality "whenever a version is present", which passes either way and so
+    // caught nothing.
+    //
+    // Hermetic by construction: `detect_plugin_distribution.py` is the tool
+    // that ADJUDICATES this policy, but it reads the hub marketplace from
+    // outside this repo and would make the suite depend on an external
+    // checkout that does not exist in CI. So the detector stays the human-run
+    // adjudicator and its CONCLUSION is asserted here:
+    //   python3 ~/dev/git-folder/build-loop/scripts/detect_plugin_distribution.py . \
+    //     --hub ~/dev/git-folder/RossLabs-AI-Toolkit/.claude-plugin/marketplace.json
+    const packageJson = json('package.json');
+    const surfaces: Array<[string, Record<string, unknown>]> = [
+      ['.claude-plugin/plugin.json', json('.claude-plugin/plugin.json')],
+      ['.codex-plugin/plugin.json', json('.codex-plugin/plugin.json')],
+      [
+        '.claude-plugin/marketplace.json plugins[navgator]',
+        json('.claude-plugin/marketplace.json').plugins.find(
+          (plugin: { name?: string }) => plugin.name === 'navgator',
+        ),
+      ],
+    ];
+
+    for (const [label, surface] of surfaces) {
+      expect(surface, `${label} must exist`).toBeDefined();
+      // `in` rather than `!== undefined` so an explicit null also fails.
+      expect(
+        'version' in surface,
+        `${label} must OMIT version — remove the key. package.json is the sole ` +
+          'semver source of truth; plugin surfaces resolve to the git commit SHA.',
+      ).toBe(false);
+    }
+
+    // package.json keeps semver: npm requires it, and it is orthogonal to the
+    // plugin policy. It is the only surface where a version belongs.
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?$/);
+  });
+
+  it('never derives a host cache path from a version', () => {
+    // The version pin was masking this bug: the Codex installer built its host
+    // cache directory from `.codex-plugin/plugin.json`'s version, so with the
+    // version correctly absent the path contained the literal string
+    // `undefined` (.../plugins/cache/navgator/navgator/undefined/).
+    //
+    // package.json is NOT the fix either. Verified against codex 0.130.0: the
+    // host names that directory itself, and for the `{"source":"local"}` entry
+    // the installer registers it uses `local` — `codex plugin list` reports
+    // `local` in its VERSION column. Pointing at `.../0.9.1` is just as wrong
+    // as `.../undefined`; it silently no-ops every cache operation, including
+    // the MCP opt-out revocation. The whole defect class is deriving a
+    // host-owned path segment from a version field we control.
+    const codexInstaller = text('scripts/install-codex-plugin.sh');
+
+    expect(codexInstaller).toContain('CODEX_CACHE_REF="local"');
+    expect(codexInstaller).toContain(
+      'CACHE_DIR="$CODEX_HOME_ROOT/plugins/cache/navgator/navgator/$CODEX_CACHE_REF"',
+    );
+    // No version, from any source, may reach the cache path again.
+    expect(codexInstaller).not.toMatch(/cache\/navgator\/navgator\/\$EXPECTED_VERSION/);
+    expect(codexInstaller).not.toMatch(/\.version" "\$MANIFEST"/);
+    expect(codexInstaller).not.toContain('version: manifest.version');
+    expect(codexInstaller).not.toContain('version: packageJson.version');
+
+    // The installer predicts the cache name and verify-release asserts against
+    // it; if the two ever disagree the release gate passes while the shipped
+    // installer writes somewhere else. Pin them to the same literal.
+    const installerRef = codexInstaller.match(/CODEX_CACHE_REF="([^"]+)"/)?.[1];
+    const verifierRef = text('scripts/verify-release.mjs').match(
+      /const codexCacheRef = '([^']+)'/,
+    )?.[1];
+    expect(installerRef, 'installer declares a cache ref').toBeDefined();
+    expect(verifierRef, 'verify-release declares a cache ref').toBeDefined();
+    expect(verifierRef).toBe(installerRef);
+  });
+
+  it('proves installed runtime identity with the CLI, not the host version string', () => {
+    // Host-reported plugin version is not an identity oracle: with the manifest
+    // omitting one, Claude reports "unknown" for a local-path source and Codex
+    // reports "local". The installed CLI's own --version is what proves the
+    // runtime is the package we built, so both hosts assert on that instead.
+    const claudeInstaller = text('scripts/install-plugin.sh');
+
+    expect(claudeInstaller).toMatch(
+      /EXPECTED_VERSION="\$\(node -p "[^"]*\.version" "\$PACKAGE_JSON"\)"/,
+    );
+    expect(claudeInstaller).not.toMatch(/\.version" "\$MANIFEST"/);
+    // `node -p` prints "undefined" for a missing key, so the value needs a
+    // shape check and not merely an existence check on the file.
+    expect(claudeInstaller).toContain("''|undefined|null|*[!0-9A-Za-z.+-]*)");
+    expect(claudeInstaller).not.toContain('plugin.version !== process.env.EXPECTED_VERSION');
+    expect(claudeInstaller).toContain('"$INSTALLED_CLI_VERSION" != "$EXPECTED_VERSION"');
+
+    // Both hosts carry the same oracle; Codex's lives in the release verifier
+    // because Codex, not this repo, populates that cache.
+    expect(text('scripts/verify-release.mjs')).toContain(
+      "'installed Codex CLI version matches package'",
+    );
+  });
+
+  it('never validates plugins with --strict', () => {
+    // --strict treats the unavoidable "no version specified" warning as an
+    // error, which is unsatisfiable for a git-sourced auto-SHA plugin. The
+    // non-strict validation must survive — it still fails closed on real
+    // structural problems.
+    const verifyRelease = text('scripts/verify-release.mjs');
+
+    // Assert on the parsed call sites rather than a quoted-literal grep: a
+    // double-quoted "--strict", a variable, or a future codex validate call
+    // would all slip past `not.toContain("'--strict'")`.
+    const validateCalls = verifyRelease.match(/\[\s*'plugin',\s*'validate'[^\]]*\]/g) ?? [];
+    expect(validateCalls.length, 'a plugin validate call still runs').toBeGreaterThan(0);
+    for (const call of validateCalls) {
+      expect(call, 'plugin validate must not use --strict').not.toMatch(/strict/i);
     }
   });
 
@@ -249,7 +379,9 @@ describe('release contract', () => {
     expect(installer).toContain('npm install');
     expect(installer).toContain('navgator-runtime/node_modules/@tyroneross/navgator');
     expect(installer).toContain("path.join(packageDir, 'dist', 'mcp', 'server.js')");
-    expect(installer).toContain('plugins/cache/navgator/navgator/$EXPECTED_VERSION');
+    // The cache segment is the host's reference for the source, not a version
+    // we pick — see 'never derives a host cache path from a version'.
+    expect(installer).toContain('plugins/cache/navgator/navgator/$CODEX_CACHE_REF');
     expect(installer).toContain('--prefix "$PACKAGE_DIR"');
     expect(installer).toContain("fs.openSync(candidate, 'wx', 0o600)");
     expect(installer).toContain('delete server.cwd');

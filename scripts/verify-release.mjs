@@ -124,17 +124,37 @@ async function verifyIdentity(packageDir, packageJson) {
   const claudeEntry = claudeMarketplace.plugins.find((plugin) => plugin.name === 'navgator')
 
   assert.ok(claudeEntry, 'Claude marketplace must contain navgator')
+
+  // package.json is the sole semver source of truth (99961eb); every plugin
+  // surface above derives its identity from the git commit instead, so this
+  // is the only place a real semver is required to exist.
+  assert.match(
+    packageJson.version ?? '',
+    /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?$/,
+    'package.json version must be present and valid semver',
+  )
+
   for (const [label, manifest] of [
     ['Claude manifest', claudeManifest],
     ['Claude marketplace entry', claudeEntry],
     ['Codex manifest', codexManifest],
   ]) {
     assert.equal(manifest.name, 'navgator', `${label} name`)
-    // Plugin manifests intentionally omit version (auto-SHA identity, 99961eb);
-    // assert equality only when a version is present, mirroring the manifest test.
-    if (manifest.version !== undefined) {
-      assert.equal(manifest.version, packageJson.version, `${label} version`)
-    }
+    // Plugin manifests must OMIT version by policy (99961eb): NavGator is a
+    // git-sourced plugin, and the host resolves identity from the commit SHA
+    // so every push ships. Asserting equality only when present is the
+    // permissive form that let a re-pin slip through undetected; the real
+    // invariant is that the key is always absent. If this fails, remove
+    // `version` from the manifest — package.json is the sole semver source of
+    // truth, and detect_plugin_distribution.py is the tool that adjudicates
+    // which surfaces may carry one.
+    assert.equal(
+      manifest.version,
+      undefined,
+      `${label} must omit version (git-sourced auto-SHA identity, 99961eb); ` +
+        'remove the key — package.json is the sole semver source of truth ' +
+        '(see detect_plugin_distribution.py)',
+    )
     assert.equal(manifest.license, packageJson.license, `${label} license`)
   }
 
@@ -1015,7 +1035,12 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
   const installer = path.join(packageDir, 'scripts', 'install-plugin.sh')
   const options = { cwd: packageDir, env, timeout: 180_000 }
 
-  run('claude', ['plugin', 'validate', packageDir, '--strict'], options)
+  // No --strict here: NavGator is a git-sourced auto-SHA plugin whose
+  // manifest deliberately omits `version` (99961eb), and --strict promotes
+  // the CLI's resulting "no version specified" warning to a hard error, so
+  // strict mode is unsatisfiable here by construction. Non-strict validation
+  // still runs and still fails closed on real structural problems.
+  run('claude', ['plugin', 'validate', packageDir], options)
   run('bash', [installer, '--global'], options)
   run('bash', [installer, '--global'], options)
 
@@ -1025,7 +1050,11 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
   )
   assert.equal(matches.length, 1, 'Claude installer is idempotent')
   const plugin = matches[0]
-  assert.equal(plugin.version, expectedVersion, 'Claude installed version matches package')
+  // No equality assertion against `plugin.version` here: the manifest
+  // deliberately omits version (99961eb), so Claude resolves it itself —
+  // `"unknown"` for a local-path source (this probe), the commit SHA for a
+  // git source. That host-resolved string is not NavGator's identity oracle;
+  // `installedCliVersion` below is.
   assert.equal(plugin.enabled, true, 'Claude marks navgator enabled')
   assert.ok(plugin.installPath, 'Claude reports an install path')
   await access(path.join(plugin.installPath, 'node_modules', 'glob', 'package.json'))
@@ -1040,7 +1069,12 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
 
   // Version identity of the installed runtime used to come from the MCP
   // handshake. The CLI is the surface that now ships by default, so it carries
-  // the same property.
+  // the same property. Because the manifest omits version and the host's own
+  // `plugin.version` report is therefore just "unknown" for this local-path
+  // install, this is now the SOLE runtime-identity oracle for the Claude
+  // lifecycle: it proves the installed package tree is actually running
+  // NavGator's code at the expected package.json version, independent of
+  // whatever string the host chooses to report.
   const installedCliVersion = run(
     'node',
     [path.join(plugin.installPath, 'dist', 'cli', 'index.js'), '--version'],
@@ -1148,13 +1182,23 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   const userCodexHome = path.join(userHome, '.codex')
   const workspaceHome = path.join(tempRoot, 'codex-workspace-home')
   const workspaceCodexHome = path.join(workspaceHome, '.codex')
+  // The last cache segment is the host's reference for the source, NOT a
+  // version we choose. Codex 0.130.0 names it `local` for the
+  // `{"source":"local"}` entry the installer registers, and reports `local` in
+  // `codex plugin list`'s VERSION column — the same rule as the auto-SHA
+  // policy (absent a manifest version, the host substitutes its own reference:
+  // a commit SHA for a git source, `local` here). Using package.json's semver
+  // instead points every assertion below at `.../0.9.1`, a directory Codex
+  // never creates. Keep this in step with CODEX_CACHE_REF in
+  // scripts/install-codex-plugin.sh.
+  const codexCacheRef = 'local'
   const userCacheDir = path.join(
     userCodexHome,
     'plugins',
     'cache',
     'navgator',
     'navgator',
-    expectedVersion,
+    codexCacheRef,
   )
   const workspaceCacheDir = path.join(
     workspaceCodexHome,
@@ -1162,7 +1206,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     'cache',
     'navgator',
     'navgator',
-    expectedVersion,
+    codexCacheRef,
   )
   await mkdir(workspace, { recursive: true })
   await mkdir(userCodexHome, { recursive: true })
@@ -1286,6 +1330,20 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
 
   await access(path.join(userCacheDir, '.codex-plugin', 'plugin.json'))
   await assertNoDefaultMcp(userCacheDir, 'Codex installed default user cache')
+
+  // Runtime-identity oracle, mirroring the Claude lifecycle. The host's own
+  // version string is `local` here and cannot prove which build landed, so the
+  // installed CLI reporting package.json's semver is what ties the cache to the
+  // package we built. Without it the Codex half has no identity check at all.
+  assert.equal(
+    run('node', [path.join(userCacheDir, 'dist', 'cli', 'index.js'), '--version'], {
+      cwd: userCacheDir,
+      env: userEnv,
+      timeout: 60_000,
+    }),
+    expectedVersion,
+    'installed Codex CLI version matches package',
+  )
 
   // The load-bearing property, carried over from the MCP `status` probe: the
   // installed runtime executes FROM THE CACHE while analyzing the ACTIVE TASK

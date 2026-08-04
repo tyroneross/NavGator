@@ -1,6 +1,5 @@
 {
   "name": "navgator",
-  "version": "0.9.1",
   "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
   "author": {
     "name": "Tyrone Ross"

@@ -271,8 +271,13 @@ assert_safe_tree \
 
 PACKAGE_DIR="$RUNTIME_ROOT/node_modules/@tyroneross/navgator"
 MANIFEST="$PACKAGE_DIR/.claude-plugin/plugin.json"
+PACKAGE_JSON="$PACKAGE_DIR/package.json"
 if [ ! -f "$MANIFEST" ]; then
   err "Claude manifest not found after package materialization: $MANIFEST"
+  exit 1
+fi
+if [ ! -f "$PACKAGE_JSON" ]; then
+  err "package.json not found after package materialization: $PACKAGE_JSON"
   exit 1
 fi
 
@@ -285,7 +290,19 @@ npm install \
   --no-audit \
   --no-fund
 
-EXPECTED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version" "$MANIFEST")"
+# The manifest omits version by policy (see .claude-plugin/plugin.json), so the
+# only semver source of truth is package.json.
+EXPECTED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version" "$PACKAGE_JSON")"
+# `node -p` prints the literal string "undefined" for a missing key, so an
+# existence check on the file is not a check on the value. Validate the shape
+# and fail closed with the real reason rather than surfacing "undefined" from a
+# downstream comparison.
+case "$EXPECTED_VERSION" in
+  ''|undefined|null|*[!0-9A-Za-z.+-]*)
+    err "package.json has no usable version: '$EXPECTED_VERSION'"
+    exit 1
+    ;;
+esac
 
 # MCP is off by default. Claude copies whatever .mcp.json it finds in the
 # marketplace source into its plugin cache, so the default path removes any
@@ -326,11 +343,16 @@ if [ "$(plugin_state)" = "disabled" ]; then
   claude plugin enable "$PLUGIN_ID" --scope "$CLAUDE_SCOPE"
 fi
 
+# No version equality check here: the manifest omits `version` by policy, so
+# the host resolves plugin identity itself — "unknown" for this local-path
+# source, or the git commit SHA for a git source — and that string is never
+# NavGator's identity oracle. Installed/enabled/installPath are what the host
+# actually owns; the real "is this the package we built" proof runs the
+# installed CLI's --version output against package.json below.
 INSTALL_PATH="$(
   claude plugin list --json | \
   PLUGIN_ID="$PLUGIN_ID" \
   PLUGIN_SCOPE="$CLAUDE_SCOPE" \
-  EXPECTED_VERSION="$EXPECTED_VERSION" \
   node -e '
 let input = ""
 process.stdin.setEncoding("utf8")
@@ -340,9 +362,6 @@ process.stdin.on("end", () => {
   const plugin = plugins.find((item) => item.id === process.env.PLUGIN_ID && item.scope === process.env.PLUGIN_SCOPE)
   if (!plugin) throw new Error(`${process.env.PLUGIN_ID} is not installed at ${process.env.PLUGIN_SCOPE} scope`)
   if (!plugin.enabled) throw new Error(`${process.env.PLUGIN_ID} is installed but disabled`)
-  if (plugin.version !== process.env.EXPECTED_VERSION) {
-    throw new Error(`installed version ${plugin.version} does not match ${process.env.EXPECTED_VERSION}`)
-  }
   process.stdout.write(plugin.installPath)
 })
 '
@@ -353,9 +372,17 @@ if [ ! -f "$INSTALL_PATH/node_modules/glob/package.json" ]; then
   exit 1
 fi
 # The CLI entrypoint imports every command module, so a successful --version
-# run force-loads the same dependency tree the MCP server used to prove.
-if ! node "$INSTALL_PATH/dist/cli/index.js" --version >/dev/null 2>&1; then
+# run force-loads the same dependency tree the MCP server used to prove. It
+# also prints package.json's version (Commander's .version(), sourced via
+# src/version.ts), so comparing it to EXPECTED_VERSION is the real "the
+# installed runtime is the package we built" proof — independent of the
+# host's own version resolution, which we no longer trust for identity.
+INSTALLED_CLI_VERSION="$(node "$INSTALL_PATH/dist/cli/index.js" --version 2>/dev/null)" || {
   err "Installed NavGator CLI failed its dependency-complete startup check."
+  exit 1
+}
+if [ "$INSTALLED_CLI_VERSION" != "$EXPECTED_VERSION" ]; then
+  err "Installed NavGator CLI reports version $INSTALLED_CLI_VERSION, expected $EXPECTED_VERSION."
   exit 1
 fi
 if [ "$WITH_MCP" = "true" ]; then

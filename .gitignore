@@ -32,6 +32,11 @@ npm-debug.log*
 /coverage/
 /web/coverage/
 
+# npm pack output. `npm pack` and the release verifier both drop a tarball
+# named for the CURRENT version, so an unignored one is a stale build artifact
+# waiting to be committed by a wildcard `git add`.
+*.tgz
+
 # Environment
 .env
 .env.local
