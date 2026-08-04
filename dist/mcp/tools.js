@@ -12,8 +12,9 @@ import { traceDataflow, formatTraceOutput } from "../trace.js";
 import { generateComponentDiagram, generateLayerDiagram, generateSummaryDiagram, } from "../diagram.js";
 import { buildExecutiveSummary } from "../agent-output.js";
 import { checkRules } from "../rules.js";
-import { deduplicateLLMUseCases } from "../llm-dedup.js";
-import { getConfig, getPromptsPath } from "../config.js";
+import { getConfig } from "../config.js";
+import { buildExploreReport, formatExploreReport } from "../explore-report.js";
+import { buildReviewReport, formatReviewReport } from "../review-report.js";
 import { getGitInfo } from "../git.js";
 import { listProjects } from "../projects.js";
 import { scanPortfolio, assertLocalStorageMode } from "../portfolio/scan.js";
@@ -639,159 +640,22 @@ async function handleSummary() {
 }
 async function handleReview(args) {
     const projectRoot = getProjectRoot();
-    const config = getConfig();
-    const components = await loadAllComponents(config, projectRoot);
-    const connections = await loadAllConnections(config, projectRoot);
-    if (components.length === 0) {
-        return errorResponse("No architecture data. Run the scan tool first.");
-    }
-    const lines = ["ARCHITECTURE REVIEW"];
-    // 1. Rules check — grouped by severity, capped at 5 per group
-    const violations = checkRules(components, connections);
-    if (violations.length > 0) {
-        lines.push(`\nRule violations (${violations.length}):`);
-        const bySev = {};
-        for (const v of violations) {
-            if (!bySev[v.severity])
-                bySev[v.severity] = [];
-            bySev[v.severity].push(v);
-        }
-        for (const sev of ["error", "warning", "info"]) {
-            const group = bySev[sev];
-            if (!group || group.length === 0)
-                continue;
-            lines.push(`\n${sev.toUpperCase()} (${group.length}):`);
-            for (const v of group.slice(0, 5)) {
-                lines.push(`[${v.severity.toUpperCase()}] ${v.message}`);
-                if (v.suggestion)
-                    lines.push(`  -> ${v.suggestion}`);
-            }
-            if (group.length > 5) {
-                lines.push(`  ... and ${group.length - 5} more ${sev} violations`);
-            }
-        }
-    }
-    else {
-        lines.push("\nRules: all passed");
-    }
-    // 2. Focused impact (if component specified)
     const focusQuery = args.component;
-    if (focusQuery) {
-        const component = resolveComponent(focusQuery, components);
-        if (component) {
-            const impact = computeImpact(component, components, connections);
-            lines.push(`\nImpact for ${component.name}: ${impact.severity.toUpperCase()}`);
-            lines.push(impact.summary);
-            if (impact.affected.length > 0) {
-                lines.push(`Affected: ${impact.affected.slice(0, 5).map(a => a.component.name).join(", ")}${impact.affected.length > 5 ? ` +${impact.affected.length - 5} more` : ""}`);
-            }
-        }
+    const report = await buildReviewReport({ projectRoot, component: focusQuery });
+    if ("error" in report) {
+        return errorResponse(report.error);
     }
-    // 3. Runtime topology summary
-    const withRuntime = components.filter(c => c.runtime?.resource_type);
-    if (withRuntime.length > 0) {
-        const rtGroups = {};
-        for (const c of withRuntime) {
-            const rt = c.runtime.resource_type;
-            rtGroups[rt] = (rtGroups[rt] || 0) + 1;
-        }
-        const rtSummary = Object.entries(rtGroups).map(([t, n]) => `${t}: ${n}`).join(", ");
-        lines.push(`\nRuntime topology: ${rtSummary}`);
-    }
-    // 4. LLM use case summary
-    try {
-        let prompts;
-        try {
-            const promptsPath = getPromptsPath(config, projectRoot);
-            const raw = await fs.promises.readFile(promptsPath, "utf-8");
-            prompts = JSON.parse(raw)?.prompts;
-        }
-        catch { /* no prompts */ }
-        const dedup = deduplicateLLMUseCases(components, connections, prompts);
-        if (dedup.useCases.length > 0) {
-            lines.push(`\nAI/LLM: ${dedup.useCases.length} use cases across ${dedup.providers.length} providers`);
-        }
-    }
-    catch { /* dedup not available */ }
-    return textResponse(lines.join("\n"));
+    return textResponse(formatReviewReport(report));
 }
 async function handleExplore(args) {
     const query = String(args.component);
     const depth = typeof args.depth === "number" ? args.depth : 2;
     const projectRoot = getProjectRoot();
-    const config = getConfig();
-    const components = await loadAllComponents(config, projectRoot);
-    const connections = await loadAllConnections(config, projectRoot);
-    if (components.length === 0) {
-        return errorResponse("No architecture data. Run the scan tool first.");
+    const report = await buildExploreReport(query, { projectRoot, depth });
+    if ("error" in report) {
+        return errorResponse(report.error);
     }
-    const component = resolveComponent(query, components);
-    if (!component) {
-        const candidates = findCandidates(query, components, 5);
-        if (candidates.length > 0) {
-            return errorResponse(`Component "${query}" not found. Did you mean:\n${candidates.map(c => `- ${c}`).join("\n")}`);
-        }
-        return errorResponse(`Component "${query}" not found.`);
-    }
-    const lines = [
-        `COMPONENT: ${component.name}`,
-        `Type: ${component.type} | Layer: ${component.role.layer} | Status: ${component.status}`,
-        `Purpose: ${component.role.purpose}`,
-    ];
-    // Runtime identity
-    if (component.runtime) {
-        const r = component.runtime;
-        const parts = [];
-        if (r.engine)
-            parts.push(`engine: ${r.engine}`);
-        if (r.service_name)
-            parts.push(`service: ${r.service_name}`);
-        if (r.platform)
-            parts.push(`platform: ${r.platform}`);
-        if (r.endpoint?.host)
-            parts.push(`host: ${r.endpoint.host}${r.endpoint.port ? `:${r.endpoint.port}` : ""}`);
-        if (r.connection_env_var)
-            parts.push(`env: ${r.connection_env_var}`);
-        if (parts.length > 0) {
-            lines.push(`Runtime: ${parts.join(", ")}`);
-        }
-    }
-    // Impact
-    const impact = computeImpact(component, components, connections);
-    lines.push(`\nImpact severity: ${impact.severity.toUpperCase()} (${impact.total_files_affected} files)`);
-    // Connections
-    const outgoing = connections.filter(c => c.from.component_id === component.component_id);
-    const incoming = connections.filter(c => c.to.component_id === component.component_id);
-    if (outgoing.length > 0) {
-        lines.push(`\nDepends on (${outgoing.length}):`);
-        for (const c of outgoing.slice(0, 10)) {
-            const target = components.find(comp => comp.component_id === c.to.component_id);
-            lines.push(`  → ${target?.name || c.to.component_id} (${c.connection_type})`);
-        }
-        if (outgoing.length > 10)
-            lines.push(`  ... +${outgoing.length - 10} more`);
-    }
-    if (incoming.length > 0) {
-        lines.push(`\nDepended on by (${incoming.length}):`);
-        for (const c of incoming.slice(0, 10)) {
-            const source = components.find(comp => comp.component_id === c.from.component_id);
-            lines.push(`  ← ${source?.name || c.from.component_id} (${c.connection_type})`);
-        }
-        if (incoming.length > 10)
-            lines.push(`  ... +${incoming.length - 10} more`);
-    }
-    // Trace
-    const trace = traceDataflow(component, components, connections, { direction: "both", maxDepth: depth });
-    if (trace.paths.length > 0) {
-        lines.push(`\nData flow paths (${trace.paths.length}, layers: ${trace.layers_crossed.join(" → ")}):`);
-        for (const p of trace.paths.slice(0, 5)) {
-            const chain = p.steps.map(s => s.component.n).join(" → ");
-            lines.push(`  ${chain}`);
-        }
-        if (trace.paths.length > 5)
-            lines.push(`  ... +${trace.paths.length - 5} more paths`);
-    }
-    return textResponse(lines.join("\n"));
+    return textResponse(formatExploreReport(report));
 }
 async function handleRules() {
     const projectRoot = getProjectRoot();

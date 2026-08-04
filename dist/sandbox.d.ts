@@ -17,9 +17,14 @@ export interface SandboxConfig {
  *
  * Detection order:
  * 1. NAVGATOR_SANDBOX=1 env var — explicit opt-in
- * 2. CODEX=1 or OPENAI_API_KEY + no TTY — Codex environment
+ * 2. CODEX=1 — Codex environment
  * 3. CI=true — CI environment (partial sandbox)
  * 4. No TTY — restricted environment
+ *
+ * An API key in the environment is never a sandbox signal: having one set
+ * says nothing about whether a shell or child process is available, and many
+ * developers export it for unrelated tools — it was too broad a heuristic to
+ * trigger sandbox detection.
  */
 export declare function detectSandbox(): SandboxConfig;
 /**

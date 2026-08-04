@@ -379,6 +379,18 @@ export interface ArchitectureScanStats {
     prompts_found?: number;
 }
 /**
+ * Records that a scan ran with reduced analysis because the environment
+ * restricted a capability the scan needs. Absent means the scan was complete.
+ */
+export interface ScanDegradation {
+    /** Sandbox restrictions that were active, e.g. ['noChildProcess']. */
+    restrictions: string[];
+    /** Capabilities switched off as a result, e.g. ['scip']. */
+    disabled_capabilities: string[];
+    /** One-sentence human explanation naming both. */
+    message: string;
+}
+/**
  * Fields preserved across every top-level scan outcome, including contention.
  * Optional report types stay generic so this shared module does not depend on
  * scanner implementations that already consume `types.ts`.
@@ -394,6 +406,7 @@ export interface ArchitectureScanPayload<TPromptScan = unknown, TFieldUsageRepor
     timelineEntry?: TimelineEntry;
     gitInfo?: GitInfo;
     stats: ArchitectureScanStats;
+    degraded?: ScanDegradation;
 }
 /**
  * Discriminated result for a full, incremental, or no-op architecture scan.
