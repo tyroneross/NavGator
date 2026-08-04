@@ -17,12 +17,11 @@ import { buildExploreReport, formatExploreReport } from "../explore-report.js";
 import { buildReviewReport, formatReviewReport } from "../review-report.js";
 import { getGitInfo } from "../git.js";
 import { listProjects } from "../projects.js";
-import { scanPortfolio, assertLocalStorageMode } from "../portfolio/scan.js";
+import { scanPortfolio, assertLocalStorageMode, excludeRemoteOriginProjects, formatRemoteExclusionNote, } from "../portfolio/scan.js";
 import { buildCrossRepoMap } from "../portfolio/cross-repo.js";
 import { writeSnapshotForCurrentRef } from "../git-aware/canonical.js";
 import { premergeDiff } from "../git-aware/premerge-diff.js";
 import { defaultCacheRoot } from "../remote/clone.js";
-import * as fs from "fs";
 import * as path from "path";
 /** Always present, in every output mode, per the plan's heuristic-labeling requirement. */
 const SERVICE_CALL_DISCLAIMER = "serviceCalls are heuristic/inferred (host-match or service-name-match) — not a verified call graph.";
@@ -707,38 +706,12 @@ async function handlePortfolio(args) {
         // does nothing here: `scan-remote` REGISTERS the clone, so a remote repo's
         // fabricated component names, descriptions, and prompt strings would flow
         // into this fan-out — an agent-reachable surface — with no marking at all.
-        // Skip remote-origin projects on this path. Their content is attacker-authored
-        // by construction, and a portfolio map is not the place to surface it.
-        // Exclude by PATH as well as by flag. The `origin` marker alone fails open:
-        // scanRemote calls scan() first, and scan() registers the project via
-        // registerProject with no origin field (src/scanner.ts) — origin is patched in
-        // afterwards by recordRemoteOrigin, whose body swallows every error. Any
-        // interruption in that window, a dashboard-initiated add, or a plain
-        // `navgator scan` run inside a clone directory all leave a remote clone
-        // registered UNMARKED. Measured: such an entry was included in this map.
-        // The cache root is the durable signal, and the `dir` branch below already
-        // treats it as one.
+        // `excludeRemoteOriginProjects` (src/portfolio/scan.ts) is the single
+        // implementation of that exclusion, shared with the CLI's identical no-dir
+        // fan-out (src/cli/commands/portfolio.ts) so the two cannot drift. See its
+        // doc comment for why the check is by PATH as well as by flag.
         const projects = await listProjects();
-        // realpath both sides so a registry entry recorded through a symlinked or
-        // case-variant path cannot evade the prefix check; fall back to resolve for
-        // paths that no longer exist on disk.
-        const realpathOrResolve = (p) => {
-            try {
-                return fs.realpathSync(p);
-            }
-            catch {
-                return path.resolve(p);
-            }
-        };
-        const cacheRoot = realpathOrResolve(defaultCacheRoot());
-        const isRemote = (p) => {
-            if (p.origin?.kind === 'remote')
-                return true;
-            const resolved = realpathOrResolve(p.path);
-            return resolved === cacheRoot || resolved.startsWith(cacheRoot + path.sep);
-        };
-        const localProjects = projects.filter((p) => !isRemote(p));
-        const skippedRemote = projects.length - localProjects.length;
+        const { local: localProjects, skippedRemote } = excludeRemoteOriginProjects(projects);
         const inputs = [];
         for (const p of localProjects) {
             const components = await loadAllComponents(config, p.path);
@@ -746,12 +719,8 @@ async function handlePortfolio(args) {
             inputs.push({ repo: p.path, components, connections, lastScan: p.lastScan });
         }
         const map = buildCrossRepoMap(inputs);
-        const note = skippedRemote > 0
-            ? `\n\nNote: skipped ${skippedRemote} project(s) registered from a remote clone. ` +
-                'Their scanned content originates from an untrusted repository and is excluded ' +
-                'from the portfolio map. Inspect them with the CLI if that is intended.'
-            : '';
-        return textResponse(formatPortfolioMap(map) + note);
+        const exclusionNote = formatRemoteExclusionNote(skippedRemote);
+        return textResponse(formatPortfolioMap(map) + (exclusionNote ? `\n\n${exclusionNote}` : ''));
     }
     // SEC-004: 'dir' was previously a free-form path handed straight to
     // path.resolve() -> scanPortfolio(), which both reads from an arbitrary

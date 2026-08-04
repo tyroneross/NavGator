@@ -29,6 +29,53 @@ import type { PortfolioScanOptions, PortfolioScanResult } from './types.js';
 export declare function assertLocalStorageMode(config: {
     storageMode: string;
 }): void;
+/** A registry entry, narrowed to only what the remote-origin check reads. */
+export interface RemoteFilterable {
+    path: string;
+    origin?: {
+        kind?: string;
+    };
+}
+/** Result of `excludeRemoteOriginProjects` — kept projects plus the skip count. */
+export interface RemoteExclusionResult<T extends RemoteFilterable> {
+    /** Projects safe to fan out over. */
+    local: T[];
+    /** How many registered projects were excluded as remote clones. */
+    skippedRemote: number;
+}
+/**
+ * Drop projects whose content came from a `scan-remote` clone, and report how
+ * many were dropped.
+ *
+ * The `dir` branch of both portfolio entrypoints refuses the remote-scan cache
+ * root, but that guard does nothing on the no-`dir` fan-out: `scan-remote`
+ * REGISTERS the clone, so a remote repo's attacker-authored component names,
+ * descriptions, and prompt strings would flow into the cross-repo map — an
+ * agent-reachable surface (`navgator portfolio --agent`, the MCP `portfolio`
+ * tool) — with no marking at all.
+ *
+ * Excludes by PATH as well as by flag, deliberately. The `origin` marker alone
+ * fails open: scanRemote calls scan() first, and scan() registers the project
+ * via registerProject with no origin field (src/scanner.ts) — origin is patched
+ * in afterwards by recordRemoteOrigin, whose body swallows every error. Any
+ * interruption in that window, a dashboard-initiated add, or a plain
+ * `navgator scan` run inside a clone directory all leave a remote clone
+ * registered UNMARKED. Measured: such an entry was included in this map. The
+ * cache root is the durable signal, and the `dir` branch already treats it as
+ * one. Do not "simplify" this to the flag check alone.
+ *
+ * Callers get the count back rather than a pre-formatted string because
+ * silently dropping registered projects is its own trust problem — every
+ * surface must show the skip. `formatRemoteExclusionNote` supplies the shared
+ * wording.
+ */
+export declare function excludeRemoteOriginProjects<T extends RemoteFilterable>(projects: readonly T[]): RemoteExclusionResult<T>;
+/**
+ * The one wording for "we dropped N projects and here's why", shared by every
+ * portfolio surface. Returns null when nothing was skipped so callers can omit
+ * the field/line entirely rather than print an empty note.
+ */
+export declare function formatRemoteExclusionNote(skippedRemote: number): string | null;
 /**
  * Scan every discovered repo under `dir`.
  *
