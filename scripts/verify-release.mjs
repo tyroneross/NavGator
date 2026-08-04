@@ -858,6 +858,7 @@ async function assertInstallerSymlinkRejected({
   linkPath,
   victimPath,
   victimKind = 'directory',
+  timeout,
 }) {
   await mkdir(path.dirname(linkPath), { recursive: true })
   let markerPath
@@ -872,7 +873,9 @@ async function assertInstallerSymlinkRejected({
   const before = await readFile(markerPath, 'utf8')
   await symlink(victimPath, linkPath, victimKind === 'file' ? 'file' : 'dir')
 
-  const output = runExpectFailure('bash', [installer, ...args], { cwd, env })
+  // Guards that fire before materialization return in milliseconds; the opt-in
+  // MCP guards fire after two npm installs, so those callers pass a timeout.
+  const output = runExpectFailure('bash', [installer, ...args], { cwd, env, timeout })
   assert.match(output, /Refusing symlinked destination component|Destination root must be a real directory/, `${label} rejects the symlink`)
   assert.equal(await readFile(markerPath, 'utf8'), before, `${label} leaves victim content unchanged`)
 }
@@ -1044,6 +1047,31 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
     { cwd: plugin.installPath, env, timeout: 60_000 },
   )
   assert.equal(installedCliVersion, expectedVersion, 'installed Claude CLI version matches package')
+
+  // Opt-in write path. `.mcp.json` is a LEAF the package-dir component
+  // assertions never covered, and `cp` follows a destination symlink, so the
+  // refusal has to happen before the write. The default installs above removed
+  // any `.mcp.json`, which leaves the destination free to plant.
+  const claudePackageDir = path.join(
+    claudeConfig,
+    'navgator-runtime',
+    'node_modules',
+    '@tyroneross',
+    'navgator',
+  )
+  const claudeMcpLink = path.join(claudePackageDir, '.mcp.json')
+  await assertInstallerSymlinkRejected({
+    label: 'Claude opt-in MCP config guard',
+    installer,
+    args: ['--global', '--with-mcp'],
+    cwd: packageDir,
+    env,
+    linkPath: claudeMcpLink,
+    victimPath: path.join(tempRoot, 'victim-claude-mcp.json'),
+    victimKind: 'file',
+    timeout: 300_000,
+  })
+  await rm(claudeMcpLink, { force: true })
 }
 
 class AppServerClient {
@@ -1416,6 +1444,27 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   assert.match(workspaceCacheStatus, /Components: 4242/, 'installed workspace cache MCP reads the task workspace')
   assert.match(workspaceCacheStatus, /Connections: 17/, 'installed workspace cache MCP keeps package and task roots separate')
 
+  // Opt-in write path, run against the live --with-mcp tree: the MCP config
+  // LEAF must be refused before materialization, not by a guard downstream of
+  // the write. `npm install --install-links` of an already-materialized same
+  // version prunes nothing, so the planted symlink survives into the write
+  // step, and the run fails before `update_marketplace` — leaving the cache
+  // probes below untouched.
+  const codexMcpLink = path.join(workspacePackageDir, '.codex-plugin', 'mcp.json')
+  await rm(codexMcpLink, { force: true })
+  await assertInstallerSymlinkRejected({
+    label: 'Codex opt-in MCP config guard',
+    installer,
+    args: ['--workspace', '--with-mcp'],
+    cwd: workspace,
+    env: workspaceEnv,
+    linkPath: codexMcpLink,
+    victimPath: path.join(tempRoot, 'victim-codex-mcp.json'),
+    victimKind: 'file',
+    timeout: 300_000,
+  })
+  await rm(codexMcpLink, { force: true })
+
   await writeFile(
     path.join(workspacePackageDir, 'dist', 'mcp', 'server.js'),
     'throw new Error("mutable source runtime must not execute")\n',
@@ -1445,6 +1494,33 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     realpathSync(workspaceCacheWorkspace),
     'installed workspace cache scans the active task workspace',
   )
+
+  // Closure for the one-way-door defect: opting in must be reversible. A third
+  // run WITHOUT the flag has to undo both writes --with-mcp made. Reinstalling
+  // the same version restores no mutated manifest and prunes no extraneous
+  // file, and the versioned cache above still carries the registration Codex
+  // installed from the opt-in source — so only the installer's default branch
+  // can revoke it. The cache assertion is the one that fails on the unfixed
+  // installer, which did nothing at all without the flag.
+  run('bash', [installer, '--workspace'], { ...workspaceInstallOptions, timeout: 300_000 })
+  await assertNoDefaultMcp(workspacePackageDir, 'Codex workspace registration after opt-out')
+  await assertNoDefaultMcp(workspaceCacheDir, 'Codex installed workspace cache after opt-out')
+
+  const optOutClient = new AppServerClient('codex', workspaceEnv)
+  try {
+    await optOutClient.request('initialize', {
+      clientInfo: { name: 'navgator-release-verifier-workspace-opt-out', version: '1.0.0' },
+      capabilities: { experimentalApi: true },
+    })
+    const read = await optOutClient.request('plugin/read', {
+      pluginName: 'navgator',
+      marketplacePath: workspaceMarketplacePath,
+    })
+    assert.deepEqual(read.plugin.mcpServers, [], 'Codex opt-out re-run deregisters the MCP server')
+    assert.equal(read.plugin.skills.length, 6, 'Codex opt-out re-run keeps the six skills')
+  } finally {
+    optOutClient.close()
+  }
 }
 
 async function main() {

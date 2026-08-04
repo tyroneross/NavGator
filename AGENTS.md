@@ -164,7 +164,35 @@ local marketplace path. By default no MCP server is registered; pass
 deterministic versioned cache with no fixed `cwd`, so installed code is
 cache-owned while scan scope follows the active task workspace. The script
 registers the path; the user must still install/enable `navgator` in the Codex
-plugin browser and start a new task.
+plugin browser and start a new task. Passing `--with-mcp` and then re-running
+without it fully reverts the registration: the default branch removes
+`.codex-plugin/mcp.json`, deletes the manifest's `mcpServers` key, and strips the
+same two artifacts from Codex's versioned cache. Reinstallation alone reverts
+neither — `npm install --install-links` of an already-materialized same version
+prunes no extraneous file and restores no mutated manifest — so opt-in without
+that branch would be a one-way door.
+
+#### Resolving the navgator binary on Codex
+
+Codex loads `skills/` and nothing else. The manifest declares no binary, the host
+exports no PATH entry, and nothing sets `NAVGATOR_HOME`. Binary resolution is
+therefore prose in the skills (`navgator` on PATH → `npx --no-install navgator` →
+`node "$NAVGATOR_HOME/dist/cli/index.js"`), and only the first two rungs can
+resolve on this host: rung 3's `NAVGATOR_HOME` is defined structurally only for
+Claude, which exports `${CLAUDE_PLUGIN_ROOT}`. Neither installer puts `navgator`
+on PATH — `npm install --prefix` leaves the shim at
+`<runtime-root>/node_modules/.bin/navgator`, which no host reads.
+
+A Codex user who never ran `npm i -g @tyroneross/navgator` therefore has every
+rung fail and the whole NavGator surface degrade to "tell the user to install
+it". `scripts/install-codex-plugin.sh` checks `command -v navgator` after
+materialization and, when it does not resolve, prints a REQUIRED next step
+naming both remediations (`npm i -g @tyroneross/navgator`, or exporting the
+printed absolute `<runtime-root>/node_modules/.bin`). It warns rather than
+hard-fails: registration itself succeeded and is not rolled back by exiting
+non-zero, and the fix applies afterwards without re-running the installer. The
+Claude installer reports the same reachability, but its message says the plugin
+works regardless — `${CLAUDE_PLUGIN_ROOT}` keeps rung 3 live there.
 
 ### MCP Server (opt-in, off by default)
 

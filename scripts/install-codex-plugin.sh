@@ -66,6 +66,61 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
+# Copy a file into the package tree without ever writing through a symlink.
+#
+# `cp` follows a destination symlink and writes to its target, so the refusal
+# has to run BEFORE anything is materialized — a guard that lives downstream of
+# the write it protects is not a guard. Publication then uses the same
+# openSync('wx',0o600) + fsync + rename + finally-cleanup shape as every other
+# write in this script.
+write_guarded_copy() {
+  local root_path="$1"
+  local source_path="$2"
+  local destination_path="$3"
+
+  node - "$root_path" "$source_path" "$destination_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [rootInput, sourcePath, destinationInput] = process.argv.slice(2)
+const root = fs.realpathSync(rootInput)
+const destination = path.resolve(destinationInput)
+const relative = path.relative(root, destination)
+if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  throw new Error(`Destination escapes ${root}: ${destinationInput}`)
+}
+
+let current = root
+for (const segment of relative.split(path.sep).filter(Boolean)) {
+  current = path.join(current, segment)
+  try {
+    if (fs.lstatSync(current).isSymbolicLink()) {
+      throw new Error(`Refusing symlinked destination component: ${current}`)
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+}
+
+const contents = fs.readFileSync(sourcePath)
+const parent = path.dirname(destination)
+fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
+const candidate = path.join(parent, `.${path.basename(destination)}.${process.pid}.${Date.now()}.tmp`)
+let descriptor
+try {
+  descriptor = fs.openSync(candidate, 'wx', 0o600)
+  fs.writeFileSync(descriptor, contents)
+  fs.fsyncSync(descriptor)
+  fs.closeSync(descriptor)
+  descriptor = undefined
+  fs.renameSync(candidate, destination)
+} finally {
+  if (descriptor !== undefined) fs.closeSync(descriptor)
+  fs.rmSync(candidate, { force: true })
+}
+NODE
+}
+
 update_marketplace() {
   local marketplace_root="$1"
   local marketplace_path="$2"
@@ -254,6 +309,136 @@ try {
 NODE
 }
 
+# Exact inverse of enable_manifest_mcp_servers.
+#
+# `npm install --install-links` of an already-materialized same-version package
+# neither prunes extraneous files from the package dir nor restores a mutated
+# manifest, so a re-run without --with-mcp cannot rely on reinstallation to undo
+# the opt-in. Without this, one opt-in registers Codex MCP permanently.
+disable_manifest_mcp_servers() {
+  local manifest_path="$1"
+
+  node - "$manifest_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [manifestPath] = process.argv.slice(2)
+if (fs.lstatSync(manifestPath).isSymbolicLink()) {
+  throw new Error(`Refusing symlinked Codex manifest: ${manifestPath}`)
+}
+
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+if (!manifest || typeof manifest !== 'object') {
+  throw new Error(`Invalid Codex plugin manifest: ${manifestPath}`)
+}
+if ('mcpServers' in manifest) {
+  delete manifest.mcpServers
+
+  const parent = path.dirname(manifestPath)
+  const candidate = path.join(parent, `.${path.basename(manifestPath)}.${process.pid}.${Date.now()}.tmp`)
+  let descriptor
+  try {
+    descriptor = fs.openSync(candidate, 'wx', 0o600)
+    fs.writeFileSync(descriptor, `${JSON.stringify(manifest, null, 2)}\n`)
+    fs.fsyncSync(descriptor)
+    fs.closeSync(descriptor)
+    descriptor = undefined
+    fs.renameSync(candidate, manifestPath)
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor)
+    fs.rmSync(candidate, { force: true })
+  }
+}
+NODE
+}
+
+# Codex copies the marketplace source into a versioned cache at install time, so
+# an earlier --with-mcp run leaves a registered copy there too and the cache is
+# what a running Codex actually loads. Removing the whole cache directory would
+# delete host-owned install state, so this removes exactly the two artifacts
+# --with-mcp adds — the config file and the manifest key — and leaves skills and
+# dist/ alone. Anything it refuses to touch is reported with the manual
+# remediation instead of being silently skipped.
+revoke_cached_mcp_registration() {
+  local cache_dir="$1"
+  local outcome
+
+  outcome="$(node - "$cache_dir" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [cacheDir] = process.argv.slice(2)
+
+function lstatOrNull(target) {
+  try {
+    return fs.lstatSync(target)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null
+    throw error
+  }
+}
+
+function revokeCachedRegistration() {
+  if (!fs.existsSync(cacheDir)) return ''
+
+  const configPath = path.join(cacheDir, '.codex-plugin', 'mcp.json')
+  const manifestPath = path.join(cacheDir, '.codex-plugin', 'plugin.json')
+  let revoked = false
+
+  const configStat = lstatOrNull(configPath)
+  if (configStat?.isSymbolicLink()) return 'unsafe'
+  if (configStat) {
+    fs.rmSync(configPath, { force: true })
+    revoked = true
+  }
+
+  const manifestStat = lstatOrNull(manifestPath)
+  if (manifestStat?.isSymbolicLink()) return 'unsafe'
+  if (manifestStat) {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    if (manifest && typeof manifest === 'object' && 'mcpServers' in manifest) {
+      delete manifest.mcpServers
+      const parent = path.dirname(manifestPath)
+      const candidate = path.join(parent, `.${path.basename(manifestPath)}.${process.pid}.${Date.now()}.tmp`)
+      let descriptor
+      try {
+        descriptor = fs.openSync(candidate, 'wx', 0o600)
+        fs.writeFileSync(descriptor, `${JSON.stringify(manifest, null, 2)}\n`)
+        fs.fsyncSync(descriptor)
+        fs.closeSync(descriptor)
+        descriptor = undefined
+        fs.renameSync(candidate, manifestPath)
+      } finally {
+        if (descriptor !== undefined) fs.closeSync(descriptor)
+        fs.rmSync(candidate, { force: true })
+      }
+      revoked = true
+    }
+  }
+
+  return revoked ? 'revoked' : ''
+}
+
+process.stdout.write(revokeCachedRegistration())
+NODE
+)"
+
+  case "$outcome" in
+    unsafe)
+      warn "The Codex plugin cache holds a symlinked MCP artifact and was left untouched:"
+      warn "  $cache_dir"
+      warn "Codex may still register the NavGator MCP server. Remove the cache yourself:"
+      warn "  rm -rf \"$cache_dir\""
+      ;;
+    revoked)
+      warn "Removed a stale MCP registration from the Codex plugin cache: $cache_dir"
+      warn "If Codex still lists a navgator MCP server, remove the cache and reinstall the"
+      warn "plugin from the Codex plugin browser:"
+      warn "  rm -rf \"$cache_dir\""
+      ;;
+  esac
+}
+
 usage() {
   echo "Usage: $0 [--user | --workspace] [--with-mcp]"
   echo ""
@@ -393,11 +578,19 @@ npm install \
   --no-audit \
   --no-fund
 
+# Opt-in and opt-out are symmetric: --with-mcp writes the config and the
+# manifest key, and a re-run without it removes both. Reinstallation undoes
+# neither on its own, so without the default branch a single opt-in would make
+# Codex register MCP forever.
 if [ "$WITH_MCP" = "true" ]; then
   info "Registering the NavGator MCP server (opt-in)..."
-  cp "$MCP_TEMPLATE" "$MCP_CONFIG"
+  write_guarded_copy "$PACKAGE_DIR" "$MCP_TEMPLATE" "$MCP_CONFIG"
   enable_manifest_mcp_servers "$MANIFEST"
   configure_codex_mcp_runtime "$PACKAGE_DIR" "$MCP_CONFIG" "$CACHE_DIR"
+else
+  rm -f "$MCP_CONFIG"
+  disable_manifest_mcp_servers "$MANIFEST"
+  revoke_cached_mcp_registration "$CACHE_DIR"
 fi
 
 update_marketplace "$MARKETPLACE_ROOT" "$MARKETPLACE_PATH" "$SOURCE_PATH" "$MANIFEST"
@@ -411,6 +604,19 @@ if [ "$WITH_MCP" = "true" ]; then
   echo "  MCP package: $CACHE_DIR"
 fi
 echo "  Scan target: active task workspace"
+
+# Codex loads skills/ only: it declares no binary, exports no PATH entry, and
+# sets no NAVGATOR_HOME. Every skill resolves the CLI at runtime, so an
+# unreachable `navgator` silently degrades the whole surface to "tell the user
+# to install it". Report reachability instead of assuming it.
+NAVGATOR_BIN_DIR="$RUNTIME_ROOT/node_modules/.bin"
+if NAVGATOR_ON_PATH="$(command -v navgator 2>/dev/null)"; then
+  echo "  navgator CLI: $NAVGATOR_ON_PATH"
+  NAVGATOR_REACHABLE="true"
+else
+  NAVGATOR_REACHABLE="false"
+fi
+
 echo ""
 warn "Registration does not install or enable the Codex plugin."
 echo "Next steps:"
@@ -419,3 +625,16 @@ echo "  2. Install and enable navgator."
 echo "  3. Disable the legacy gator plugin if it is present."
 echo "  4. Start a new task so the 6 skills load. Skills drive the navgator CLI."
 echo "     MCP is off by default. Re-run with --with-mcp only if your client cannot run a shell."
+
+if [ "$NAVGATOR_REACHABLE" != "true" ]; then
+  echo ""
+  err "REQUIRED: the navgator CLI is not reachable, so the skills cannot run it."
+  err "Codex loads skills only. It puts no binary on PATH and sets no NAVGATOR_HOME,"
+  err "so every NavGator skill will fail until 'navgator' resolves in your shell."
+  err "Do one of these before starting a Codex task:"
+  err "  npm i -g @tyroneross/navgator"
+  if [ -x "$NAVGATOR_BIN_DIR/navgator" ]; then
+    err "  export PATH=\"$NAVGATOR_BIN_DIR:\$PATH\"   # add to your shell profile"
+  fi
+  err "Verify with: command -v navgator"
+fi

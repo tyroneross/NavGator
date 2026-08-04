@@ -67,6 +67,62 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
+# Copy a file into the package tree without ever writing through a symlink.
+#
+# `cp` follows a destination symlink and writes to its target. `assert_safe_tree`
+# above clears the path COMPONENTS down to the package dir, not the leaf being
+# written — and it already asserts leaf files elsewhere in this script
+# (plugins/known_marketplaces.json, plugins/installed_plugins.json), so checking
+# the leaf is the established standard here. Refuse first, then publish
+# atomically with openSync('wx',0o600) + fsync + rename + finally cleanup.
+write_guarded_copy() {
+  local root_path="$1"
+  local source_path="$2"
+  local destination_path="$3"
+
+  node - "$root_path" "$source_path" "$destination_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [rootInput, sourcePath, destinationInput] = process.argv.slice(2)
+const root = fs.realpathSync(rootInput)
+const destination = path.resolve(destinationInput)
+const relative = path.relative(root, destination)
+if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  throw new Error(`Destination escapes ${root}: ${destinationInput}`)
+}
+
+let current = root
+for (const segment of relative.split(path.sep).filter(Boolean)) {
+  current = path.join(current, segment)
+  try {
+    if (fs.lstatSync(current).isSymbolicLink()) {
+      throw new Error(`Refusing symlinked destination component: ${current}`)
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+}
+
+const contents = fs.readFileSync(sourcePath)
+const parent = path.dirname(destination)
+fs.mkdirSync(parent, { recursive: true, mode: 0o700 })
+const candidate = path.join(parent, `.${path.basename(destination)}.${process.pid}.${Date.now()}.tmp`)
+let descriptor
+try {
+  descriptor = fs.openSync(candidate, 'wx', 0o600)
+  fs.writeFileSync(descriptor, contents)
+  fs.fsyncSync(descriptor)
+  fs.closeSync(descriptor)
+  descriptor = undefined
+  fs.renameSync(candidate, destination)
+} finally {
+  if (descriptor !== undefined) fs.closeSync(descriptor)
+  fs.rmSync(candidate, { force: true })
+}
+NODE
+}
+
 usage() {
   echo "Usage: $0 [--global | --project] [--with-mcp]"
   echo ""
@@ -234,7 +290,8 @@ EXPECTED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[
 # MCP is off by default. Claude copies whatever .mcp.json it finds in the
 # marketplace source into its plugin cache, so the default path removes any
 # stale copy before registration and the opt-in path materializes one from the
-# checked-in template. $PACKAGE_DIR is already asserted symlink-free above.
+# checked-in template. The path COMPONENTS down to $PACKAGE_DIR are asserted
+# symlink-free above; write_guarded_copy asserts the .mcp.json leaf itself.
 if [ "$WITH_MCP" = "true" ]; then
   MCP_TEMPLATE="$PACKAGE_DIR/mcp-optin/claude.mcp.json"
   if [ ! -f "$MCP_TEMPLATE" ]; then
@@ -242,7 +299,7 @@ if [ "$WITH_MCP" = "true" ]; then
     exit 1
   fi
   info "Registering the NavGator MCP server (opt-in)..."
-  cp "$MCP_TEMPLATE" "$PACKAGE_DIR/.mcp.json"
+  write_guarded_copy "$PACKAGE_DIR" "$MCP_TEMPLATE" "$PACKAGE_DIR/.mcp.json"
 else
   rm -f "$PACKAGE_DIR/.mcp.json"
 fi
@@ -323,7 +380,26 @@ echo "  Cache:   $INSTALL_PATH"
 if [ "$WITH_MCP" = "true" ]; then
   echo "  MCP: registered (opt-in)"
 fi
+
+# Claude exports ${CLAUDE_PLUGIN_ROOT}, so the skills' third resolution rung
+# (node "$NAVGATOR_HOME/dist/cli/index.js") always resolves on this host. A
+# missing PATH entry costs you the shell shorthand, not the plugin surface —
+# which is the opposite of Codex, where nothing sets NAVGATOR_HOME.
+if NAVGATOR_ON_PATH="$(command -v navgator 2>/dev/null)"; then
+  echo "  navgator CLI: $NAVGATOR_ON_PATH"
+else
+  echo "  navgator CLI: $INSTALL_PATH/dist/cli/index.js (via \${CLAUDE_PLUGIN_ROOT}; not on PATH)"
+fi
+
 echo ""
 echo "Claude loads 13 /navgator:* commands, 4 subagents, 6 skills, and the navgator CLI."
 echo "MCP is off by default. Re-run with --with-mcp only if your client cannot run a shell."
+if [ -z "${NAVGATOR_ON_PATH:-}" ]; then
+  warn "navgator is not on your PATH. The plugin still works — Claude resolves the CLI"
+  warn "through \${CLAUDE_PLUGIN_ROOT}. Add it to PATH only to run navgator yourself:"
+  warn "  npm i -g @tyroneross/navgator"
+  if [ -x "$RUNTIME_ROOT/node_modules/.bin/navgator" ]; then
+    warn "  export PATH=\"$RUNTIME_ROOT/node_modules/.bin:\$PATH\""
+  fi
+fi
 warn "Start a new Claude Code session for the plugin surface to load."
