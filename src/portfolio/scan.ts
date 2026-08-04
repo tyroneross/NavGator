@@ -8,8 +8,11 @@
  * never calls registerProject itself.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { scan } from '../scanner.js';
 import { getConfig } from '../config.js';
+import { defaultCacheRoot } from '../remote/clone.js';
 import { discoverRepos } from './discover.js';
 import type { PortfolioScanOptions, PortfolioScanResult, RepoOutcome } from './types.js';
 
@@ -45,6 +48,90 @@ export function assertLocalStorageMode(config: { storageMode: string }): void {
       'before running a portfolio scan.'
     );
   }
+}
+
+// =============================================================================
+// REMOTE-ORIGIN EXCLUSION (shared by the CLI and the MCP portfolio handler)
+// =============================================================================
+
+/** A registry entry, narrowed to only what the remote-origin check reads. */
+export interface RemoteFilterable {
+  path: string;
+  origin?: { kind?: string };
+}
+
+/** Result of `excludeRemoteOriginProjects` — kept projects plus the skip count. */
+export interface RemoteExclusionResult<T extends RemoteFilterable> {
+  /** Projects safe to fan out over. */
+  local: T[];
+  /** How many registered projects were excluded as remote clones. */
+  skippedRemote: number;
+}
+
+/**
+ * realpath both sides of the cache-root prefix check so a registry entry
+ * recorded through a symlinked or case-variant path cannot evade it; fall back
+ * to resolve for paths that no longer exist on disk.
+ */
+function realpathOrResolve(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Drop projects whose content came from a `scan-remote` clone, and report how
+ * many were dropped.
+ *
+ * The `dir` branch of both portfolio entrypoints refuses the remote-scan cache
+ * root, but that guard does nothing on the no-`dir` fan-out: `scan-remote`
+ * REGISTERS the clone, so a remote repo's attacker-authored component names,
+ * descriptions, and prompt strings would flow into the cross-repo map — an
+ * agent-reachable surface (`navgator portfolio --agent`, the MCP `portfolio`
+ * tool) — with no marking at all.
+ *
+ * Excludes by PATH as well as by flag, deliberately. The `origin` marker alone
+ * fails open: scanRemote calls scan() first, and scan() registers the project
+ * via registerProject with no origin field (src/scanner.ts) — origin is patched
+ * in afterwards by recordRemoteOrigin, whose body swallows every error. Any
+ * interruption in that window, a dashboard-initiated add, or a plain
+ * `navgator scan` run inside a clone directory all leave a remote clone
+ * registered UNMARKED. Measured: such an entry was included in this map. The
+ * cache root is the durable signal, and the `dir` branch already treats it as
+ * one. Do not "simplify" this to the flag check alone.
+ *
+ * Callers get the count back rather than a pre-formatted string because
+ * silently dropping registered projects is its own trust problem — every
+ * surface must show the skip. `formatRemoteExclusionNote` supplies the shared
+ * wording.
+ */
+export function excludeRemoteOriginProjects<T extends RemoteFilterable>(
+  projects: readonly T[]
+): RemoteExclusionResult<T> {
+  const cacheRoot = realpathOrResolve(defaultCacheRoot());
+  const isRemote = (p: T): boolean => {
+    if (p.origin?.kind === 'remote') return true;
+    const resolved = realpathOrResolve(p.path);
+    return resolved === cacheRoot || resolved.startsWith(cacheRoot + path.sep);
+  };
+  const local = projects.filter((p) => !isRemote(p));
+  return { local, skippedRemote: projects.length - local.length };
+}
+
+/**
+ * The one wording for "we dropped N projects and here's why", shared by every
+ * portfolio surface. Returns null when nothing was skipped so callers can omit
+ * the field/line entirely rather than print an empty note.
+ */
+export function formatRemoteExclusionNote(skippedRemote: number): string | null {
+  if (skippedRemote <= 0) return null;
+  return (
+    `Note: skipped ${skippedRemote} project(s) registered from a remote clone. ` +
+    'Their scanned content originates from an untrusted repository and is excluded ' +
+    'from the portfolio map. Inspect them with the CLI if that is intended.'
+  );
 }
 
 /**

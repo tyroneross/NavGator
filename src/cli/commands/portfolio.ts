@@ -16,7 +16,12 @@ import { getConfig } from '../../config.js';
 import { loadAllComponents, loadAllConnections } from '../../storage.js';
 import { listProjects } from '../../projects.js';
 import { wrapInEnvelope } from '../../agent-output.js';
-import { scanPortfolio, assertLocalStorageMode } from '../../portfolio/scan.js';
+import {
+  scanPortfolio,
+  assertLocalStorageMode,
+  excludeRemoteOriginProjects,
+  formatRemoteExclusionNote,
+} from '../../portfolio/scan.js';
 import { buildCrossRepoMap } from '../../portfolio/cross-repo.js';
 import type { CrossRepoMap, CrossRepoRepoInput, PortfolioScanResult } from '../../portfolio/types.js';
 
@@ -53,15 +58,24 @@ export function registerPortfolioCommand(program: Command): void {
           // sharing from N copies of one repo's data.
           assertLocalStorageMode(config);
 
+          // A `scan-remote` clone is REGISTERED, so without this filter its
+          // attacker-authored component names, descriptions, and prompt
+          // strings land in this fan-out — and `--agent` puts that straight
+          // into an agent's context. Same single implementation the MCP
+          // `portfolio` handler calls (src/portfolio/scan.ts); see its doc
+          // comment for why the check is by path as well as by flag. The
+          // count is surfaced in every output mode below: silently dropping
+          // registered projects would be its own trust problem.
           const projects = await listProjects();
+          const { local: localProjects, skippedRemote } = excludeRemoteOriginProjects(projects);
           const inputs: CrossRepoRepoInput[] = [];
-          for (const p of projects) {
+          for (const p of localProjects) {
             const components = await loadAllComponents(config, p.path);
             const connections = await loadAllConnections(config, p.path);
             inputs.push({ repo: p.path, components, connections, lastScan: p.lastScan });
           }
           const map = buildCrossRepoMap(inputs);
-          render(map, options, undefined);
+          render(map, options, undefined, skippedRemote);
           return;
         }
 
@@ -83,7 +97,10 @@ export function registerPortfolioCommand(program: Command): void {
           });
         }
         const map = buildCrossRepoMap(inputs);
-        render(map, options, scanResult);
+        // The `dir` branch scans a caller-named folder rather than fanning out
+        // over the registry, so nothing is excluded here — 0, not omitted, so
+        // the envelope shape is identical in both branches.
+        render(map, options, scanResult, 0);
       } catch (error) {
         console.error(`Portfolio failed: ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = 1;
@@ -94,31 +111,28 @@ export function registerPortfolioCommand(program: Command): void {
 function render(
   map: CrossRepoMap,
   options: PortfolioCommandOptions,
-  scanResult: PortfolioScanResult | undefined
+  scanResult: PortfolioScanResult | undefined,
+  skippedRemote: number
 ): void {
+  const skippedRemoteNote = formatRemoteExclusionNote(skippedRemote);
+  const payload = {
+    scan: scanResult ?? null,
+    crossRepo: map,
+    // Machine consumers must be able to see that projects were withheld, not
+    // just infer it from a smaller repoCount. Flat scalar + nullable sibling
+    // matches this envelope's existing `scan: … ?? null` / `note` style.
+    skippedRemote,
+    skippedRemoteNote,
+    note: SERVICE_CALL_DISCLAIMER,
+  };
+
   if (options.agent) {
-    console.log(
-      wrapInEnvelope('portfolio', {
-        scan: scanResult ?? null,
-        crossRepo: map,
-        note: SERVICE_CALL_DISCLAIMER,
-      })
-    );
+    console.log(wrapInEnvelope('portfolio', payload));
     return;
   }
 
   if (options.json) {
-    console.log(
-      JSON.stringify(
-        {
-          scan: scanResult ?? null,
-          crossRepo: map,
-          note: SERVICE_CALL_DISCLAIMER,
-        },
-        null,
-        2
-      )
-    );
+    console.log(JSON.stringify(payload, null, 2));
     return;
   }
 
@@ -148,6 +162,7 @@ function render(
   if (map.status.staleRepos.length > 0) console.log(`  Stale (>24h): ${map.status.staleRepos.join(', ')}`);
   if (map.status.failedRepos.length > 0) console.log(`  Failed: ${map.status.failedRepos.join(', ')}`);
   if (map.status.busyRepos.length > 0) console.log(`  Busy: ${map.status.busyRepos.join(', ')}`);
+  if (skippedRemoteNote) console.log(`  ${skippedRemoteNote}`);
   console.log('');
 
   console.log(`Shared dependencies (${map.sharedDependencies.length}):`);
