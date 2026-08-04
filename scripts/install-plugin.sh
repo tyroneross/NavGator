@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # NavGator Claude Code plugin installer
-# Usage: ./scripts/install-plugin.sh [--global | --project]
+# Usage: ./scripts/install-plugin.sh [--global | --project] [--with-mcp]
 
-SCOPE="${1:---global}"
+SCOPE="--global"
+WITH_MCP="false"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_SOURCE="${NAVGATOR_PACKAGE_SOURCE:-$PLUGIN_ROOT}"
@@ -66,6 +67,36 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
+usage() {
+  echo "Usage: $0 [--global | --project] [--with-mcp]"
+  echo ""
+  echo "  --global    Install and enable NavGator at Claude user scope"
+  echo "  --project   Install and enable NavGator for the current project"
+  echo "  --with-mcp  Also register the MCP server (last resort; only for clients that cannot run a shell)"
+  echo ""
+  echo "For Codex marketplace registration, run:"
+  echo "  bash scripts/install-codex-plugin.sh [--user | --workspace]"
+}
+
+# Flags are position-independent: --global/--project set the scope, --with-mcp
+# is an independent opt-in. Scope defaults to --global when only --with-mcp is
+# passed.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --global | --project)
+      SCOPE="$1"
+      ;;
+    --with-mcp)
+      WITH_MCP="true"
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
 case "$SCOPE" in
   --global)
     CLAUDE_SCOPE="user"
@@ -85,13 +116,7 @@ case "$SCOPE" in
     SCOPE_LABEL="current project"
     ;;
   *)
-    echo "Usage: $0 [--global | --project]"
-    echo ""
-    echo "  --global   Install and enable NavGator at Claude user scope"
-    echo "  --project  Install and enable NavGator for the current project"
-    echo ""
-    echo "For Codex marketplace registration, run:"
-    echo "  bash scripts/install-codex-plugin.sh [--user | --workspace]"
+    usage
     exit 1
     ;;
 esac
@@ -196,7 +221,7 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 
 # Claude installs marketplace plugins into its own cache. Embed production
-# dependencies inside the plugin root so the cached MCP server remains runnable.
+# dependencies inside the plugin root so the cached CLI remains runnable.
 npm install \
   --prefix "$PACKAGE_DIR" \
   --ignore-scripts \
@@ -205,6 +230,22 @@ npm install \
   --no-fund
 
 EXPECTED_VERSION="$(node -p "JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).version" "$MANIFEST")"
+
+# MCP is off by default. Claude copies whatever .mcp.json it finds in the
+# marketplace source into its plugin cache, so the default path removes any
+# stale copy before registration and the opt-in path materializes one from the
+# checked-in template. $PACKAGE_DIR is already asserted symlink-free above.
+if [ "$WITH_MCP" = "true" ]; then
+  MCP_TEMPLATE="$PACKAGE_DIR/mcp-optin/claude.mcp.json"
+  if [ ! -f "$MCP_TEMPLATE" ]; then
+    err "--with-mcp requested but the MCP template is missing: $MCP_TEMPLATE"
+    exit 1
+  fi
+  info "Registering the NavGator MCP server (opt-in)..."
+  cp "$MCP_TEMPLATE" "$PACKAGE_DIR/.mcp.json"
+else
+  rm -f "$PACKAGE_DIR/.mcp.json"
+fi
 
 info "Registering the local NavGator marketplace..."
 claude plugin marketplace add "$PACKAGE_DIR" --scope "$CLAUDE_SCOPE"
@@ -254,9 +295,17 @@ if [ ! -f "$INSTALL_PATH/node_modules/glob/package.json" ]; then
   err "Installed plugin is missing runtime dependencies: $INSTALL_PATH"
   exit 1
 fi
-if ! node "$INSTALL_PATH/dist/mcp/server.js" </dev/null >/dev/null 2>&1; then
-  err "Installed NavGator MCP server failed its dependency-complete startup check."
+# The CLI entrypoint imports every command module, so a successful --version
+# run force-loads the same dependency tree the MCP server used to prove.
+if ! node "$INSTALL_PATH/dist/cli/index.js" --version >/dev/null 2>&1; then
+  err "Installed NavGator CLI failed its dependency-complete startup check."
   exit 1
+fi
+if [ "$WITH_MCP" = "true" ]; then
+  if ! node "$INSTALL_PATH/dist/mcp/server.js" </dev/null >/dev/null 2>&1; then
+    err "Installed NavGator MCP server failed its dependency-complete startup check."
+    exit 1
+  fi
 fi
 
 ensure_no_legacy_registry
@@ -271,6 +320,10 @@ echo "  Plugin:  $PLUGIN_ID"
 echo "  Version: $EXPECTED_VERSION"
 echo "  Scope:   $CLAUDE_SCOPE"
 echo "  Cache:   $INSTALL_PATH"
+if [ "$WITH_MCP" = "true" ]; then
+  echo "  MCP: registered (opt-in)"
+fi
 echo ""
-echo "Claude loads 13 /navgator:* commands, 4 subagents, 6 skills, and the NavGator MCP server."
+echo "Claude loads 13 /navgator:* commands, 4 subagents, 6 skills, and the navgator CLI."
+echo "MCP is off by default. Re-run with --with-mcp only if your client cannot run a shell."
 warn "Start a new Claude Code session for the plugin surface to load."

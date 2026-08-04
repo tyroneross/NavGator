@@ -9,6 +9,8 @@ user-invocable: true
 
 Orchestrates NavGator's impact analysis, data flow tracing, rules engine, and lessons tracking into a repeatable architectural review workflow. This skill is an architectural integrity reviewer — not a linter, not a bug hunter.
 
+Resolve the binary first: use `navgator` if it is on PATH, otherwise `node "$NAVGATOR_HOME/dist/cli/index.js"` where `NAVGATOR_HOME` is the installed package root. Never hardcode an absolute path. See the `navgator-setup` skill for the full resolution order.
+
 ## What This Skill IS vs. IS NOT
 
 **IS:**
@@ -46,8 +48,8 @@ When scope is ambiguous, default to `git diff origin/main..HEAD`. If the branch 
 
 Before starting any phase:
 
-1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run the MCP `scan` tool or `navgator scan` CLI first. Claude users may also run `/navgator:scan`.
-2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — refresh it with the MCP `scan` tool or `navgator scan` before relying on the review."
+1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run `navgator scan --agent` first. Claude users may also run `/navgator:scan`.
+2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — refresh it with `navgator scan --agent` before relying on the review."
 3. Load `.navgator/architecture/file_map.json` for file-to-component resolution.
 4. Load `.navgator/architecture/graph.json` for connection traversal.
 5. Check for `.navgator/lessons/lessons.json`. If missing, create it:
@@ -92,9 +94,11 @@ Output:
 
 For each component identified in Phase 1:
 
-1. Call `navgator impact` MCP tool with the component name to get its blast radius (incoming and outgoing connections, severity).
-2. Call `navgator trace` MCP tool (direction: "both") to follow data flow forward and backward through the architecture.
-3. Call `navgator connections` MCP tool (direction: "both") to inspect the specific connection map.
+1. Run `navgator impact "<component>" --agent` to get its blast radius (incoming and outgoing connections, severity).
+2. Run `navgator trace "<component>" --direction both --agent` to follow data flow forward and backward through the architecture.
+3. Run `navgator connections "<component>" --agent` to inspect the specific connection map (default shows both directions; add `--incoming` or `--outgoing` to narrow it).
+
+A non-zero exit code from any of these is a real failure — surface stderr and do not record a finding derived from a failed call.
 
 Check for these architectural issues. For each finding, record: severity, file:line, what is wrong, and why it matters architecturally.
 
@@ -169,17 +173,17 @@ Output:
 
 **Goal:** Verify that docs reflect what the code actually does.
 
-1. Read `README.md`. For each CLI command or flag in the implementation, check that it appears in the README CLI Reference section. Run `node dist/cli/index.js --help` (or the equivalent for this project) and compare against what README documents.
-2. Read `AGENTS.md`. Verify the shared Claude/Codex contract matches the six skills, MCP tools, storage model, and current runtime behavior.
+1. Read `README.md`. For each CLI command or flag in the implementation, check that it appears in the README CLI Reference section. Take the command list from `src/cli/index.ts` and each command's options from the matching `src/cli/commands/*.ts` registration, then compare against what README documents. Do not use `node dist/cli/index.js --help`: `dist/` is a build artifact that lags source, so a stale build reports newly added commands as undocumented.
+2. Read `AGENTS.md`. Verify the shared Claude/Codex contract matches the six skills, the navgator CLI, the opt-in MCP tools, storage model, and current runtime behavior.
 3. Read `CLAUDE.md`. Verify the Claude-only command and subagent tables are complete — all `/navgator:*` commands and `agents/*.md` entries should be represented.
-4. List all directories under `skills/`. Verify each shared skill is valid for both hosts and does not require a Claude-only slash command without a CLI or MCP alternative.
-5. Read `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.mcp.json`, and `.codex-plugin/mcp.json`. Verify every referenced directory and process entry exists, and keep host-specific process resolution explicit.
+4. List all directories under `skills/`. Verify each shared skill is self-sufficient for Codex (states binary resolution, uses the CLI directly) and does not require a Claude-only slash command with no CLI alternative.
+5. Read `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `mcp-optin/{claude,codex}.mcp.json`. Verify every referenced directory and process entry exists, that `.mcp.json` and `.codex-plugin/mcp.json` are absent by default (MCP registration is opt-in only, written by `--with-mcp`), and keep host-specific process resolution explicit.
 6. For each new or modified capability identified in Phase 1, check the applicable surfaces:
    - README (user-facing installation and behavior)
    - AGENTS.md (shared agent-facing contract)
    - CLAUDE.md plus `commands/` and `agents/` (Claude-only discovery)
-   - `skills/` and MCP tools (portable Claude/Codex intersection)
-   - both host manifests and MCP configs (registration/runtime discovery)
+   - `skills/` and the navgator CLI (portable Claude/Codex intersection)
+   - both host manifests and the opt-in MCP configs (registration/runtime discovery)
 
 An agent-invisible feature is one that exists in code but does not appear in the files its target host reads. These are the highest-priority documentation gaps because the capability cannot be discovered in that host.
 
@@ -362,7 +366,8 @@ These are real architectural findings this skill is designed to surface:
   Why: Codex and other agents read AGENTS.md for the shared contract. A capability
        documented only in Claude-specific commands is unreachable from those hosts.
   Resolution: Add `navgator coverage --typespec` to README and AGENTS.md, then
-              expose a shared skill or MCP path when agent invocation is expected.
+              expose a shared skill that calls the CLI directly when agent
+              invocation is expected.
 ```
 
 ---

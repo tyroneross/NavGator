@@ -14,12 +14,12 @@ Run an end-to-end architecture test on this project.
 ## What to do
 
 ### Phase 1: Freshness Check
-1. Run `navgator status` MCP tool — check if data is stale
-2. If stale (>24h), run `navgator scan` first
+1. Run `navgator status --agent` (prefer `navgator` on PATH) — check if data is stale
+2. If stale (>24h), run `navgator scan --agent` first. A non-zero exit code from either call is a real failure — surface stderr and stop; do not run the remaining phases against stale or missing data.
 
 ### Phase 2: Architecture Health
-1. Run `navgator rules` MCP tool — check for violations (orphans, layer violations, cycles, hotspots)
-2. Run `navgator dead` CLI command (or check status POTENTIAL DEAD CODE section) — list orphaned components
+1. Run `navgator rules --agent` — check for violations (orphans, layer violations, cycles, hotspots)
+2. Run `navgator dead --agent` (or check status POTENTIAL DEAD CODE section) — list orphaned components
 3. Check for anomalies (queues with 2+ consumers)
 
 ### Phase 3: Pipeline Integrity
@@ -28,7 +28,7 @@ Run an end-to-end architecture test on this project.
 3. Flag any broken chains (trace returns 0 paths or dead-ends)
 
 ### Phase 4: LLM Architecture
-1. Run `navgator llm-map` — verify all LLM use cases are categorized
+1. Run `navgator llm-map --agent` — verify all LLM use cases are categorized
 2. Check for uncategorized use cases and classify them by reading the source files
 3. Verify each LLM provider has at least one production connection
 

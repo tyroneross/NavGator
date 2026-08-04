@@ -14,8 +14,64 @@ NavGator tracks architecture connections across your entire stack—packages, se
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and 12 MCP tools
-- **Codex Integration**: the same 6 skills and 12 MCP tools through a Codex-specific manifest
+- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and the `navgator` CLI as the default agent surface
+- **Codex Integration**: the same 6 skills, driving the `navgator` CLI, through a Codex-specific manifest
+
+## Agent interface policy: CLI first, HTTP second, MCP last resort
+
+**CLI first — the default, always.** `navgator <command> --agent` is the wired
+surface for every agent-facing operation on both Claude Code and Codex. Each call
+spawns a fresh process, so it reads current on-disk state, returns a real exit
+code, and writes a stable `{command, data, schema_version, timestamp}` envelope
+to stdout. It costs zero context until it is called.
+
+**Local HTTP API second — for process boundaries only.** The loopback dashboard
+(`navgator ui`) serves read routes under `web/app/api/`. Use it when a separate,
+already-running process needs a request/response boundary. It is not an agent
+surface: an agent that can run a shell should run the CLI.
+
+**MCP last resort — deprecated as a default, opt-in only.** NavGator no longer
+registers an MCP server on either host. The server code still ships and still
+works; opt in with `--with-mcp` on either installer. Use it only for a consumer
+that genuinely cannot spawn a subprocess — no shell, no Bash tool. Three failure
+modes drove the demotion:
+
+- **Startup state caching.** The server is a long-lived process. State it reads at
+  startup can go stale against the working tree while the session continues, so a
+  tool can answer from a snapshot the user has already changed. A CLI call
+  re-reads on every invocation.
+- **Silent failure.** A failed handshake or a crashed server surfaces as a missing
+  tool, not an error. A CLI call returns a non-zero exit code and stderr you can
+  act on.
+- **Context cost.** Twelve tool schemas load into every request whether or not the
+  session touches architecture. The CLI costs nothing until it is called.
+
+Opting in:
+
+    bash scripts/install-plugin.sh --global --with-mcp        # Claude Code
+    bash scripts/install-codex-plugin.sh --user --with-mcp    # Codex
+
+Without `--with-mcp`, no MCP server is registered on either host.
+
+## Migrating off the MCP tools
+
+Every MCP tool has a direct CLI replacement. `review` and `explore` are new in
+this change; every other row already existed.
+
+| MCP tool | CLI replacement |
+|---|---|
+| `scan` | `navgator scan --agent` (add `--quick` for the fast path) |
+| `status` | `navgator status --agent` |
+| `impact` | `navgator impact <component> --agent` |
+| `connections` | `navgator connections <component> --agent` |
+| `diagram` | `navgator diagram` (emits Mermaid text; no `--agent` envelope) |
+| `trace` | `navgator trace <component> --agent` |
+| `summary` | `navgator summary --agent` |
+| `rules` | `navgator rules --agent` |
+| `portfolio` | `navgator portfolio [dir] --agent` |
+| `arch_diff` | `navgator arch-diff --agent` |
+| `review` | `navgator review [--component <c>] --agent` |
+| `explore` | `navgator explore <component> [--depth N] --agent` |
 
 ## Installation
 
@@ -45,7 +101,7 @@ bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --global
 bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --project
 ```
 
-The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads all 13 `/navgator:*` commands, 4 subagents, 6 skills, and the MCP server.
+The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads 13 `/navgator:*` commands, 4 subagents, 6 skills, and the `navgator` CLI. MCP is off by default; re-run with `--with-mcp` only if your client cannot run a shell.
 
 If the older `navgator@rosslabs-ai-toolkit` registry entry is still enabled, the installer stops before claiming success and prints the exact scoped `claude plugin disable` command. Disable the legacy entry and rerun so only one NavGator surface is active.
 
@@ -63,7 +119,7 @@ bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
 bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-The script installs the package plus runtime dependencies below the selected marketplace root and writes an idempotent `navgator` entry to `.agents/plugins/marketplace.json`. It rewrites the registration template to target Codex's deterministic versioned plugin cache with no fixed `cwd`. After browser installation, executable code comes from that cache while every tool analyzes the active task workspace; changing or deleting the registration source does not change the installed MCP server. The checked-in `.codex-plugin/mcp.json` is a package template, not a finished registration. Registration is not installation or enablement. After it finishes:
+The script installs the package plus runtime dependencies below the selected marketplace root and writes an idempotent `navgator` entry to `.agents/plugins/marketplace.json`. By default no MCP server is registered — the 6 skills drive the `navgator` CLI directly. Pass `--with-mcp` to also install the opt-in manifest at `mcp-optin/codex.mcp.json`, retargeted to Codex's deterministic versioned plugin cache with no fixed `cwd`. Registration is not installation or enablement. After it finishes:
 
 1. Open the Codex plugin browser.
 2. Install and enable `navgator`.
@@ -73,10 +129,10 @@ The script installs the package plus runtime dependencies below the selected mar
 Codex reads these package surfaces:
 
 - `.codex-plugin/plugin.json`
-- `.codex-plugin/mcp.json`
 - `skills/*/SKILL.md`
+- `mcp-optin/codex.mcp.json` (only when installed with `--with-mcp`)
 
-Claude remains the authoritative host for slash commands and subagent wiring. Codex does not load `commands/` or `agents/`; it loads the 6 shared skills and 12 MCP tools only. Hooks are disabled by default on both hosts. A source checkout is not a valid self-referential Codex marketplace until the installer materializes the package at a non-empty child path.
+Claude remains the authoritative host for slash commands and subagent wiring. Codex does not load `commands/` or `agents/`; it loads the 6 shared skills, which drive the `navgator` CLI. MCP is off by default; opt in with `--with-mcp` only if your client cannot run a shell. Hooks are disabled by default on both hosts. A source checkout is not a valid self-referential Codex marketplace until the installer materializes the package at a non-empty child path.
 
 ## Quick Start
 
@@ -237,7 +293,7 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 
 ### Hooks
 
-NavGator does not enable automatic Claude Code hooks by default. Run `/navgator:scan` or the MCP scan tool explicitly when architecture data needs to be refreshed.
+NavGator does not enable automatic Claude Code hooks by default. Run `/navgator:scan` or `navgator scan --agent` explicitly when architecture data needs to be refreshed.
 
 ## CLI Reference
 
@@ -260,10 +316,43 @@ Scan project and update architecture tracking.
 | `--field-usage` | Analyze Prisma model field usage across codebase |
 | `--typespec` | Validate Prisma types against TypeScript interfaces |
 | `--track-branch` | Capture git branch/commit in scan output |
+| `--commit` | Auto-commit scan output to the nested `.navgator/.git` for temporal queries (~180ms overhead) |
+| `--scip` | Run the SCIP indexer for compiler-accurate cross-file edges (requires `tsconfig`; ~500ms cold) |
+| `--single-stack` | Disable multi-stack auto-discovery — scan only the project root |
+| `--per-entity-files` | Also write one JSON per component and per connection alongside the canonical `*.full.jsonl` records |
 | `--json` | Output scan results as JSON |
 | `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 Content scanning is opt-in because a knowledge vault can contain far more documents than a codebase contains modules. Use `.navgatorignore` to exclude immutable raw archives, generated outputs, and other content that should not enter the live dependency graph. `NAVGATOR_CONTENT=1` enables the same scanner for programmatic calls.
+
+#### Restricted environments and degraded scans
+
+`--sandbox` is a global flag: pass it before the subcommand (`navgator --sandbox scan`). It sets `NAVGATOR_SANDBOX=1`, which declares the environment as restricting network access, interactive prompts, and child processes. NavGator also auto-detects a restricted environment from `CODEX=1` (adds a read-only filesystem) and `CI=true`.
+
+Restrictions disable one capability: the SCIP overlay, which shells out to a child process. AST scanning (`--ast`) and prompt analysis (`--prompts`) run in-process and keep running, and a restriction never forces `--quick`. A read-only filesystem is recorded for visibility and disables nothing, because analysis performs no writes.
+
+Any scan that actually lost a capability reports it. Human output prints a banner before the component counts:
+
+```
+!! DEGRADED SCAN !!
+Scan ran without the SCIP overlay because the environment restricts child processes (noChildProcess).
+Restrictions: noChildProcess, readOnlyFs
+Disabled: scip
+```
+
+`--json` and `--agent` output carry the same facts in a `degraded` field:
+
+```json
+{
+  "degraded": {
+    "restrictions": ["noChildProcess", "readOnlyFs"],
+    "disabled_capabilities": ["scip"],
+    "message": "Scan ran without the SCIP overlay because the environment restricts child processes (noChildProcess)."
+  }
+}
+```
+
+A complete scan omits `degraded` entirely and prints no banner, so its absence means every capability ran.
 
 #### Scan modes
 
@@ -333,7 +422,9 @@ Show architecture summary.
 
 | Option | Description |
 |--------|-------------|
+| `--no-refresh` | Skip the auto-refresh incremental scan that runs when the on-disk graph is older than 5 minutes |
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 ### `navgator impact <component>`
 
@@ -342,6 +433,7 @@ Show what's affected by changing a component.
 | Option | Description |
 |--------|-------------|
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 ### `navgator connections <component>`
 
@@ -351,7 +443,20 @@ Show all connections for a component.
 |--------|-------------|
 | `--incoming` | Only incoming connections |
 | `--outgoing` | Only outgoing connections |
+| `--production` | Only production connections |
+| `--test` | Only test connections |
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
+
+### `navgator explore <component>`
+
+Investigate one component: connections, runtime identity, impact severity, data-flow paths, and layer position in a single report.
+
+| Option | Description |
+|--------|-------------|
+| `--depth <n>` | Max data-flow trace depth (default: 2) |
+| `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 ### `navgator list`
 
@@ -415,7 +520,12 @@ Trace dataflow paths forward and backward through the system.
 |--------|-------------|
 | `--direction <dir>` | forward, backward, or both (default: both) |
 | `--depth <n>` | Max trace depth (default: 5) |
+| `--max-paths <n>` | Max paths to show (default: 10) |
+| `--all` | Show all paths (overrides `--max-paths`) |
+| `--production` | Only production paths |
+| `--classification <class>` | Filter by semantic classification |
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 ### `navgator rules`
 
@@ -423,18 +533,41 @@ Check architecture rules and report violations.
 
 | Option | Description |
 |--------|-------------|
+| `--severity <level>` | Filter by severity: `error`, `warning`, `info` |
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
 
 Built-in rules: orphan components, database isolation, frontend-direct-db, circular dependencies, hotspot modules, high fan-out, layer violations.
 
-### `navgator subgraph <component>`
+### `navgator review`
 
-Extract a focused subgraph around a specific component.
+Architectural integrity review: rule violations, runtime topology, and LLM use cases in one report.
 
 | Option | Description |
 |--------|-------------|
-| `--depth <n>` | Include connections up to N hops away (default: 2) |
+| `--component <name>` | Focus the review on one component's impact |
 | `--json` | Output as JSON |
+| `--agent` | Wrap output in agent envelope (implies `--json`) |
+
+### `navgator subgraph`
+
+Extract a focused subgraph. The command takes no positional argument — name components with `--focus`.
+
+```bash
+navgator subgraph --focus AuthService
+navgator subgraph --focus AuthService,BillingQueue --depth 3 --format mermaid
+```
+
+| Option | Description |
+|--------|-------------|
+| `--focus <components>` | Comma-separated component names to focus on |
+| `--layer <layers>` | Comma-separated layers to include |
+| `--classification <class>` | Filter connections by semantic classification |
+| `--depth <n>` | BFS depth from focus components (default: 2) |
+| `--max-nodes <n>` | Max nodes in subgraph (default: 50) |
+| `--format <fmt>` | `json` or `mermaid` (default: json) |
+| `--json` | Output as JSON (same as `--format json`) |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
 
 ### `navgator portfolio [dir]`
 
@@ -802,8 +935,8 @@ Package root for Codex installs:
 
 Primary Codex surface:
 - manifest: `./.codex-plugin/plugin.json`
-- skills from `./skills`
-- MCP config from `./.codex-plugin/mcp.json`
+- skills from `./skills`, driving the `navgator` CLI
+- MCP config from `mcp-optin/codex.mcp.json`, installed only with `--with-mcp`
 
 The installer generates marketplace metadata at user or workspace scope after materializing the package and its dependencies at a non-empty local source path. The repository does not advertise itself through an invalid self-referential marketplace entry.
 
@@ -819,4 +952,4 @@ bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
 bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-After registration, install and enable `navgator` in the Codex plugin browser, disable a legacy `gator` entry if present, and start a new task. Codex loads 6 skills and 12 MCP tools; Claude-specific slash commands and subagents remain Claude-only.
+After registration, install and enable `navgator` in the Codex plugin browser, disable a legacy `gator` entry if present, and start a new task. Codex loads 6 skills, which drive the `navgator` CLI; Claude-specific slash commands and subagents remain Claude-only. MCP is off by default — re-run the installer with `--with-mcp` only if your client cannot run a shell.

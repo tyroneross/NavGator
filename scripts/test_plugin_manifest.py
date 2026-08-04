@@ -10,7 +10,11 @@ Checks:
                           and marketplace.json (catches the v0.4.0/v0.3.2 drift
                           that hit this repo before)
   McpServersReference  — if plugin.json declares `mcpServers`, the referenced
-                          file/path must exist and be valid JSON
+                          file/path must exist and be valid JSON. NavGator does
+                          not declare it: MCP is opt-in and no host may
+                          auto-load a server, so this check skips by design.
+                          `test_mcp_registration.py` owns the positive
+                          assertion that the key stays absent on both hosts.
   SkillNameUniqueness  — every SKILL.md frontmatter `name:` is unique within
                           this plugin (would catch silent skill-shadowing)
   CommandSchema        — every commands/*.md has frontmatter (description at
@@ -119,10 +123,20 @@ class VersionShapeTests(unittest.TestCase):
             )
         for entry in market.get("plugins", []):
             if entry.get("name") == load_json(PLUGIN_JSON)["name"]:
+                # A marketplace entry with a git-style source (here "./") is
+                # SUPPOSED to omit `version` so the host resolves it to the
+                # commit SHA. Detect the shape rather than mandating one: only
+                # cross-check when the entry actually declares a version, which
+                # is the same guard metadata.version already uses seven lines
+                # above. Asserting unconditionally made this test demand a
+                # version the entry is correct not to have.
+                entry_v = entry.get("version")
+                if entry_v is None:
+                    continue
                 self.assertEqual(
-                    entry.get("version"), plugin_v,
+                    entry_v, plugin_v,
                     f"marketplace.json plugins[name={entry['name']!r}].version "
-                    f"{entry.get('version')!r} != plugin.json version {plugin_v!r}",
+                    f"{entry_v!r} != plugin.json version {plugin_v!r}",
                 )
 
 
@@ -131,7 +145,9 @@ class McpServersReferenceTests(unittest.TestCase):
         data = load_json(PLUGIN_JSON)
         ref = data.get("mcpServers")
         if ref is None:
-            self.skipTest("plugin.json has no mcpServers field")
+            # Expected post-migration state: MCP is opt-in, so the manifest
+            # declares nothing to auto-load. Asserted in test_mcp_registration.py.
+            self.skipTest("plugin.json has no mcpServers field — MCP is opt-in")
         if isinstance(ref, str):
             # Path reference — must resolve to an existing JSON file.
             mcp_path = (REPO_ROOT / ref).resolve()

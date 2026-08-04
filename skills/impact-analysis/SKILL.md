@@ -7,7 +7,9 @@ user-invocable: false
 
 # Impact Analysis & Connections
 
-Analyze what's affected by changes and map component connections using NavGator MCP tools. This skill covers impact analysis, connection viewing, and dataflow tracing.
+Analyze what's affected by changes and map component connections using the navgator CLI. This skill covers impact analysis, connection viewing, and dataflow tracing.
+
+Resolve the binary first: use `navgator` if it is on PATH, otherwise `node "$NAVGATOR_HOME/dist/cli/index.js"` where `NAVGATOR_HOME` is the installed package root. Never hardcode an absolute path. See the `navgator-setup` skill for the full resolution order.
 
 ## When to Activate
 
@@ -19,7 +21,7 @@ Analyze what's affected by changes and map component connections using NavGator 
 
 ## Impact Analysis
 
-Use the `navgator impact` MCP tool with the component name to analyze blast radius.
+Run `navgator impact "<component>" --agent` to analyze blast radius. A non-zero exit code is a real failure — surface stderr and do not present a partial result as complete impact analysis.
 
 **Input:** Component name (e.g., "express", "prisma", "/api/users")
 
@@ -38,9 +40,7 @@ If the user provides a file path instead of a component name:
 
 ## Connection Mapping
 
-Use the `navgator connections` MCP tool to show all connections for a component.
-
-**Input:** Component name (required), direction (optional: "in", "out", or "both")
+Run `navgator connections "<component>" --agent` to show all connections for a component. Add `--incoming` or `--outgoing` to narrow direction (default shows both).
 
 **Returns:**
 - All incoming connections (what connects TO this component)
@@ -49,9 +49,7 @@ Use the `navgator connections` MCP tool to show all connections for a component.
 
 ## Dataflow Tracing
 
-Use the `navgator trace` MCP tool to follow data flow through the architecture.
-
-**Input:** Component name (required), direction (optional: "forward", "backward", or "both")
+Run `navgator trace "<component>" --agent` to follow data flow through the architecture. Add `--direction forward` or `--direction backward` to narrow it (default: both).
 
 **Returns:**
 - Data flow path through components
@@ -60,14 +58,14 @@ Use the `navgator trace` MCP tool to follow data flow through the architecture.
 
 ## Decision Tree
 
-| User Intent | MCP Tool | Notes |
-|-------------|----------|-------|
-| "What breaks if I change X?" | `navgator impact` | Full blast radius |
-| "Show connections for X" | `navgator connections` | All connections |
-| "What depends on X?" | `navgator connections` (direction: "in") | Incoming only |
-| "What does X use?" | `navgator connections` (direction: "out") | Outgoing only |
-| "Trace data flow from X" | `navgator trace` | Forward/backward/both |
-| "Is it safe to modify X?" | `navgator impact` | Check severity |
+| User Intent | CLI Command | Notes |
+|-------------|-------------|-------|
+| "What breaks if I change X?" | `navgator impact "X" --agent` | Full blast radius |
+| "Show connections for X" | `navgator connections "X" --agent` | All connections |
+| "What depends on X?" | `navgator connections "X" --incoming --agent` | Incoming only |
+| "What does X use?" | `navgator connections "X" --outgoing --agent` | Outgoing only |
+| "Trace data flow from X" | `navgator trace "X" --agent` | Forward/backward/both |
+| "Is it safe to modify X?" | `navgator impact "X" --agent` | Check severity |
 
 ## After Analysis
 

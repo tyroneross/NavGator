@@ -13,7 +13,7 @@ Run an architecture scan to refresh NavGator's tracking data.
 
 ## What to do
 
-1. Run the navgator `scan` MCP tool with the specified options
+1. Run `navgator scan --agent` with the specified options (prefer `navgator` on PATH). A non-zero exit code is a real failure — surface stderr and stop; do not report a scan as complete.
 2. Report what changed since the last scan (new components, removed connections, etc.)
 3. If significant changes detected, suggest running `/navgator:review` to check architectural integrity
 

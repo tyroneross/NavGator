@@ -10,8 +10,47 @@ NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude 
 
 - **npm package:** `@tyroneross/navgator` (v0.9.1 release target)
 - **Plugin name:** `navgator`
-- **Runtime:** Node.js >= 20.11.0, TypeScript (ES2022, NodeNext modules)
+- **Runtime:** Node.js >= 20.19.0, TypeScript (ES2022, NodeNext modules)
 - **License:** Apache-2.0
+
+---
+
+## Agent interface policy: CLI first, HTTP second, MCP last resort
+
+**CLI first — the default, always.** `navgator <command> --agent` is the wired
+surface for every agent-facing operation on both Claude Code and Codex. Each call
+spawns a fresh process, so it reads current on-disk state, returns a real exit
+code, and writes a stable `{command, data, schema_version, timestamp}` envelope
+to stdout. It costs zero context until it is called.
+
+**Local HTTP API second — for process boundaries only.** The loopback dashboard
+(`navgator ui`) serves read routes under `web/app/api/`. Use it when a separate,
+already-running process needs a request/response boundary. It is not an agent
+surface: an agent that can run a shell should run the CLI.
+
+**MCP last resort — deprecated as a default, opt-in only.** NavGator no longer
+registers an MCP server on either host. The server code still ships and still
+works; opt in with `--with-mcp` on either installer. Use it only for a consumer
+that genuinely cannot spawn a subprocess — no shell, no Bash tool. Three failure
+modes drove the demotion:
+
+- **Startup state caching.** The server is a long-lived process. State it reads at
+  startup can go stale against the working tree while the session continues, so a
+  tool can answer from a snapshot the user has already changed. A CLI call
+  re-reads on every invocation.
+- **Silent failure.** A failed handshake or a crashed server surfaces as a missing
+  tool, not an error. A CLI call returns a non-zero exit code and stderr you can
+  act on.
+- **Context cost.** Twelve tool schemas load into every request whether or not the
+  session touches architecture. The CLI costs nothing until it is called.
+
+Opting in:
+
+    bash scripts/install-plugin.sh --global --with-mcp        # Claude Code
+    bash scripts/install-codex-plugin.sh --user --with-mcp    # Codex
+
+Without `--with-mcp`, no MCP server is registered on either host. See the
+CLI-command mapping in [README.md](README.md#migrating-off-the-mcp-tools).
 
 ---
 
@@ -59,17 +98,19 @@ NavGator/
 ├── agents/
 │   ├── architecture-advisor.md     # Stack decisions + migration planning
 │   ├── architecture-investigator.md  # SRE-style read-only investigation
-│   ├── architecture-planner.md     # Graph freshness + MCP-tool orchestration
+│   ├── architecture-planner.md     # Graph freshness + CLI orchestration
 │   └── external-resolver.md        # External dependency freshness resolution
 ├── .claude-plugin/
 │   └── plugin.json             # Claude plugin manifest (name: navgator)
 ├── .codex-plugin/
-│   ├── plugin.json             # Codex plugin manifest (name: navgator)
-│   └── mcp.json                # Codex-relative MCP process config
+│   └── plugin.json             # Codex plugin manifest (name: navgator)
+├── mcp-optin/                  # Opt-in MCP manifests, installed only with --with-mcp
+│   ├── claude.mcp.json
+│   ├── codex.mcp.json
+│   └── README.md
 ├── web/                        # Optional Next.js UI
-├── scripts/
-│   └── install-plugin.sh       # Global plugin installer
-└── .mcp.json                   # MCP server registration
+└── scripts/
+    └── install-plugin.sh       # Global plugin installer
 ```
 
 ---
@@ -82,11 +123,11 @@ npm run build        # Full build: TypeScript + Next.js web UI
 npm run build:cli    # TypeScript only (faster)
 npm test             # Run test suite (vitest)
 npm run dev          # Watch mode for TypeScript
-npm run mcp          # Start MCP server directly
+npm run mcp          # Start MCP server directly (opt-in escape hatch; not registered by default)
 npm run clean        # Remove dist/ and web/.next/
 ```
 
-Build output goes to `dist/`. The MCP server entry point after build is `dist/mcp/server.js`.
+Build output goes to `dist/`. `dist/mcp/server.js` is the MCP server entry point; it is always built but registered on neither host unless the installer runs with `--with-mcp`.
 
 ---
 
@@ -102,31 +143,34 @@ default-path discovery for runtime capabilities:
 - Agents: `./agents/`
 - Skills: `./skills/`
 - Hooks: `./hooks/hooks.json` (empty by default; do not redeclare in the manifest)
-- MCP servers: `./.mcp.json` (do not redeclare the default path in the manifest)
+- MCP servers: none by default. `bash scripts/install-plugin.sh --global --with-mcp` registers `mcp-optin/claude.mcp.json`.
 
 `scripts/install-plugin.sh` materializes a dependency-complete package, adds
-that local directory as the `navgator` marketplace, installs and enables
-`navgator@navgator` through the Claude CLI, and verifies the installed cache's
-MCP process before reporting success. A filesystem symlink alone is not a
+that local directory as the `navgator` marketplace, and installs and enables
+`navgator@navgator` through the Claude CLI. Without `--with-mcp` no MCP process
+is registered; with it, the installer also verifies the installed cache's MCP
+process before reporting success. A filesystem symlink alone is not a
 registered Claude plugin.
 
 Codex surface (`.codex-plugin/plugin.json`) points to:
-- Skills: `./skills/`
-- MCP servers: `./.codex-plugin/mcp.json`
+- Skills: `./skills/`, driving the `navgator` CLI
+- MCP servers: none by default. `bash scripts/install-codex-plugin.sh --user --with-mcp` registers `mcp-optin/codex.mcp.json`.
 - Interface metadata for Codex UI
 
 Codex does not discover Claude's `commands/` or `agents/` directories. Run
 `scripts/install-codex-plugin.sh` to materialize the npm package at a non-empty
-local marketplace path. The installer makes the MCP server entry absolute,
-targets Codex's deterministic versioned cache, and removes the package-relative
-`cwd`, so installed code is cache-owned while scan scope follows the active task
-workspace. The script registers the path; the user
-must still install/enable `navgator` in the Codex plugin browser and start a new
-task.
+local marketplace path. By default no MCP server is registered; pass
+`--with-mcp` to also install `mcp-optin/codex.mcp.json`, retargeted to Codex's
+deterministic versioned cache with no fixed `cwd`, so installed code is
+cache-owned while scan scope follows the active task workspace. The script
+registers the path; the user must still install/enable `navgator` in the Codex
+plugin browser and start a new task.
 
-### MCP Server
+### MCP Server (opt-in, off by default)
 
-JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
+JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`. Not registered on either
+host unless the installer runs with `--with-mcp` (see Agent interface policy
+below); `npm run mcp` starts it directly as a manual escape hatch.
 
 12 tools exposed:
 
@@ -140,7 +184,7 @@ JSON-RPC 2.0 over stdio. Entry: `dist/mcp/server.js`.
 | `trace` | Data-flow trace forward and backward through the graph |
 | `summary` | Executive summary for agent consumption |
 | `review` | Architectural integrity review (drift, lessons, violations) |
-| `explore` | Full detail on a specific component (type, layer, files, metadata) |
+| `explore` | Deep dive on one component: connections, runtime identity, impact severity, trace paths, layer position |
 | `rules` | Rule checks: orphans, layer violations, cycles, hotspots |
 | `portfolio` | Cross-repo dependency/service map; scans a local folder of repos, or reports over already-registered projects with no `dir` |
 | `arch_diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `base` ref) |
@@ -173,7 +217,7 @@ Skills have different auto-trigger patterns — check each `SKILL.md` before mod
 
 ### Hooks
 
-`hooks/hooks.json` is intentionally empty. NavGator should be invoked explicitly through slash commands, MCP tools, or the CLI instead of adding automatic scan reminders to every session.
+`hooks/hooks.json` is intentionally empty. NavGator should be invoked explicitly through the CLI, slash commands, or opt-in MCP tools instead of adding automatic scan reminders to every session.
 
 ### Agents (4, Claude only)
 
@@ -181,7 +225,7 @@ Skills have different auto-trigger patterns — check each `SKILL.md` before mod
 
 **`architecture-investigator`** — SRE-style read-only investigation across 5 phases: Overview, Identify, Trace, Rules, Synthesize. Read-only during phases 1–4. Every finding cites specific tool output. Tools: Bash, Read, Glob, Grep.
 
-**`architecture-planner`** — Graph freshness check + MCP-tool orchestration for architecture-aware questions. Reads `index.json` + `hashes.json`, runs `navgator scan --auto` if stale so configuration changes can trigger a required full refresh, then dispatches `impact`, `trace`, `connections`, `review`, `dead`, `rules` and returns a structured report. Triggers on phrasings like "review architecture for X", "blast radius of Y", "how does A connect to B".
+**`architecture-planner`** — Graph freshness check + CLI orchestration for architecture-aware questions. Reads `index.json` + `hashes.json`, runs `navgator scan --auto` if stale so configuration changes can trigger a required full refresh, then dispatches `navgator impact|trace|connections|review|dead|rules --agent` and returns a structured report. Triggers on phrasings like "review architecture for X", "blast radius of Y", "how does A connect to B".
 
 **`external-resolver`** — Isolated external-boundary freshness resolver for packages and services. Updates NavGator's cache and returns structured drift evidence without mutating the architecture graph directly.
 
@@ -320,8 +364,8 @@ NavGator annotates components with runtime identity: service names, connection e
 ## Key Constraints
 
 - **NAVSUMMARY.md must stay under ~150 lines.** It is hot context — read at session start. Bloating it defeats the tier model.
-- **MCP tools are the preferred interface for agents** — use `scan`, `explore`, `trace`, `impact`, `rules` rather than reading JSON files directly.
+- **The CLI is the preferred interface for agents** — run `navgator scan|explore|trace|impact|rules --agent` rather than reading JSON files directly. MCP is opt-in only (see Agent interface policy above).
 - **Storage path is `.navgator/`**, not `.claude/`. Migration logic exists for legacy paths.
 - **`--agent` flag** wraps any command output in a stable JSON envelope for machine consumption.
-- **Node.js >= 20.11.0 required.** This is the tested compatibility floor and satisfies the packaged Next.js dashboard's Node 20.9+ requirement. TypeScript compiles to ES2022 with NodeNext module resolution.
+- **Node.js >= 20.19.0 required.** `package.json` declares this floor and both installers hard-fail below it. It satisfies the packaged Next.js dashboard's Node 20.9+ requirement. TypeScript compiles to ES2022 with NodeNext module resolution.
 - **`ts-morph` is an optional dependency** — scanner functionality degrades gracefully without it.

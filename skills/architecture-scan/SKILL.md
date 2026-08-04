@@ -7,7 +7,9 @@ user-invocable: false
 
 # Architecture Scan & Status
 
-Scan project architecture, check health, and monitor staleness using NavGator MCP tools. This skill covers scanning, status display, and health checks.
+Scan project architecture, check health, and monitor staleness using the navgator CLI. This skill covers scanning, status display, and health checks.
+
+Resolve the binary first: use `navgator` if it is on PATH, otherwise `node "$NAVGATOR_HOME/dist/cli/index.js"` where `NAVGATOR_HOME` is the installed package root. Never hardcode an absolute path. See the `navgator-setup` skill for the full resolution order.
 
 ## When to Activate
 
@@ -19,7 +21,7 @@ Scan project architecture, check health, and monitor staleness using NavGator MC
 
 ## Scanning
 
-Use the `navgator scan` MCP tool to detect components, connections, AI prompts, and infrastructure.
+Run `navgator scan --agent` to detect components, connections, AI prompts, and infrastructure. A non-zero exit code is a real failure — surface stderr and do not present a scan as complete.
 
 **Options:**
 - Default: Full scan including code analysis
@@ -33,7 +35,7 @@ After scanning, present a smart brevity brief:
 
 ## Status
 
-Use the `navgator status` MCP tool to show architecture summary without re-scanning.
+Run `navgator status --agent` to show architecture summary without re-scanning.
 
 Returns: component counts by type/layer, connection counts, AI routing table, last scan timestamp, and staleness indicator.
 
@@ -41,7 +43,7 @@ If no architecture data exists, recommend running a scan first.
 
 ## Health Checks
 
-Use the `navgator scan` MCP tool with a follow-up review of the results. Health information is included in scan output:
+Run `navgator scan --agent` with a follow-up review of the results. Health information is included in scan output:
 - Outdated packages
 - Security vulnerabilities
 - Orphaned connections (dead code references)
@@ -49,13 +51,13 @@ Use the `navgator scan` MCP tool with a follow-up review of the results. Health 
 
 ## Decision Tree
 
-| User Intent | MCP Tool | Notes |
-|-------------|----------|-------|
-| "Scan my project" | `navgator scan` | Full scan |
-| "Quick scan" | `navgator scan` (quick: true) | Packages only |
-| "What's my stack?" | `navgator status` | No re-scan needed |
-| "Any outdated packages?" | `navgator scan` | Check health results |
-| "Is architecture data fresh?" | `navgator status` | Check timestamp |
+| User Intent | CLI Command | Notes |
+|-------------|-------------|-------|
+| "Scan my project" | `navgator scan --agent` | Full scan |
+| "Quick scan" | `navgator scan --agent --quick` | Packages only |
+| "What's my stack?" | `navgator status --agent` | No re-scan needed |
+| "Any outdated packages?" | `navgator scan --agent` | Check health results |
+| "Is architecture data fresh?" | `navgator status --agent` | Check timestamp |
 
 ## Output Format
 

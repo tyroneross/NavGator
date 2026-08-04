@@ -138,8 +138,74 @@ async function verifyIdentity(packageDir, packageJson) {
     assert.equal(manifest.license, packageJson.license, `${label} license`)
   }
 
+  // MCP is opt-in. Codex auto-loads whatever path this key names, so an absent
+  // key is the registration-off switch on that host.
+  assert.equal(
+    codexManifest.mcpServers,
+    undefined,
+    'packed Codex manifest registers no MCP server by default',
+  )
+
   const hooks = await readJson(path.join(packageDir, 'hooks', 'hooks.json'))
   assert.deepEqual(hooks, { hooks: {} }, 'hooks must remain empty')
+}
+
+/**
+ * Assert a package tree carries neither host's auto-loaded MCP config.
+ *
+ * Claude auto-loads a root `.mcp.json` from the marketplace source it copies
+ * into its plugin cache; Codex auto-loads the path named by its manifest's
+ * `mcpServers` key. Both surfaces must be absent for a default install to
+ * register zero MCP servers, which is the whole point of the demotion.
+ */
+async function assertNoDefaultMcp(packageDir, label) {
+  await assert.rejects(
+    access(path.join(packageDir, '.mcp.json')),
+    `${label} ships no root .mcp.json (Claude MCP is opt-in)`,
+  )
+  await assert.rejects(
+    access(path.join(packageDir, '.codex-plugin', 'mcp.json')),
+    `${label} ships no Codex MCP config (Codex MCP is opt-in)`,
+  )
+  const codexManifest = await readJson(path.join(packageDir, '.codex-plugin', 'plugin.json'))
+  assert.equal(
+    codexManifest.mcpServers,
+    undefined,
+    `${label} Codex manifest declares no MCP server`,
+  )
+}
+
+/**
+ * Assert the opt-in templates keep their host-specific process resolution.
+ *
+ * This is the property the deleted `.mcp.json` / `.codex-plugin/mcp.json`
+ * shape assertions protected: Claude resolves through the plugin root it
+ * exports, Codex resolves relative to the package it copied into its cache.
+ * Only the file locations moved.
+ */
+async function assertMcpOptInTemplates(packageDir) {
+  const claude = (await readJson(path.join(packageDir, 'mcp-optin', 'claude.mcp.json'))).mcpServers?.navgator
+  assert.ok(claude, 'Claude opt-in template defines navgator')
+  assert.equal(claude.command, 'node', 'Claude opt-in template launches node')
+  assert.ok(
+    claude.args?.[0]?.includes('${CLAUDE_PLUGIN_ROOT}'),
+    'Claude opt-in template resolves through the exported plugin root',
+  )
+
+  const codex = (await readJson(path.join(packageDir, 'mcp-optin', 'codex.mcp.json'))).mcpServers?.navgator
+  assert.ok(codex, 'Codex opt-in template defines navgator')
+  assert.deepEqual(
+    codex,
+    { command: 'node', args: ['dist/mcp/server.js'], cwd: '.' },
+    'Codex opt-in template stays package-relative',
+  )
+  assert.equal(
+    JSON.stringify(codex).includes('CLAUDE_PLUGIN_ROOT'),
+    false,
+    'Codex opt-in template does not borrow the Claude plugin root',
+  )
+
+  await access(path.join(packageDir, 'mcp-optin', 'README.md'))
 }
 
 function resolveMcpLaunch(packageDir, configPath, fallbackCwd = packageDir) {
@@ -227,6 +293,45 @@ function probeMcpTool(packageDir, configPath, host, cwd, name, args = {}) {
   assert.ok(called?.result, `${host} MCP ${name} returned a result`)
   assert.equal(called.result.isError, undefined, `${host} MCP ${name} did not return an error`)
   return called.result.content?.map((item) => item.text ?? '').join('\n') ?? ''
+}
+
+/**
+ * Run an installed CLI entrypoint and return its parsed `--agent` envelope.
+ *
+ * This is the default-surface counterpart to `probeMcpTool`. The separation
+ * that matters is the same one the MCP probe measured: `packageDir` is the
+ * installed runtime (a host's versioned cache), `cwd` is the ACTIVE task
+ * workspace. A CLI call resolves its project from `cwd`, so a passing probe
+ * proves the cache executes against the task root and not its own package root.
+ *
+ * Timeouts are explicit and generous — CI runs on 2 cores.
+ */
+function probeCli(packageDir, cwd, label, args, timeout) {
+  const entry = path.join(packageDir, 'dist', 'cli', 'index.js')
+  const output = run('node', [entry, ...args], { cwd, timeout, env: mcpProbeEnv() })
+  assert.ok(
+    output.startsWith('{'),
+    `${label} CLI emits a JSON agent envelope: ${output.slice(0, 200)}`,
+  )
+  const envelope = JSON.parse(output)
+  assert.equal(envelope.command, args[0], `${label} CLI envelope names the ${args[0]} command`)
+  assert.ok(envelope.data, `${label} CLI envelope carries data`)
+  return envelope.data
+}
+
+/**
+ * `status --agent` emits the `{command, data, schema_version, timestamp}`
+ * envelope rather than the MCP tool's `Components: N` text, so the counts are
+ * read from `data.stats`. `--no-refresh` suppresses the staleness auto-scan so
+ * the fixture counts stay deterministic on a slow runner; the MCP `status`
+ * handler called the same `autoRefreshIfStale` and was latently exposed to it.
+ */
+function probeCliStatus(packageDir, cwd, label) {
+  return probeCli(packageDir, cwd, label, ['status', '--agent', '--no-refresh'], 60_000)
+}
+
+function probeCliScan(packageDir, cwd, label) {
+  return probeCli(packageDir, cwd, label, ['scan', '--quick', '--agent'], 180_000)
 }
 
 function assertMaterializedCodexMcp(packageDir, label, entryPackageDir = packageDir) {
@@ -922,12 +1027,23 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
   assert.ok(plugin.installPath, 'Claude reports an install path')
   await access(path.join(plugin.installPath, 'node_modules', 'glob', 'package.json'))
 
-  const mcpVersion = probeMcp(
-    plugin.installPath,
-    path.join(plugin.installPath, '.mcp.json'),
-    'installed Claude plugin',
+  // Default install: Claude copies the marketplace source into its plugin
+  // cache, so a `.mcp.json` in the cache is exactly what a default MCP
+  // registration would look like. Its absence is the assertion.
+  await assert.rejects(
+    access(path.join(plugin.installPath, '.mcp.json')),
+    'default Claude install registers no MCP server',
   )
-  assert.equal(mcpVersion, expectedVersion, 'installed Claude MCP version matches package')
+
+  // Version identity of the installed runtime used to come from the MCP
+  // handshake. The CLI is the surface that now ships by default, so it carries
+  // the same property.
+  const installedCliVersion = run(
+    'node',
+    [path.join(plugin.installPath, 'dist', 'cli', 'index.js'), '--version'],
+    { cwd: plugin.installPath, env, timeout: 60_000 },
+  )
+  assert.equal(installedCliVersion, expectedVersion, 'installed Claude CLI version matches package')
 }
 
 class AppServerClient {
@@ -1059,6 +1175,10 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     CODEX_HOME: workspaceCodexHome,
   }
 
+  // Two full Codex installs already cost the bulk of this probe on a 2-core
+  // runner, so they cover the two modes instead of adding a third:
+  //   user scope      -> DEFAULT install, asserts zero MCP registration
+  //   workspace scope -> `--with-mcp`, asserts the opt-in path still works
   const installer = path.join(packageDir, 'scripts', 'install-codex-plugin.sh')
   const userInstallOptions = {
     cwd: workspace,
@@ -1077,11 +1197,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   const userEntry = userMarketplace.plugins.find((plugin) => plugin.name === 'navgator')
   assert.ok(userEntry?.source?.path, 'Codex user marketplace has a concrete local source')
   const userPackageDir = path.resolve(userHome, userEntry.source.path)
-  assertMaterializedCodexMcp(
-    userPackageDir,
-    'Codex user registration',
-    userCacheDir,
-  )
+  await assertNoDefaultMcp(userPackageDir, 'Codex default user registration')
 
   const userParams = { cwds: [realpathSync(workspace)] }
   const userClient = new AppServerClient('codex', userEnv)
@@ -1102,7 +1218,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
       marketplacePath: userMarketplacePath,
     })
     assert.equal(read.plugin.skills.length, 6, 'Codex discovers 6 skills')
-    assert.deepEqual(read.plugin.mcpServers, ['navgator'], 'Codex discovers NavGator MCP')
+    assert.deepEqual(read.plugin.mcpServers, [], 'default Codex install registers no MCP server')
     assert.equal(read.plugin.hooks.length, 0, 'Codex hooks remain empty')
 
     await userClient.request('plugin/install', {
@@ -1130,7 +1246,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
       marketplacePath: userMarketplacePath,
     })
     assert.equal(freshRead.plugin.skills.length, 6, 'fresh Codex task discovers 6 skills')
-    assert.deepEqual(freshRead.plugin.mcpServers, ['navgator'], 'fresh Codex task discovers MCP')
+    assert.deepEqual(freshRead.plugin.mcpServers, [], 'fresh default Codex task registers no MCP server')
     const skills = await freshClient.request('skills/list', {
       cwds: [realpathSync(workspace)],
       forceReload: true,
@@ -1141,33 +1257,37 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   }
 
   await access(path.join(userCacheDir, '.codex-plugin', 'plugin.json'))
-  const userCacheMcpConfig = assertMaterializedCodexMcp(
-    userCacheDir,
-    'Codex installed user cache',
-  )
-  const userCacheStatus = probeMcpTool(
-    userCacheDir,
-    userCacheMcpConfig,
-    'Codex installed user cache',
-    workspace,
-    'status',
-  )
-  assert.match(userCacheStatus, /Components: 4242/, 'installed user cache MCP reads the task workspace')
-  assert.match(userCacheStatus, /Connections: 17/, 'installed user cache MCP keeps package and task roots separate')
+  await assertNoDefaultMcp(userCacheDir, 'Codex installed default user cache')
 
+  // The load-bearing property, carried over from the MCP `status` probe: the
+  // installed runtime executes FROM THE CACHE while analyzing the ACTIVE TASK
+  // WORKSPACE. 4242/17 exist only in the workspace fixture, so reading them
+  // back proves the cache never resolved its own package root as the project.
+  const userCacheStatus = probeCliStatus(userCacheDir, workspace, 'Codex installed user cache')
+  assert.equal(
+    userCacheStatus.stats.total_components,
+    4242,
+    'installed user cache CLI reads the task workspace',
+  )
+  assert.equal(
+    userCacheStatus.stats.total_connections,
+    17,
+    'installed user cache CLI keeps package and task roots separate',
+  )
+
+  // The registration source is mutable; the cache must not execute it. The CLI
+  // is the default runtime now, so it is the entrypoint worth poisoning.
   await writeFile(
-    path.join(userPackageDir, 'dist', 'mcp', 'server.js'),
+    path.join(userPackageDir, 'dist', 'cli', 'index.js'),
     'throw new Error("mutable source runtime must not execute")\n',
   )
-  assert.match(
-    probeMcpTool(
+  assert.equal(
+    probeCliStatus(
       userCacheDir,
-      userCacheMcpConfig,
-      'Codex installed user cache after source mutation',
       workspace,
-      'status',
-    ),
-    /Components: 4242/,
+      'Codex installed user cache after source mutation',
+    ).stats.total_components,
+    4242,
     'installed user cache does not execute the mutable registration source',
   )
   await rm(path.join(userHome, '.codex', 'plugins', 'navgator-runtime'), {
@@ -1180,15 +1300,15 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     name: 'codex-user-cache-workspace',
     version: '1.0.0',
   }))
-  const userCacheScan = probeMcpTool(
+  const userCacheScan = probeCliScan(
     userCacheDir,
-    userCacheMcpConfig,
-    'Codex installed user cache after source removal',
     userCacheWorkspace,
-    'scan',
-    { quick: true },
+    'Codex installed user cache after source removal',
   )
-  assert.match(userCacheScan, /Scan (?:complete|no changes):/, 'installed user cache scans after source removal')
+  assert.ok(
+    ['completed', 'noop'].includes(userCacheScan.status),
+    'installed user cache scans after source removal',
+  )
   const userCacheIndex = await readJson(path.join(userCacheWorkspace, '.navgator', 'architecture', 'index.json'))
   assert.equal(
     realpathSync(userCacheIndex.project_path),
@@ -1200,8 +1320,10 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     cwd: workspace,
     env: workspaceEnv,
   }
-  run('bash', [installer, '--workspace'], workspaceInstallOptions)
-  run('bash', [installer, '--workspace'], workspaceInstallOptions)
+  // Opt-in path. `--with-mcp` is position-independent; passing it after the
+  // scope flag also exercises that.
+  run('bash', [installer, '--workspace', '--with-mcp'], workspaceInstallOptions)
+  run('bash', [installer, '--workspace', '--with-mcp'], workspaceInstallOptions)
   const workspaceMarketplacePath = path.join(workspace, '.agents', 'plugins', 'marketplace.json')
   await access(workspaceMarketplacePath)
   const workspaceMarketplace = await readJson(workspaceMarketplacePath)
@@ -1237,7 +1359,11 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
       marketplacePath: workspaceMarketplacePath,
     })
     assert.equal(read.plugin.skills.length, 6, 'Codex workspace registration discovers 6 skills')
-    assert.deepEqual(read.plugin.mcpServers, ['navgator'], 'Codex workspace registration discovers MCP')
+    assert.deepEqual(
+      read.plugin.mcpServers,
+      ['navgator'],
+      'Codex workspace registration discovers MCP under --with-mcp',
+    )
     await workspaceClient.request('plugin/install', {
       pluginName: 'navgator',
       marketplacePath: workspaceMarketplacePath,
@@ -1261,7 +1387,11 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
       marketplacePath: workspaceMarketplacePath,
     })
     assert.equal(read.plugin.skills.length, 6, 'fresh workspace task discovers 6 skills')
-    assert.deepEqual(read.plugin.mcpServers, ['navgator'], 'fresh workspace task discovers MCP')
+    assert.deepEqual(
+      read.plugin.mcpServers,
+      ['navgator'],
+      'fresh workspace task discovers MCP under --with-mcp',
+    )
     const skills = await freshWorkspaceClient.request('skills/list', {
       cwds: [realpathSync(workspace)],
       forceReload: true,
@@ -1360,6 +1490,14 @@ async function main() {
     assert.ok(!files.some((file) => file.split('/').includes('node_modules')), 'npm-stripped node_modules are not relied upon')
     assert.ok(!files.some((file) => file.endsWith('.node')), 'dashboard payload must not embed platform-specific native binaries')
 
+    // Default agent surface is CLI-first: the tarball must carry neither host's
+    // auto-loaded MCP config, and must carry both opt-in templates.
+    assert.ok(!files.includes('.mcp.json'), 'packed package ships no root .mcp.json')
+    assert.ok(!files.includes('.codex-plugin/mcp.json'), 'packed package ships no Codex MCP config')
+    assert.ok(files.includes('mcp-optin/claude.mcp.json'), 'Claude MCP opt-in template is packed')
+    assert.ok(files.includes('mcp-optin/codex.mcp.json'), 'Codex MCP opt-in template is packed')
+    assert.ok(files.includes('mcp-optin/README.md'), 'MCP opt-in README is packed')
+
     const installRoot = path.join(tempRoot, 'installed')
     await mkdir(installRoot, { recursive: true })
     run('npm', [
@@ -1382,10 +1520,25 @@ async function main() {
 
     const cliVersion = run('node', ['dist/cli/index.js', '--version'], { cwd: packageDir })
     assert.equal(cliVersion, packedPackage.version, 'CLI version matches package')
-    const claudeMcpVersion = probeMcp(packageDir, path.join(packageDir, '.mcp.json'), 'Claude')
-    const codexMcpVersion = probeMcp(packageDir, path.join(packageDir, '.codex-plugin', 'mcp.json'), 'Codex')
-    assert.equal(claudeMcpVersion, packedPackage.version, 'Claude MCP version matches package')
-    assert.equal(codexMcpVersion, packedPackage.version, 'Codex MCP version matches package')
+    await assertNoDefaultMcp(packageDir, 'installed package')
+    await assertMcpOptInTemplates(packageDir)
+
+    // Opt-in path, proven at no extra install cost: launch the server straight
+    // from each host's template. Both still initialize as `navgator`, expose
+    // exactly the 12 tools, and report the package version — the same three
+    // properties the default-registration probes used to assert.
+    const claudeMcpVersion = probeMcp(
+      packageDir,
+      path.join(packageDir, 'mcp-optin', 'claude.mcp.json'),
+      'Claude opt-in',
+    )
+    const codexMcpVersion = probeMcp(
+      packageDir,
+      path.join(packageDir, 'mcp-optin', 'codex.mcp.json'),
+      'Codex opt-in',
+    )
+    assert.equal(claudeMcpVersion, packedPackage.version, 'Claude opt-in MCP version matches package')
+    assert.equal(codexMcpVersion, packedPackage.version, 'Codex opt-in MCP version matches package')
 
     await probeClaude(packageDir, tempRoot, packedPackage.version)
     await probeCodex(packageDir, tempRoot, packedPackage.version)

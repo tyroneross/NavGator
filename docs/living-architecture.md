@@ -35,8 +35,10 @@ removes only the current owner's lease.
 - Explicit CLI: `navgator mark-dirty <paths...> --drain` records work and starts
   a detached trailing-edge drain. `navgator drain --until-clean` can also be run
   directly.
-- Architecture reads: the MCP `status` path can auto-refresh a stale graph; it
-  uses the same ledger snapshot and scanner-owned lease.
+- Architecture reads: `navgator status` auto-refreshes a stale graph through the
+  shared `autoRefreshIfStale` scanner export, using the same ledger snapshot and
+  scanner-owned lease. The opt-in MCP `status` tool calls the same export, so
+  both surfaces refresh identically.
 - Orchestration: build or review flows can run `navgator drain`, then inspect
   `navgator freshness` before relying on graph data.
 - Hooks: `hooks/hooks.json` is intentionally empty. NavGator does not install a
@@ -86,7 +88,8 @@ generation can still require a later full refresh.
   reason, never an empty diff that would read as "no changes."
 
 **Snapshots are written on demand, not maintained by `scan()`.** `navgator
-arch-diff --record` (or the MCP `arch_diff` tool with `record: true`) is what
+arch-diff --record` (or, on the opt-in MCP surface, the `arch_diff` tool with
+`record: true`) is what
 writes `canonical/` and `branches/<slug>/` snapshots — a plain `scan()` call
 never touches them. Treat them as an explicit, human- or agent-triggered
 checkpoint rather than a byproduct of every scan.

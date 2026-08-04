@@ -11,7 +11,7 @@ Trace the data flow path for: **$ARGUMENTS**
 
 ## What to do
 
-1. Run the navgator `trace` MCP tool with the component name
+1. Run `navgator trace "$ARGUMENTS" --agent` (prefer `navgator` on PATH). A non-zero exit code is a real failure — surface stderr and stop; do not present a fabricated trace.
 2. If the component is a cron job or API route, trace forward to show the full pipeline
 3. If it's a database model or queue, trace both directions to show producers AND consumers
 4. Present the trace as a readable pipeline:

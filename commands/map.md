@@ -13,8 +13,8 @@ Perform a comprehensive architecture mapping of this project.
 
 ## What to do
 
-1. Run the navgator `scan` MCP tool to detect all components and connections
-2. Run the navgator `status` MCP tool to display the architecture summary
+1. Run `navgator scan --agent` to detect all components and connections (prefer `navgator` on PATH). A non-zero exit code is a real failure — surface stderr and stop before reporting results.
+2. Run `navgator status --agent` to display the architecture summary
 3. Present a brief of what was found:
    - Total components and connections
    - Runtime topology (databases, caches, queues, workers, crons)

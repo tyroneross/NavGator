@@ -12,7 +12,9 @@ Accumulate reusable architectural knowledge across projects so NavGator can answ
 1. **Cross-project** — lives at `~/.navgator/knowledge/`, not per-project
 2. **Version-controlled** — every entry has a created date, last validated date, and source tier
 3. **Periodically validated** — entries >6 months old flagged for re-research
-4. **Queryable** — CLI command and MCP tool to search by topic
+4. **Queryable** — a CLI command searches by topic. CLI only: NavGator's agent
+   surface is the CLI, and MCP is an opt-in last resort that new capabilities do
+   not extend.
 5. **Updatable** — new model releases invalidate old entries, user can override
 
 ## Storage Structure

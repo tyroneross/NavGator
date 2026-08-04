@@ -16,7 +16,6 @@
     "impact-analysis"
   ],
   "skills": "./skills",
-  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "NavGator",
     "shortDescription": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",

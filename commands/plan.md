@@ -20,7 +20,7 @@ Dispatch the `architecture-planner` agent (defined in `agents/architecture-plann
 1. Check whether `.navgator/architecture/index.json` exists. If not, stop and recommend `/navgator:scan`.
 2. Inspect `last_full_scan` and `incrementals_since_full` to decide whether the graph is fresh enough.
 3. Run `navgator scan --auto --json` if the graph is stale (no forced `--full`, no `--clear`).
-4. Dispatch the right read-only NavGator MCP tools (`impact`, `trace`, `connections`, `review`, `dead`, `rules`, `llm-map`) based on the intent.
+4. Dispatch the right read-only `navgator` CLI commands (`impact`, `trace`, `connections`, `review`, `dead`, `rules`, `llm-map`), each with `--agent`, based on the intent.
 5. Aggregate findings into a structured report.
 
 Do NOT run NavGator commands directly from this command — delegate to the agent. The agent has the full freshness-decision and tool-dispatch protocol.

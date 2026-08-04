@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # NavGator Codex marketplace registrar
-# Usage: ./scripts/install-codex-plugin.sh [--user | --workspace]
+# Usage: ./scripts/install-codex-plugin.sh [--user | --workspace] [--with-mcp]
 
-SCOPE="${1:---user}"
+SCOPE="--user"
+WITH_MCP="false"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PACKAGE_SOURCE="${NAVGATOR_PACKAGE_SOURCE:-$PLUGIN_ROOT}"
@@ -215,6 +216,71 @@ try {
 NODE
 }
 
+# Opt-in only. The shipped manifest has no mcpServers key, so Codex registers
+# zero MCP servers by default; --with-mcp adds the key back before Codex copies
+# the package into its versioned cache.
+enable_manifest_mcp_servers() {
+  local manifest_path="$1"
+
+  node - "$manifest_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [manifestPath] = process.argv.slice(2)
+if (fs.lstatSync(manifestPath).isSymbolicLink()) {
+  throw new Error(`Refusing symlinked Codex manifest: ${manifestPath}`)
+}
+
+const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+if (!manifest || typeof manifest !== 'object') {
+  throw new Error(`Invalid Codex plugin manifest: ${manifestPath}`)
+}
+manifest.mcpServers = './.codex-plugin/mcp.json'
+
+const parent = path.dirname(manifestPath)
+const candidate = path.join(parent, `.${path.basename(manifestPath)}.${process.pid}.${Date.now()}.tmp`)
+let descriptor
+try {
+  descriptor = fs.openSync(candidate, 'wx', 0o600)
+  fs.writeFileSync(descriptor, `${JSON.stringify(manifest, null, 2)}\n`)
+  fs.fsyncSync(descriptor)
+  fs.closeSync(descriptor)
+  descriptor = undefined
+  fs.renameSync(candidate, manifestPath)
+} finally {
+  if (descriptor !== undefined) fs.closeSync(descriptor)
+  fs.rmSync(candidate, { force: true })
+}
+NODE
+}
+
+usage() {
+  echo "Usage: $0 [--user | --workspace] [--with-mcp]"
+  echo ""
+  echo "  --user       Register NavGator in ~/.agents/plugins/marketplace.json"
+  echo "  --workspace  Register NavGator in <workspace>/.agents/plugins/marketplace.json"
+  echo "  --with-mcp   Also register the MCP server (last resort; only for clients that cannot run a shell)"
+}
+
+# Flags are position-independent: --user/--workspace set the scope, --with-mcp
+# is an independent opt-in. Scope defaults to --user when only --with-mcp is
+# passed.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --user | --workspace)
+      SCOPE="$1"
+      ;;
+    --with-mcp)
+      WITH_MCP="true"
+      ;;
+    *)
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
 case "$SCOPE" in
   --user)
     MARKETPLACE_ROOT="$HOME"
@@ -225,10 +291,7 @@ case "$SCOPE" in
     SCOPE_LABEL="workspace"
     ;;
   *)
-    echo "Usage: $0 [--user | --workspace]"
-    echo ""
-    echo "  --user       Register NavGator in ~/.agents/plugins/marketplace.json"
-    echo "  --workspace  Register NavGator in <workspace>/.agents/plugins/marketplace.json"
+    usage
     exit 1
     ;;
 esac
@@ -299,8 +362,15 @@ assert_safe_tree \
 
 MANIFEST="$PACKAGE_DIR/.codex-plugin/plugin.json"
 MCP_CONFIG="$PACKAGE_DIR/.codex-plugin/mcp.json"
-if [ ! -f "$MANIFEST" ] || [ ! -f "$MCP_CONFIG" ]; then
-  err "Codex plugin manifest or MCP config is missing from $PACKAGE_DIR"
+MCP_TEMPLATE="$PACKAGE_DIR/mcp-optin/codex.mcp.json"
+if [ ! -f "$MANIFEST" ]; then
+  err "Codex plugin manifest is missing from $PACKAGE_DIR"
+  exit 1
+fi
+# The package no longer ships .codex-plugin/mcp.json. Under --with-mcp it is
+# materialized from the checked-in template below, so validate the template.
+if [ "$WITH_MCP" = "true" ] && [ ! -f "$MCP_TEMPLATE" ]; then
+  err "--with-mcp requested but the MCP template is missing: $MCP_TEMPLATE"
   exit 1
 fi
 
@@ -323,7 +393,12 @@ npm install \
   --no-audit \
   --no-fund
 
-configure_codex_mcp_runtime "$PACKAGE_DIR" "$MCP_CONFIG" "$CACHE_DIR"
+if [ "$WITH_MCP" = "true" ]; then
+  info "Registering the NavGator MCP server (opt-in)..."
+  cp "$MCP_TEMPLATE" "$MCP_CONFIG"
+  enable_manifest_mcp_servers "$MANIFEST"
+  configure_codex_mcp_runtime "$PACKAGE_DIR" "$MCP_CONFIG" "$CACHE_DIR"
+fi
 
 update_marketplace "$MARKETPLACE_ROOT" "$MARKETPLACE_PATH" "$SOURCE_PATH" "$MANIFEST"
 
@@ -332,7 +407,9 @@ ok "NavGator marketplace entry registered."
 echo "  Marketplace: $MARKETPLACE_PATH"
 echo "  Package:     $PACKAGE_DIR"
 echo "  Source:      $SOURCE_PATH"
-echo "  MCP package: $CACHE_DIR"
+if [ "$WITH_MCP" = "true" ]; then
+  echo "  MCP package: $CACHE_DIR"
+fi
 echo "  Scan target: active task workspace"
 echo ""
 warn "Registration does not install or enable the Codex plugin."
@@ -340,4 +417,5 @@ echo "Next steps:"
 echo "  1. Open the Codex plugin browser."
 echo "  2. Install and enable navgator."
 echo "  3. Disable the legacy gator plugin if it is present."
-echo "  4. Start a new task so the 6 skills and NavGator MCP tools load."
+echo "  4. Start a new task so the 6 skills load. Skills drive the navgator CLI."
+echo "     MCP is off by default. Re-run with --with-mcp only if your client cannot run a shell."

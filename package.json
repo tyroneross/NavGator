@@ -32,7 +32,7 @@
     "agents",
     ".claude-plugin",
     ".codex-plugin",
-    ".mcp.json",
+    "mcp-optin",
     "scripts/install-plugin.sh",
     "scripts/install-codex-plugin.sh",
     "scripts/promote-lessons.py",

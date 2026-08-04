@@ -10,6 +10,20 @@ argument-hint: [install|update|ui]
 
 Install the plugin, update to latest version, or launch the web dashboard. These operations use CLI commands (npm/shell operations that aren't MCP tools).
 
+## Resolving the navgator binary
+
+Resolve the NavGator binary once per session, in this order. Never hardcode an
+absolute path.
+
+1. `navgator` on PATH — installed globally or via `npm link`.
+2. `npx --no-install navgator` — when the project depends on `@tyroneross/navgator`.
+3. `node "$NAVGATOR_HOME/dist/cli/index.js"` — where `NAVGATOR_HOME` is the
+   installed plugin/package root (Claude: `${CLAUDE_PLUGIN_ROOT}`).
+
+If none resolve, tell the user to run `npm i -g @tyroneross/navgator` and stop.
+Treat a non-zero exit code as a real failure and surface stderr; never silently
+continue with stale architecture data.
+
 ## Install Plugin
 
 Install NavGator explicitly for Claude Code or Codex.
@@ -45,7 +59,7 @@ Project only:
 bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --project
 ```
 
-5. **Verify:** Run `claude plugin list --json` and confirm `navgator@navgator` is installed and enabled at the requested scope. The installer performs this check and also starts the cached MCP server with production dependencies.
+5. **Verify:** Run `claude plugin list --json` and confirm `navgator@navgator` is installed and enabled at the requested scope. By default no MCP server is registered — the 13 slash commands, 4 subagents, 6 skills, and the `navgator` CLI are the wired surface. Pass `--with-mcp` to the installer only if the client cannot run a shell; that flag also starts the cached MCP server with production dependencies.
 
    If `navgator@rosslabs-ai-toolkit` is still enabled, follow the installer's scoped `claude plugin disable` command and rerun. Do not leave both registry entries active.
 
@@ -63,20 +77,25 @@ bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
 bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --workspace
 ```
 
-The script installs or updates the npm package, rewrites the registration MCP
-entry to the deterministic versioned Codex cache with no fixed `cwd`, and
-registers that local source in the selected marketplace. After browser install,
-the MCP executable is cache-owned while its tools analyze the active task
-workspace. The checked-in MCP file is a package template. Registration does not
-install or enable the Codex plugin. Open
-the Codex plugin browser, install and enable `navgator`, disable the legacy
-`gator` plugin if it is present, then start a new task so skills and MCP tools
-are loaded.
+The script installs or updates the npm package and registers the local plugin
+source in the selected marketplace. By default it does not register an MCP
+entry — Codex loads only `skills/`, so the 6 skills plus the `navgator` CLI are
+Codex's entire NavGator surface. Registration does not install or enable the
+Codex plugin. Open the Codex plugin browser, install and enable `navgator`,
+disable the legacy `gator` plugin if it is present, then start a new task so
+the skills load.
+
+Pass `--with-mcp` to `install-codex-plugin.sh` only if the client cannot run a
+shell. That flag rewrites the registration MCP entry to the deterministic
+versioned Codex cache with no fixed `cwd`; the checked-in MCP file is a
+package template, and after browser install the MCP executable is cache-owned
+while its tools analyze the active task workspace.
 
 Codex uses:
 - `.codex-plugin/plugin.json`
-- `.codex-plugin/mcp.json`
 - `.agents/plugins/marketplace.json` in the selected user or workspace scope
+
+With `--with-mcp`, the Codex installer also registers `mcp-optin/codex.mcp.json`.
 
 ## Update
 
