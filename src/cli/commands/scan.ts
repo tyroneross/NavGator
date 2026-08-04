@@ -112,6 +112,9 @@ export function registerScanCommand(program: Command): void {
               jsonData.audit = result.timelineEntry.audit;
             }
           }
+          if (result.degraded) {
+            jsonData.degraded = result.degraded;
+          }
 
           if (isAgent) {
             console.log(wrapInEnvelope('scan', jsonData));
@@ -124,6 +127,17 @@ export function registerScanCommand(program: Command): void {
         console.log('\n========================================');
         console.log(result.status === 'noop' ? 'SCAN NO CHANGES' : 'SCAN COMPLETE');
         console.log('========================================\n');
+
+        // Degraded-scan banner: make it impossible to mistake a restricted,
+        // capability-reduced scan for a complete one while skimming. Printed
+        // only when the scan actually disabled something (result.degraded is
+        // absent for a complete scan).
+        if (result.degraded) {
+          console.log('!! DEGRADED SCAN !!');
+          console.log(result.degraded.message);
+          console.log(`Restrictions: ${result.degraded.restrictions.join(', ')}`);
+          console.log(`Disabled: ${result.degraded.disabled_capabilities.join(', ')}\n`);
+        }
 
         // Group components by type
         const byType: Record<string, number> = {};

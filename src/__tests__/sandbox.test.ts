@@ -4,6 +4,9 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { detectSandbox, isSandboxMode, getSandboxRestrictions } from '../sandbox.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 describe('sandbox', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -44,9 +47,10 @@ describe('sandbox', () => {
     expect(config.restrictions.readOnlyFs).toBe(true);
   });
 
-  it('does not trigger sandbox for OPENAI_API_KEY + no TTY (too broad)', () => {
-    // OPENAI_API_KEY alone should not trigger sandbox — many devs have this set for other tools.
-    // Only CODEX=1 triggers Codex detection now.
+  it('OPENAI_API_KEY is never a sandbox signal', () => {
+    // An API key in the environment says nothing about whether a shell or
+    // child process is available, and many developers export it for unrelated
+    // tools. Only CODEX=1 triggers Codex detection.
     process.env.OPENAI_API_KEY = 'sk-test';
     delete process.env.CODEX;
     delete process.env.CI;
@@ -224,5 +228,97 @@ describe('sandbox', () => {
     expect(config.enabled).toBe(true);
     expect(config.detected).toBe(false); // explicit
     expect(config.restrictions.noNetwork).toBe(true); // NAVGATOR_SANDBOX has noNetwork
+  });
+
+  it('doc-comment detection-order list stays in sync with the env vars detectSandbox() actually reads', () => {
+    // Regression guard for the 2026-04-18 drift (commit 970dc83): the
+    // detection-order doc comment above detectSandbox() kept advertising
+    // "CODEX=1 or OPENAI_API_KEY + no TTY" for 3.5 months after the
+    // OPENAI_API_KEY branch was deleted from the function body. This test
+    // reads src/sandbox.ts as text and asserts the env vars named in the
+    // NUMBERED detection-order list equal the env vars the function body
+    // actually reads. Pure string/regex work — no scan, no subprocess.
+    const testDir = path.dirname(fileURLToPath(import.meta.url));
+    const sourcePath = path.resolve(testDir, '../sandbox.ts');
+    const source = fs.readFileSync(sourcePath, 'utf-8');
+
+    // Collects env var names referenced via any of the read-styles this
+    // codebase uses: process.env.X, process.env['X'], and the dynamic
+    // getEnvBoolean('X', ...) helper (src/config.ts). Applied to both the
+    // function body and (defensively) the doc comment, so the test doesn't
+    // go blind if either side switches read/documentation style.
+    const extractEnvVarNames = (text: string): Set<string> => {
+      const names = new Set<string>();
+      const patterns = [
+        /process\.env\.([A-Z_][A-Z0-9_]*)/g,
+        /process\.env\[\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\]/g,
+        /getEnvBoolean\(\s*['"]([A-Z_][A-Z0-9_]*)['"]/g,
+      ];
+      for (const pattern of patterns) {
+        for (const match of text.matchAll(pattern)) {
+          names.add(match[1]);
+        }
+      }
+      return names;
+    };
+
+    // --- Scope 1: the detectSandbox() FUNCTION BODY only ---
+    // isSandboxMode()/getSandboxRestrictions() delegate to detectSandbox()
+    // and must not skew the set, so bound the slice from the
+    // "export function detectSandbox" declaration to the next top-level
+    // `export ` at column 0.
+    const fnStart = source.indexOf('export function detectSandbox');
+    expect(fnStart, 'Could not locate "export function detectSandbox" in src/sandbox.ts').toBeGreaterThanOrEqual(0);
+    const nextExportIdx = source.indexOf('\nexport ', fnStart + 'export function detectSandbox'.length);
+    const fnBody = source.slice(fnStart, nextExportIdx === -1 ? source.length : nextExportIdx);
+    const readVars = extractEnvVarNames(fnBody);
+
+    // --- Scope 2: the doc comment's NUMBERED detection-order list only ---
+    // Take the nearest preceding /** ... */ block (the JSDoc immediately
+    // above detectSandbox), then within it keep only lines that open with
+    // "N." — this excludes the surrounding prose sentence explaining why
+    // OPENAI_API_KEY is deliberately NOT a signal, which legitimately
+    // mentions that var name without documenting it as a detection input.
+    const beforeFn = source.slice(0, fnStart);
+    const commentStart = beforeFn.lastIndexOf('/**');
+    expect(commentStart, 'Could not locate a doc comment preceding detectSandbox() in src/sandbox.ts').toBeGreaterThanOrEqual(0);
+    const commentBlock = beforeFn.slice(commentStart);
+    const commentEnd = commentBlock.indexOf('*/');
+    expect(commentEnd, 'Doc comment preceding detectSandbox() is not closed with */').toBeGreaterThanOrEqual(0);
+    const docComment = commentBlock.slice(0, commentEnd);
+
+    const numberedLines = docComment
+      .split('\n')
+      .map((line) => line.match(/^\s*\*\s*\d+\.\s*(.*)$/))
+      .filter((m): m is RegExpMatchArray => m !== null)
+      .map((m) => m[1]);
+    expect(numberedLines.length, 'Found no numbered detection-order lines in the doc comment above detectSandbox()').toBeGreaterThan(0);
+
+    const numberedListText = numberedLines.join('\n');
+    // Numbered-list convention is "NAME=value" shorthand (e.g.
+    // "NAVGATOR_SANDBOX=1 env var"); also run the code-style extractor
+    // defensively in case the comment is ever rewritten to quote
+    // process.env.X / getEnvBoolean('X', ...) directly.
+    const documentedVars = new Set<string>();
+    for (const match of numberedListText.matchAll(/\b([A-Z][A-Z0-9_]*)=/g)) {
+      documentedVars.add(match[1]);
+    }
+    for (const name of extractEnvVarNames(numberedListText)) {
+      documentedVars.add(name);
+    }
+
+    const documentedOnly = [...documentedVars].filter((name) => !readVars.has(name));
+    const readOnly = [...readVars].filter((name) => !documentedVars.has(name));
+
+    expect(
+      documentedOnly,
+      `Doc comment's numbered detection-order list names env var(s) detectSandbox() no longer reads ` +
+        `(documented-but-not-read): ${documentedOnly.join(', ')}. Update the comment in src/sandbox.ts to match the code.`
+    ).toEqual([]);
+    expect(
+      readOnly,
+      `detectSandbox() reads env var(s) missing from its doc-comment detection-order list ` +
+        `(read-but-not-documented): ${readOnly.join(', ')}. Update the comment in src/sandbox.ts to match the code.`
+    ).toEqual([]);
   });
 });

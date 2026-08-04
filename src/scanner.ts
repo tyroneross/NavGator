@@ -58,6 +58,7 @@ import {
   ProjectMetadata,
   GitInfo,
   ArchitectureScanOutcome,
+  ScanDegradation,
 } from './types.js';
 import { getGitInfo } from './git.js';
 import { enrichFromCache } from './enrich/external-resolver.js';
@@ -563,17 +564,48 @@ export async function scan(
     config.perEntityFiles = options.perEntityFiles;
   }
 
-  // Degrade scan behavior only in a genuinely RESTRICTED sandbox (Codex-style:
-  // no child processes / read-only fs). A permissive-but-detected environment
-  // like CI (`CI=true` sets sandbox.enabled but leaves every restriction false)
-  // is fully capable and MUST run a complete scan — otherwise AST-derived
-  // source components and child-process indexers silently vanish, which is
-  // exactly the code CI needs to exercise.
+  // Degrade scan behavior per-capability, only for the restriction that
+  // capability actually needs. A permissive-but-detected environment like CI
+  // (`CI=true` sets sandbox.enabled but leaves every restriction false) is
+  // fully capable and MUST run a complete scan — otherwise AST-derived source
+  // components and child-process indexers silently vanish, which is exactly
+  // the code CI needs to exercise.
+  //
+  // Per-capability rule (do not force `quick`, `prompts: false`, or
+  // `useAST: false` from sandbox detection — that was the prior bug):
+  // - SCIP (`options.scip` / NAVGATOR_SCIP=1) is the only genuine
+  //   child-process dependency: scip-runner.ts shells out via spawnSync.
+  //   Disable it under `noChildProcess`.
+  // - `useAST` (ts-morph) and `prompts` (traceLLMCalls) both run in-process
+  //   and write nothing during analysis. Neither needs a child process nor
+  //   write access, so no restriction here disables them.
+  // - `quick` skips ALL of Phase 3 connection detection — a much bigger
+  //   hammer than any single restriction justifies. Never force it here.
+  // - `readOnlyFs` is recorded in `restrictions` for visibility, but disables
+  //   nothing: scan() performs no filesystem writes during analysis itself
+  //   (persistence happens in the separate storage.ts write path after scan()
+  //   returns), so there is currently no analysis capability to gate on it.
   const sandbox = detectSandbox();
-  if (sandbox.enabled && (sandbox.restrictions.noChildProcess || sandbox.restrictions.readOnlyFs)) {
-    options.quick = true;
-    options.prompts = false;
-    options.useAST = false;
+  let degraded: ScanDegradation | undefined;
+  {
+    const restrictions: string[] = [];
+    const disabledCapabilities: string[] = [];
+    if (sandbox.enabled && sandbox.restrictions.noChildProcess) {
+      restrictions.push('noChildProcess');
+      options.scip = false;
+      disabledCapabilities.push('scip');
+    }
+    if (sandbox.enabled && sandbox.restrictions.readOnlyFs) {
+      restrictions.push('readOnlyFs');
+    }
+    if (disabledCapabilities.length > 0) {
+      degraded = {
+        restrictions,
+        disabled_capabilities: disabledCapabilities,
+        message:
+          'Scan ran without the SCIP overlay because the environment restricts child processes (noChildProcess).',
+      };
+    }
   }
 
   // Opt-in branch tracking
@@ -857,6 +889,7 @@ export async function scan(
         files_scanned: 0,
         files_changed: 0,
       },
+      ...(degraded ? { degraded } : {}),
     };
   }
 
@@ -1239,7 +1272,14 @@ export async function scan(
       // import-scanner missed (re-exports, dynamic imports, type-only refs,
       // etc.). Existing edges from the regex pass are preserved as-is so
       // the characterization snapshots stay stable for non-SCIP runs.
-      const scipEnabled = process.env['NAVGATOR_SCIP'] === '1' || options.scip === true;
+      // An explicit `scip: false` overrides the ambient NAVGATOR_SCIP=1 opt-in.
+      // The sandbox degradation block sets exactly that when `noChildProcess`
+      // is active, and SCIP is the one pass that shells out (spawnSync in
+      // scip-runner.ts). Reading the env var alone would spawn a child process
+      // in an environment that forbids one. The prior code masked this by
+      // forcing `quick`, which skipped all of Phase 3 including this block.
+      const scipRequested = process.env['NAVGATOR_SCIP'] === '1' || options.scip === true;
+      const scipEnabled = scipRequested && options.scip !== false;
       if (scipEnabled) {
         try {
           const { runScip, crossFileEdges, hasTsConfig } = await import('./parsers/scip-runner.js');
@@ -2269,6 +2309,7 @@ export async function scan(
       files_changed: filesChanged,
       prompts_found: promptScanResultHolder?.prompts.length,
     },
+    ...(degraded ? { degraded } : {}),
   };
   } catch (error) {
     await options._onLeaseFailureBeforeRelease?.();
