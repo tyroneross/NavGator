@@ -291,10 +291,26 @@ describe('owner-safe scan lease', () => {
     const modulePath = transpiledScanLockModule(root);
     const barrier = path.join(root, 'start-gate-fanout');
     const workerCount = 40;
+    // Each child reports through its OWN FILE, not stdout.
+    //
+    // This test has been patched twice for the same failure — `31c2369` moved
+    // the child from process.stdout.write to fs.writeSync, and `f4b9ff0` bought
+    // timeout headroom — and both symptoms ("Unexpected end of JSON input" plus
+    // a timeout) returned on a 2-core CI runner. A pipe is the wrong channel
+    // here: with 40 children writing as they exit, the parent can observe exit
+    // code 0 with empty or partial stdout, because fs.writeSync may short-write
+    // to a pipe and its return value was ignored. Buying more headroom would
+    // not fix that; it only lowers the odds.
+    //
+    // A file removes the failure class instead of narrowing it. The child writes
+    // to a temp path and renames, so the parent either sees a complete document
+    // or no file at all — never a truncated one.
+    const resultDir = path.join(root, 'fanout-results');
+    fs.mkdirSync(resultDir, { recursive: true });
     const runner = `
       import fs from 'node:fs';
       import { acquireScanLease } from ${JSON.stringify(pathToFileURL(modulePath).href)};
-      const [lockPath, barrier] = process.argv.slice(1);
+      const [lockPath, barrier, resultPath] = process.argv.slice(1);
       while (!fs.existsSync(barrier)) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
@@ -305,32 +321,36 @@ describe('owner-safe scan lease', () => {
         gatePollMs: 1,
       });
       if (result.ok) result.lease.release();
-      // fs.writeSync: a pipe write via process.stdout.write is async and can be
-      // lost when the child exits immediately after — on slow runners the parent
-      // then sees exit 0 with empty stdout and JSON.parse('') throws.
-      fs.writeSync(1, JSON.stringify(result.ok
+      const payload = JSON.stringify(result.ok
         ? { ok: true }
-        : { ok: false, retryable: result.retryable, message: result.message }) + '\\n');
+        : { ok: false, retryable: result.retryable, message: result.message });
+      fs.writeFileSync(resultPath + '.tmp', payload);
+      fs.renameSync(resultPath + '.tmp', resultPath);
     `;
-    const pending = Array.from({ length: workerCount }, () => {
+    const pending = Array.from({ length: workerCount }, (_unused, index) => {
+      const resultPath = path.join(resultDir, `worker-${index}.json`);
       const child = spawn(
         process.execPath,
-        ['--input-type=module', '-e', runner, lockPath, barrier],
-        { stdio: ['ignore', 'pipe', 'pipe'] },
+        ['--input-type=module', '-e', runner, lockPath, barrier, resultPath],
+        { stdio: ['ignore', 'ignore', 'pipe'] },
       );
       children.push(child);
-      let stdout = '';
       let stderr = '';
-      child.stdout.on('data', (chunk) => { stdout += String(chunk); });
       child.stderr.on('data', (chunk) => { stderr += String(chunk); });
       return new Promise<{ ok: boolean; retryable?: boolean; message?: string }>((resolve, reject) => {
         child.once('error', reject);
         child.once('exit', (code) => {
           if (code !== 0) {
-            reject(new Error(`fanout child exited ${code}: ${stderr}`));
+            reject(new Error(`fanout child ${index} exited ${code}: ${stderr}`));
             return;
           }
-          resolve(JSON.parse(stdout.trim()) as {
+          if (!fs.existsSync(resultPath)) {
+            reject(new Error(
+              `fanout child ${index} exited 0 without writing ${resultPath}: ${stderr}`,
+            ));
+            return;
+          }
+          resolve(JSON.parse(fs.readFileSync(resultPath, 'utf8')) as {
             ok: boolean;
             retryable?: boolean;
             message?: string;
@@ -347,7 +367,11 @@ describe('owner-safe scan lease', () => {
     ).toEqual([]);
     expect(results.every((result) => result.message?.includes('Scan already in progress'))).toBe(true);
     expect(readScanLease(lockPath)?.token).toBe(held.token);
-  }, 90_000);
+    // 40 Node startups on a 2-core runner, while vitest's fork pool runs other
+    // test files alongside this one. The result-file change above fixes the
+    // truncation failure; this covers the separate startup-cost timeout that
+    // fired with it.
+  }, 180_000);
 
   it('allows exactly one winner when two processes reclaim the same dead lease', async () => {
     const lockPath = scanLockPath(root);
