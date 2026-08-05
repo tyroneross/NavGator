@@ -346,10 +346,11 @@ exports[`scanner characterization (Wave 2 T9) > import-scanner: stable on bench-
 exports[`scanner characterization (Wave 2 T9) > llm-call-tracer: stable on bench-repo fixture 1`] = `
 {
   "methods": {
-    "unknown": 1,
+    "unknown": 2,
   },
   "providers": {
     "anthropic": 1,
+    "openai": 1,
   },
   "sample_calls": [
     {
@@ -358,8 +359,14 @@ exports[`scanner characterization (Wave 2 T9) > llm-call-tracer: stable on bench
       "name": "create",
       "provider_name": "anthropic",
     },
+    {
+      "file": "src/llm.ts",
+      "method": undefined,
+      "name": "create",
+      "provider_name": "openai",
+    },
   ],
-  "total_calls": 1,
+  "total_calls": 2,
 }
 `;
 

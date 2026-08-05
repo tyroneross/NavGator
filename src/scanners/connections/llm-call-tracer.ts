@@ -125,6 +125,26 @@ interface SDKDefinition {
   providerName: string;
   classNames: string[];           // Classes that indicate client init
   callPatterns: CallPattern[];
+  /**
+   * When true, an anchor is still emitted even if the receiver variable
+   * cannot be resolved to a known `new ClassName()` client init — gated on
+   * the file having *any* import from this SDK's packageNames. Needed for
+   * SDK shapes where the method-call receiver is a value derived from the
+   * client (e.g. `genAI.getGenerativeModel(...)` returns `model`, and
+   * `model.generateContent(...)` is the actual call site — `model` is never
+   * registered as a ClientInit). Loosens precision in exchange for recall;
+   * only set this for SDKs whose call-pattern method names are distinctive
+   * enough that a false positive is unlikely (see LangChain / legacy Google
+   * precedent below).
+   */
+  allowImportFallback?: boolean;
+  /**
+   * When true, a bare default-imported binding of this package (e.g.
+   * `import ollama from 'ollama'`) is registered as an already-initialized
+   * client, without requiring a `new ClassName(...)` call. Needed for SDKs
+   * that ship a ready-to-use singleton instance as their default export.
+   */
+  implicitSingletonClient?: boolean;
 }
 
 interface CallPattern {
@@ -149,14 +169,25 @@ const SDK_DEFINITIONS: SDKDefinition[] = [
     ],
   },
   // Anthropic
+  // Verified against official SDK api.md (github.com/anthropics/anthropic-sdk-typescript,
+  // main branch, checked 2026-08-05): client.messages.{create,stream,countTokens},
+  // client.beta.messages.{create,stream,countTokens}. The prior /\.beta\./ pattern
+  // was too loose — api.md also lists dozens of non-LLM beta admin endpoints
+  // (client.beta.agents.*, client.beta.sessions.*, client.beta.environments.*,
+  // client.beta.models.*) that are not model-invocation calls; tightened to the
+  // messages-specific beta methods only.
   {
     packageNames: ['@anthropic-ai/sdk'],
     providerName: 'anthropic',
     classNames: ['Anthropic'],
     callPatterns: [
       { pattern: /\.messages\.create\s*\(/, method: 'messages.create', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.messages\.stream\s*\(/, method: 'messages.stream', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.messages\.countTokens\s*\(/, method: 'messages.countTokens', callType: 'chat', requiresClientVar: true },
       { pattern: /\.completions\.create\s*\(/, method: 'completions.create', callType: 'completion', requiresClientVar: true },
-      { pattern: /\.beta\./, method: 'beta', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.beta\.messages\.create\s*\(/, method: 'beta.messages.create', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.beta\.messages\.stream\s*\(/, method: 'beta.messages.stream', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.beta\.messages\.countTokens\s*\(/, method: 'beta.messages.countTokens', callType: 'chat', requiresClientVar: true },
     ],
   },
   // Groq
@@ -180,18 +211,131 @@ const SDK_DEFINITIONS: SDKDefinition[] = [
     ],
   },
   // Mistral
+  // v1.x (`@mistralai/mistralai` >=1.0, class `Mistral`) moved to
+  // `client.chat.complete(...)` / `client.chat.stream(...)`; the old v0.x
+  // `client.chat({...})` / `client.chatStream({...})` shape (class
+  // `MistralClient`) is kept for back-compat. Verified against
+  // github.com/mistralai/client-ts README + docs/sdks/chat/README.md
+  // (main branch, checked 2026-08-05): "complete" and "stream" are the two
+  // documented Chat operations.
   {
     packageNames: ['@mistralai/mistralai'],
     providerName: 'mistral',
     classNames: ['MistralClient', 'Mistral'],
     callPatterns: [
+      { pattern: /\.chat\.complete\s*\(/, method: 'chat.complete', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.chat\.stream\s*\(/, method: 'chat.stream', callType: 'chat', requiresClientVar: true },
       { pattern: /\.chat\s*\(/, method: 'chat', callType: 'chat', requiresClientVar: true },
       { pattern: /\.chatStream\s*\(/, method: 'chatStream', callType: 'chat', requiresClientVar: true },
     ],
   },
-  // Vercel AI SDK (functional, no client var)
+  // Google — current SDK (@google/genai, class GoogleGenAI). Verified against
+  // github.com/googleapis/js-genai README (main branch, checked 2026-08-05):
+  // `const ai = new GoogleGenAI({...}); ai.models.generateContent({...})` /
+  // `.generateContentStream(...)`. The receiver of `.models.generateContent`
+  // IS the top-level client variable, so this resolves through the standard
+  // clientVar mechanism — no import-fallback needed.
   {
-    packageNames: ['ai', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google'],
+    packageNames: ['@google/genai'],
+    providerName: 'google',
+    classNames: ['GoogleGenAI'],
+    callPatterns: [
+      { pattern: /\.models\.generateContent\s*\(/, method: 'models.generateContent', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.models\.generateContentStream\s*\(/, method: 'models.generateContentStream', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.models\.embedContent\s*\(/, method: 'models.embedContent', callType: 'embedding', requiresClientVar: true },
+    ],
+  },
+  // Google — legacy SDK (@google/generative-ai, class GoogleGenerativeAI).
+  // Verified against github.com/google-gemini/generative-ai-js README +
+  // samples/text_generation.js (main branch, checked 2026-08-05). Repo is
+  // now marked deprecated/legacy by Google (EOL 2025-11-30) but still widely
+  // deployed, so still tracked. Structurally two-hop:
+  // `const model = genAI.getGenerativeModel({model:...}); model.generateContent(prompt)`
+  // — the call receiver (`model`) is never the registered client variable
+  // (`genAI`), so this needs allowImportFallback like LangChain below.
+  // `.startChat().sendMessage(...)` deliberately NOT added: `sendMessage` is
+  // too generic a method name (chat UIs, websockets, workers all use it) to
+  // gate on file-level import presence alone without a real false-positive
+  // risk — known remaining gap.
+  {
+    packageNames: ['@google/generative-ai'],
+    providerName: 'google',
+    classNames: ['GoogleGenerativeAI'],
+    allowImportFallback: true,
+    callPatterns: [
+      { pattern: /\.generateContent\s*\(/, method: 'generateContent', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.generateContentStream\s*\(/, method: 'generateContentStream', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.embedContent\s*\(/, method: 'embedContent', callType: 'embedding', requiresClientVar: true },
+    ],
+  },
+  // Ollama. Verified against github.com/ollama/ollama-js README (main
+  // branch, checked 2026-08-05): `ollama.chat/generate/embed(...)` via the
+  // default-exported singleton (`import ollama from 'ollama'`, no `new`
+  // required), or `new Ollama({...})` for a configured instance (both
+  // classNames-based `new` and implicitSingletonClient-based default-import
+  // paths are covered). Method is `.embed(`, not `.embeddings(` (older name
+  // in some docs/blog posts, not current npm README).
+  // Bare `fetch('http://localhost:11434/api/generate')` deliberately NOT
+  // added: this is an anchor-based tracer keyed on SDK receiver+method
+  // shapes, and a literal URL string match is a structurally different
+  // detection strategy (would need a URL-pattern pass, not a call-pattern
+  // one) — out of scope for this fix, known remaining gap.
+  {
+    packageNames: ['ollama'],
+    providerName: 'ollama',
+    classNames: ['Ollama'],
+    implicitSingletonClient: true,
+    callPatterns: [
+      { pattern: /\.chat\s*\(/, method: 'chat', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.generate\s*\(/, method: 'generate', callType: 'completion', requiresClientVar: true },
+      { pattern: /\.embed\s*\(/, method: 'embed', callType: 'embedding', requiresClientVar: true },
+    ],
+  },
+  // AWS Bedrock Runtime. Verified against github.com/aws/aws-sdk-js-v3
+  // clients/client-bedrock-runtime README + src/commands directory listing
+  // (main branch, checked 2026-08-05): command-object shape, not a
+  // `.method(` path — `client.send(new InvokeModelCommand({...}))`. The
+  // existing requiresClientVar machinery keys on `.method(` patterns, so
+  // rather than extending that machinery to a generic `.send(` (far too
+  // generic a method name — used by event emitters, sockets, queues —
+  // would produce false positives), the pattern folds the distinguishing
+  // Command constructor into the same regex: `.send(new XCommand(`. This
+  // only catches the single-line `client.send(new XCommand({...}))` form;
+  // the equally common two-line form
+  // (`const cmd = new XCommand(p); ... client.send(cmd)`) requires tracking
+  // a command-object variable across lines, which the current architecture
+  // doesn't support — known remaining gap, documented rather than guessed at.
+  // Covers the 5 inference-invoking commands (Invoke/Converse + stream
+  // variants); excludes CountTokensCommand, ApplyGuardrailCommand,
+  // GetAsyncInvokeCommand, ListAsyncInvokesCommand, StartAsyncInvokeCommand
+  // (utility/admin, not confirmed as direct model-invocation call sites).
+  {
+    packageNames: ['@aws-sdk/client-bedrock-runtime'],
+    providerName: 'bedrock',
+    classNames: ['BedrockRuntimeClient', 'BedrockRuntime'],
+    callPatterns: [
+      { pattern: /\.send\s*\(\s*new\s+InvokeModelCommand\s*\(/, method: 'send(InvokeModelCommand)', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.send\s*\(\s*new\s+InvokeModelWithResponseStreamCommand\s*\(/, method: 'send(InvokeModelWithResponseStreamCommand)', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.send\s*\(\s*new\s+InvokeModelWithBidirectionalStreamCommand\s*\(/, method: 'send(InvokeModelWithBidirectionalStreamCommand)', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.send\s*\(\s*new\s+ConverseCommand\s*\(/, method: 'send(ConverseCommand)', callType: 'chat', requiresClientVar: true },
+      { pattern: /\.send\s*\(\s*new\s+ConverseStreamCommand\s*\(/, method: 'send(ConverseStreamCommand)', callType: 'chat', requiresClientVar: true },
+    ],
+  },
+  // Vercel AI SDK (functional, no client var). Provider packages verified to
+  // exist on the npm registry (registry.npmjs.org, checked 2026-08-05):
+  // @ai-sdk/groq@4.0.22, @ai-sdk/mistral@4.0.23, @ai-sdk/amazon-bedrock@5.0.43,
+  // @ai-sdk/google-vertex@5.0.41, @ai-sdk/cohere@4.0.21, @ai-sdk/xai@4.0.28,
+  // @ai-sdk/deepseek@3.0.22 — descriptions confirm each is the AI SDK
+  // provider package for that vendor. These only widen import attribution
+  // (which package a file's generateText/streamText call is backed by);
+  // the actual call site is always generateText/streamText/etc. from the
+  // 'ai' package itself, already covered below.
+  {
+    packageNames: [
+      'ai', '@ai-sdk/openai', '@ai-sdk/anthropic', '@ai-sdk/google',
+      '@ai-sdk/groq', '@ai-sdk/mistral', '@ai-sdk/amazon-bedrock',
+      '@ai-sdk/google-vertex', '@ai-sdk/cohere', '@ai-sdk/xai', '@ai-sdk/deepseek',
+    ],
     providerName: 'vercel-ai-sdk',
     classNames: [],
     callPatterns: [
@@ -208,6 +352,7 @@ const SDK_DEFINITIONS: SDKDefinition[] = [
     packageNames: ['@langchain/openai', '@langchain/anthropic', '@langchain/groq', '@langchain/core', '@langchain/community', 'langchain'],
     providerName: 'langchain',
     classNames: ['ChatOpenAI', 'ChatAnthropic', 'ChatGroq', 'ChatGoogleGenerativeAI'],
+    allowImportFallback: true,
     callPatterns: [
       { pattern: /\.invoke\s*\(/, method: 'invoke', callType: 'chat', requiresClientVar: true },
       { pattern: /\.call\s*\(/, method: 'call', callType: 'chat', requiresClientVar: true },
@@ -384,12 +529,61 @@ function findClientInits(lines: string[], file: string, imports: SDKImport[]): C
     }
   }
 
+  // Implicit singleton clients: SDKs that ship an already-usable default
+  // export (e.g. `import ollama from 'ollama'`) with no `new ClassName()`
+  // step. Register the imported binding itself as a client, skipping names
+  // that are actually the `new`-able class (those are handled above).
+  for (const imp of imports) {
+    const sdk = SDK_DEFINITIONS.find(s => s.providerName === imp.providerName && s.packageNames.includes(imp.sdk));
+    if (!sdk?.implicitSingletonClient) continue;
+    for (const name of imp.importedNames) {
+      if (sdk.classNames.includes(name)) continue;
+      inits.push({
+        file,
+        line: imp.line,
+        variableName: name,
+        sdk: imp.sdk,
+        providerName: imp.providerName,
+        className: name,
+      });
+    }
+  }
+
   return inits;
 }
 
 // =============================================================================
 // PASS 2: FIND API CALL ANCHORS
 // =============================================================================
+
+/**
+ * Derives the receiver-matching regex for a CallPattern from the pattern
+ * itself, instead of a hand-written regex that can silently drift out of
+ * sync with the call-pattern table (the root cause of the OpenAI/Groq
+ * `chat.completions.create` miss: the old hand-written alternation greedily
+ * consumed `.chat` as the "one optional segment", leaving `completions` as
+ * the captured receiver's method — `openai.chat` was captured instead of
+ * `openai`).
+ *
+ * Every `requiresClientVar` pattern's source begins with `\.` (it matches
+ * `.method(` on the *receiver's* trailing edge), so prefixing a receiver
+ * capture group reproduces the exact per-pattern receiver: leftmost-match
+ * regex semantics give `openai` for `openai.chat.completions.create(` and
+ * `this.client` for `this.client.chat.completions.create(`, because the
+ * capture group is greedy but the fixed suffix anchors where it must stop.
+ *
+ * Compiled once per CallPattern and cached — this runs per line per pattern
+ * over an entire repo scan, so must not be compiled inside the inner loop.
+ */
+const receiverRegexCache = new Map<CallPattern, RegExp>();
+function getReceiverRegex(cp: CallPattern): RegExp {
+  let re = receiverRegexCache.get(cp);
+  if (!re) {
+    re = new RegExp(`((?:this\\.)?[A-Za-z_$][\\w$]*)${cp.pattern.source}`);
+    receiverRegexCache.set(cp, re);
+  }
+  return re;
+}
 
 function findCallAnchors(
   lines: string[],
@@ -431,14 +625,18 @@ function findCallAnchors(
         if (!cp.pattern.test(line)) continue;
 
         if (cp.requiresClientVar) {
-          // OOP style: find the variable calling the method
-          // Match: varName.method( or this.varName.method(
-          const varMatch = line.match(/(\w+(?:\.\w+)?)\.(?:chat|messages|completions|embeddings|images|audio|beta)/);
+          // OOP style: find the variable calling the method. Receiver regex
+          // is derived from this exact cp.pattern (see getReceiverRegex) so
+          // it can never disagree with the pattern that just matched.
+          const receiverRe = getReceiverRegex(cp);
+          const varMatch = line.match(receiverRe);
           if (!varMatch) continue;
 
           const callerVar = varMatch[1];
 
-          // Check if this variable is a known client
+          // Check if this variable is a known client (also handles the
+          // implicit-singleton-client case: e.g. `ollama` from
+          // `import ollama from 'ollama'` is pre-registered as a ClientInit)
           const clientInit = clientVars.get(callerVar);
           if (clientInit && clientInit.providerName === sdk.providerName) {
             const funcName = extractFunctionName(lines, i);
@@ -456,13 +654,16 @@ function findCallAnchors(
             break;
           }
 
-          // For LangChain .invoke() / .call() — match chains and LangChain model instances
-          if (sdk.providerName === 'langchain') {
-            // Check if file has any LangChain imports
-            const hasLangChainImport = imports.some(imp =>
-              imp.providerName === 'langchain'
-            );
-            if (hasLangChainImport) {
+          // Import-gate fallback: some SDK shapes call the method on a value
+          // *derived* from the client (LangChain chains; the legacy Google
+          // SDK's `genAI.getGenerativeModel(...)` → `model.generateContent()`),
+          // so the receiver is never a registered ClientInit. Gate on the
+          // file having an import from this SDK to keep the false-positive
+          // rate bounded — same trade-off the original LangChain-only
+          // special case made, generalized to any SDKDefinition that opts in.
+          if (sdk.allowImportFallback) {
+            const hasSdkImport = imports.some(imp => imp.providerName === sdk.providerName);
+            if (hasSdkImport) {
               const funcName = extractFunctionName(lines, i);
               anchors.push({
                 file,
@@ -470,8 +671,8 @@ function findCallAnchors(
                 code: line.trim().slice(0, 120),
                 method: cp.method,
                 clientVariable: callerVar,
-                providerName: 'langchain',
-                sdk: imports.find(imp => imp.providerName === 'langchain')?.sdk || 'langchain',
+                providerName: sdk.providerName,
+                sdk: imports.find(imp => imp.providerName === sdk.providerName)?.sdk || sdk.packageNames[0],
                 callType: cp.callType,
                 containingFunction: funcName,
               });
