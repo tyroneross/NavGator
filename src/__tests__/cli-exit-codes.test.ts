@@ -69,16 +69,30 @@ beforeAll(() => {
   // dist/ rather than importing src/. That makes it silently vacuous against a
   // stale build: mutating src/cli/index.ts's exitOverride(), the
   // natural-language redirect, and find.ts's NOT_FOUND assignment each left
-  // this suite fully green until dist was rebuilt. A test that cannot fail is
-  // worse than no test, so compare the two trees and refuse to run rather than
-  // report a pass the source no longer earns.
-  const srcNewest = newestMtimeMs(path.join(repoRoot, 'src', 'cli'));
-  const distNewest = newestMtimeMs(path.join(repoRoot, 'dist', 'cli'));
-  if (srcNewest > distNewest) {
-    throw new Error(
-      `dist/cli is older than src/cli — run \`npm run build:cli\`. This suite spawns the built ` +
-        `CLI, so running it against a stale dist would assert the previous build's behaviour.`
-    );
+  // this suite fully green until dist was rebuilt.
+  //
+  // Two gates close that, and they are deliberately different mechanisms
+  // because mtime means different things in the two environments:
+  //
+  //   locally  — an edited src/cli is genuinely newer than a stale dist/cli,
+  //              so the mtime comparison below is a fast, accurate signal.
+  //   in CI    — a fresh checkout stamps EVERY file at clone time, so the
+  //              relative order of src/cli and dist/cli is an artifact of
+  //              checkout, not of staleness. This check is therefore skipped
+  //              there; it fired as a false failure the first time it shipped.
+  //              CI's authoritative gate is the `git diff --exit-code -- dist`
+  //              step that runs after `npm run build` in .github/workflows/ci.yml,
+  //              which compares built output against committed output and does
+  //              not depend on timestamps at all.
+  if (!process.env.CI) {
+    const srcNewest = newestMtimeMs(path.join(repoRoot, 'src', 'cli'));
+    const distNewest = newestMtimeMs(path.join(repoRoot, 'dist', 'cli'));
+    if (srcNewest > distNewest) {
+      throw new Error(
+        `dist/cli is older than src/cli — run \`npm run build:cli\`. This suite spawns the built ` +
+          `CLI, so running it against a stale dist would assert the previous build's behaviour.`
+      );
+    }
   }
 
   unscannedProject = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-exitcode-unscanned-'));
