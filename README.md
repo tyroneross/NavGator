@@ -848,6 +848,21 @@ Without `ts-morph`, NavGator uses regex-based scanning which is faster but may m
 | `NAVGATOR_SCAN_DEPTH` | `shallow` or `deep` | `shallow` |
 | `NAVGATOR_CONFIDENCE` | Confidence threshold (0-1) | `0.6` |
 | `NAVGATOR_MAX_RESULTS` | Max results per query | `20` |
+| `NAVGATOR_DASHBOARD_TOKEN` | Per-launch dashboard session token, set automatically by `navgator ui` — see [Dashboard security boundary](#dashboard-security-boundary) | unset |
+
+## Dashboard security boundary
+
+`navgator ui` serves the dashboard on loopback only (`127.0.0.1`), and `web/proxy.ts` rejects any request whose `Host` header doesn't resolve to a loopback hostname (`localhost`, `127.0.0.1`, `::1`). That check defends against DNS rebinding — a page at `evil.com` that a browser resolves to `127.0.0.1` still sends `Host: evil.com`, and this rejects it.
+
+Loopback alone does not mean "only `navgator ui` can talk to it." Any other process running on the same machine — a stray `npm postinstall` script, another agent, any sandboxed-but-networked tool — can also send a well-formed `Host: 127.0.0.1:<port>` request. To close that gap, `navgator ui` mints a random 32-byte session token on every launch, writes it to `~/.navgator/dashboard-session.json` at file mode `0600` (readable only by the invoking user), and passes it to the dashboard server as `NAVGATOR_DASHBOARD_TOKEN`.
+
+**How the token is enforced:**
+- The CLI opens the browser to a one-time bootstrap URL (`http://localhost:<port>/?nvt=<token>`). `web/proxy.ts` trades that query parameter for an `httpOnly`, `SameSite=Strict` cookie via a 302 redirect, so the token never persists in the URL bar, browser history, or an outbound `Referer` header.
+- Every `/api/*` request must then carry either that cookie or an `x-navgator-token` header equal to the token. A script that can read the 0600 session file (a legitimate local operator or automation) can call the API directly with the header — no browser required.
+- A missing or wrong token on `/api/*` gets a `401`, distinct from the `403` used for loopback/origin failures, so the two failure classes are distinguishable in logs.
+- Both comparisons are constant-time (length-checked first, then an XOR accumulator) so a token-guessing attempt can't use response timing to narrow the search.
+
+**Degraded dev mode.** If `NAVGATOR_DASHBOARD_TOKEN` is unset, the dashboard falls back to loopback-only enforcement (the pre-existing check) instead of locking every request out, and prints a one-time warning that it is running without session auth. This happens when someone runs `next dev` / `npm run dev:web` directly for web development, rather than through `navgator ui`. It is a deliberate trade, not a silent hole: an attacker cannot set or unset this server's own environment, and `navgator ui` always sets the token.
 
 ## Example Workflows
 

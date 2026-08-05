@@ -63,7 +63,19 @@ function fakePostRequest(
 ) {
   const host = opts.host ?? "localhost:3000";
   const contentType = opts.contentType === undefined ? "application/json" : opts.contentType;
-  const headerEntries: FakeHeaders = { host, ...(opts.headers ?? {}) };
+  // SEC-001: a mutation with no Origin header is no longer a free pass. These
+  // tests exercise route-handler logic (body validation, confirm gating), not
+  // the trust boundary, so they stand in for a request that already cleared
+  // web/proxy.ts — which is exactly what a present x-navgator-token means by
+  // the time a route handler runs. The boundary itself is covered by
+  // web-dashboard-auth.test.ts, and the "missing Origin AND no token" shape
+  // has its own explicit test below so this default can never quietly hide a
+  // regression in the guard.
+  const headerEntries: FakeHeaders = {
+    host,
+    "x-navgator-token": "proxy-validated-token",
+    ...(opts.headers ?? {}),
+  };
   if (contentType !== null) headerEntries["content-type"] = contentType;
   const all = new Map<string, string>(Object.entries(headerEntries).map(([k, v]) => [k.toLowerCase(), v]));
   return {
@@ -269,5 +281,26 @@ describe("registry-health route (G5 dashboard hygiene surface)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ success: true, data: report });
+  });
+
+  // --- Case 8 (SEC-001): the shape fakePostRequest now papers over ---------
+  // Every other POST test here sends x-navgator-token so it can reach the
+  // handler logic it actually tests. That default would silently absorb a
+  // regression in rejectUnsafeMutation's missing-Origin branch, so pin the
+  // real behaviour explicitly: a loopback POST with neither an Origin header
+  // nor a dashboard token is rejected before any CLI call happens. This is
+  // the exact request a non-browser local process makes.
+  it("rejects a mutation that has neither an Origin header nor a dashboard token", async () => {
+    const { POST } = await import("../../web/app/api/registry-health/route.js");
+    const res = await POST(
+      fakePostRequest(() => Promise.resolve({ action: "prune-tmp", confirm: true }), {
+        headers: { "x-navgator-token": "" },
+      }) as never,
+    );
+    expect(res.status).toBe(403);
+    const body = await readJson(res);
+    expect(body.success).toBe(false);
+    expect(body.error).toContain("dashboard session token");
+    expect(runNavGatorCli).not.toHaveBeenCalled();
   });
 });

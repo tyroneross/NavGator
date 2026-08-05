@@ -11,6 +11,7 @@ import { setup, isSetupComplete, formatSetupStatus } from '../../setup.js';
 import { buildExecutiveSummary } from '../../agent-output.js';
 import { isSandboxMode } from '../../sandbox.js';
 import { scan } from '../../scanner.js';
+import { mintDashboardToken, writeDashboardSession } from '../../dashboard-session.js';
 // =============================================================================
 // SHARED HELPERS
 // =============================================================================
@@ -26,6 +27,12 @@ export async function launchWebUI(options) {
         throw new Error(`NavGator dashboard server not found at:\n  ${serverJs}\n\n` +
             'Run `npm run build` from the NavGator root to build the web UI.');
     }
+    // SEC-001: mint a per-launch capability token so the dashboard trust
+    // boundary is not "any loopback process" but "the process that ran
+    // `navgator ui`". See web/proxy.ts for enforcement and
+    // src/dashboard-session.ts for the token lifecycle.
+    const token = mintDashboardToken();
+    writeDashboardSession(token, port);
     const child = spawn('node', [serverJs], {
         env: {
             ...process.env,
@@ -34,6 +41,7 @@ export async function launchWebUI(options) {
             HOSTNAME: '127.0.0.1',
             NAVGATOR_PROJECT_PATH: projectPath,
             NAVGATOR_CLI_ENTRY: cliEntry,
+            NAVGATOR_DASHBOARD_TOKEN: token,
         },
         cwd: packageRoot,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -63,7 +71,7 @@ export async function launchWebUI(options) {
             }
         });
     });
-    return { port, process: child };
+    return { port, process: child, token };
 }
 async function launchUI(projectPath) {
     const resolvedPath = projectPath || process.cwd();
@@ -72,12 +80,15 @@ async function launchUI(projectPath) {
     console.log('🐊 NavGator Dashboard');
     console.log(`   Project: ${resolvedPath}`);
     console.log('');
-    const { process: serverProcess } = await launchWebUI({
+    const { process: serverProcess, token } = await launchWebUI({
         port,
         projectPath: resolvedPath,
     });
-    const url = `http://localhost:${port}`;
-    console.log(`Dashboard running at: ${url}`);
+    // Bootstrap URL carries the session token exactly once; web/proxy.ts
+    // trades it for an httpOnly cookie via redirect so it never persists in
+    // the URL bar, browser history, or an outbound Referer header.
+    const url = `http://localhost:${port}/?nvt=${token}`;
+    console.log(`Dashboard running at: http://localhost:${port}`);
     console.log('');
     console.log('Press Ctrl+C to stop');
     console.log('');
@@ -285,12 +296,15 @@ export function registerUICommand(program) {
             console.log('🐊 NavGator Dashboard');
             console.log(`   Project: ${projectPath}`);
             console.log('');
-            const { process: serverProcess } = await launchWebUI({
+            const { process: serverProcess, token } = await launchWebUI({
                 port,
                 projectPath,
             });
-            const url = `http://localhost:${port}`;
-            console.log(`Dashboard running at: ${url}`);
+            // Bootstrap URL carries the session token exactly once; web/proxy.ts
+            // trades it for an httpOnly cookie via redirect so it never persists
+            // in the URL bar, browser history, or an outbound Referer header.
+            const url = `http://localhost:${port}/?nvt=${token}`;
+            console.log(`Dashboard running at: http://localhost:${port}`);
             console.log('');
             console.log('Press Ctrl+C to stop');
             console.log('');

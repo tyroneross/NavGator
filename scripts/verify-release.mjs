@@ -690,6 +690,46 @@ async function probeDashboard(packageDir, tempRoot) {
             'packed dashboard denies framing with CSP',
           )
           assert.equal(response.headers.get('x-frame-options'), 'DENY', 'packed dashboard denies framing')
+
+          // ---- SEC-001 trust boundary, exercised live against the packed
+          // server. Loopback proves the request came from this machine; the
+          // per-launch token proves it came from `navgator ui`. Both are
+          // asserted here rather than only in unit tests, because this is the
+          // only place the REAL standalone build runs — a proxy that silently
+          // stopped being wired into the bundle would pass every unit test.
+          const authHeaders = { 'x-navgator-token': launched.token }
+
+          const noTokenRead = await fetch(`http://127.0.0.1:${port}/api/components`, {
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(noTokenRead.status, 401, 'untokened local API read is rejected')
+
+          const wrongTokenRead = await fetch(`http://127.0.0.1:${port}/api/components`, {
+            headers: { 'x-navgator-token': 'x'.repeat(launched.token.length) },
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(wrongTokenRead.status, 401, 'wrong-token local API read is rejected')
+
+          const bootstrap = await fetch(`http://127.0.0.1:${port}/?nvt=${launched.token}`, {
+            redirect: 'manual',
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(bootstrap.status, 302, 'bootstrap query param redirects')
+          const setCookie = bootstrap.headers.get('set-cookie') ?? ''
+          assert.match(setCookie, /navgator_session=/, 'bootstrap sets the session cookie')
+          assert.match(setCookie, /HttpOnly/i, 'session cookie is httpOnly')
+          assert.match(setCookie, /SameSite=strict/i, 'session cookie is SameSite=strict')
+          assert.ok(
+            !(bootstrap.headers.get('location') ?? '').includes(launched.token),
+            'bootstrap redirect does not leak the token into Location',
+          )
+
+          const cookieRead = await fetch(`http://127.0.0.1:${port}/api/components`, {
+            headers: { cookie: `navgator_session=${launched.token}` },
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(cookieRead.status, 200, 'bootstrap cookie authorizes API reads')
+
           const routes = [
             '/api/components',
             '/api/connections',
@@ -702,6 +742,7 @@ async function probeDashboard(packageDir, tempRoot) {
           ]
           for (const route of routes) {
             const apiResponse = await fetch(`http://127.0.0.1:${port}${route}`, {
+              headers: authHeaders,
               signal: AbortSignal.timeout(2_000),
             })
             assert.equal(apiResponse.status, 200, `dashboard ${route} returns HTTP 200`)
@@ -747,6 +788,7 @@ async function probeDashboard(packageDir, tempRoot) {
           }
 
           const scanHealth = await fetch(`http://127.0.0.1:${port}/api/scan`, {
+            headers: authHeaders,
             signal: AbortSignal.timeout(2_000),
           })
           assert.equal(scanHealth.status, 200, 'packed dashboard scan health returns HTTP 200')
@@ -760,6 +802,7 @@ async function probeDashboard(packageDir, tempRoot) {
               'content-type': 'application/json',
               origin: `http://127.0.0.1:${port}`,
               'sec-fetch-site': 'same-origin',
+              ...authHeaders,
             },
             body: JSON.stringify({ path: dashboardScanProject, prompts: false }),
             signal: AbortSignal.timeout(20_000),
@@ -774,7 +817,7 @@ async function probeDashboard(packageDir, tempRoot) {
 
           const clampedSubgraph = await fetch(
             `http://127.0.0.1:${port}/api/subgraph?focus=Web&depth=-100&maxNodes=-100`,
-            { signal: AbortSignal.timeout(2_000) },
+            { headers: authHeaders, signal: AbortSignal.timeout(2_000) },
           )
           assert.equal(clampedSubgraph.status, 200, 'bounded subgraph accepts clamped integer inputs')
           const clampedSubgraphPayload = await clampedSubgraph.json()
@@ -785,7 +828,7 @@ async function probeDashboard(packageDir, tempRoot) {
           stressUrl.searchParams.set('maxDepth', '10')
           stressUrl.searchParams.set('maxPaths', '10')
           stressUrl.searchParams.set('path', traceStressProject)
-          const stressResponse = await fetch(stressUrl, { signal: AbortSignal.timeout(3_000) })
+          const stressResponse = await fetch(stressUrl, { headers: authHeaders, signal: AbortSignal.timeout(3_000) })
           assert.equal(stressResponse.status, 200, 'dense trace returns within the bounded deadline')
           const stressPayload = await stressResponse.json()
           assert.equal(stressPayload.success, true, 'dense trace returns a successful payload')
@@ -797,7 +840,7 @@ async function probeDashboard(packageDir, tempRoot) {
           denseSubgraphUrl.searchParams.set('depth', '5')
           denseSubgraphUrl.searchParams.set('maxNodes', '5')
           denseSubgraphUrl.searchParams.set('path', traceStressProject)
-          const denseSubgraph = await fetch(denseSubgraphUrl, { signal: AbortSignal.timeout(3_000) })
+          const denseSubgraph = await fetch(denseSubgraphUrl, { headers: authHeaders, signal: AbortSignal.timeout(3_000) })
           assert.equal(denseSubgraph.status, 200, 'dense subgraph returns within the bounded deadline')
           const denseSubgraphPayload = await denseSubgraph.json()
           assert.equal(denseSubgraphPayload.data.stats.nodes, 5, 'dense subgraph respects maxNodes')
@@ -810,6 +853,7 @@ async function probeDashboard(packageDir, tempRoot) {
               'content-type': 'text/plain',
               origin: 'http://evil.example',
               'sec-fetch-site': 'cross-site',
+              ...authHeaders,
             },
             body: JSON.stringify({ projectPath: dashboardProject, display: { compactMode: true } }),
           })
@@ -847,6 +891,7 @@ async function probeDashboard(packageDir, tempRoot) {
               'content-type': 'application/json',
               origin: `http://127.0.0.1:${port}`,
               'sec-fetch-site': 'same-origin',
+              ...authHeaders,
             },
             body: JSON.stringify({ projectPath: dashboardProject, display: { compactMode: true } }),
           })

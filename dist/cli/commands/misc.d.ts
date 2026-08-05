@@ -6,6 +6,7 @@ export declare function launchWebUI(options: {
 }): Promise<{
     port: number;
     process: ChildProcess;
+    token: string;
 }>;
 export declare function showWelcomeMenu(context: 'post-setup' | 'no-command'): Promise<void>;
 export declare function registerSetupCommand(program: Command): void;

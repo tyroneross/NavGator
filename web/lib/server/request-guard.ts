@@ -34,6 +34,21 @@ export function rejectNonLoopback(request: NextRequest): NextResponse | null {
   return null;
 }
 
+/**
+ * A request header name used by dashboard-session.ts / proxy.ts to carry
+ * the per-launch capability token for non-browser local clients (a script
+ * that can read the 0600 session file). `rejectUnsafeMutation` only checks
+ * for its PRESENCE, never its value — proxy.ts runs before every route on
+ * the single dashboard choke point (`web/proxy.ts`'s matcher covers
+ * `/api/:path*`) and has already rejected the request with 401 if the
+ * header's value did not match the real token. By the time a route handler
+ * (and therefore this guard) runs, a present `x-navgator-token` header is
+ * known-valid. Presence-checking here would be unsound in isolation; it is
+ * sound only because of that ordering, which is why this comment exists —
+ * don't let this function be called anywhere the proxy hasn't already run.
+ */
+const DASHBOARD_TOKEN_HEADER = "x-navgator-token";
+
 export function rejectUnsafeMutation(request: NextRequest): NextResponse | null {
   const nonLoopback = rejectNonLoopback(request);
   if (nonLoopback) return nonLoopback;
@@ -54,7 +69,22 @@ export function rejectUnsafeMutation(request: NextRequest): NextResponse | null 
   }
 
   const origin = request.headers.get("origin");
-  if (!origin) return null;
+  if (!origin) {
+    // A missing Origin used to be a free pass — that let any non-browser
+    // local client (which never sends Origin) skip this check entirely.
+    // Now it's only a pass when the request already carries the dashboard
+    // token header; see the ordering-dependency comment on
+    // DASHBOARD_TOKEN_HEADER above for why presence alone is sufficient.
+    // `.get()` rather than `.has()` deliberately — every other check in
+    // this file reads headers via `.get()`, and this keeps
+    // rejectUnsafeMutation callable with any headers object that only
+    // implements `.get()` (NextRequest's real Headers implements both).
+    if (request.headers.get(DASHBOARD_TOKEN_HEADER)) return null;
+    return NextResponse.json(
+      { success: false, error: "Mutation requests without an Origin header require a dashboard session token" },
+      { status: 403 },
+    );
+  }
   try {
     const originUrl = new URL(origin);
     const requestHost = request.headers.get("host")?.toLowerCase() || request.nextUrl.host.toLowerCase();
