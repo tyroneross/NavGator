@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { SubgraphResult, SubgraphApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseSubgraphResult {
   subgraph: SubgraphResult | null;
@@ -54,7 +55,7 @@ export function useSubgraph(options: UseSubgraphOptions = {}): UseSubgraphResult
         params.set("maxNodes", String(maxNodes));
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/subgraph?${params.toString()}`);
+        const response = await apiFetch(`/api/subgraph?${params.toString()}`);
         const result: SubgraphApiResponse = await response.json();
 
         if (result.success && result.data) {

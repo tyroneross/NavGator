@@ -79,10 +79,16 @@ function fakePostRequest(jsonBody: unknown) {
   const headerEntries: Record<string, string> = {
     host: "localhost:3000",
     "content-type": "application/json",
-    // Present dashboard token so rejectUnsafeMutation's missing-Origin branch
-    // (SEC-001, exercised elsewhere) doesn't fire here -- these tests target
-    // the SEC-007 path guard, not the mutation trust boundary.
-    "x-navgator-token": "test-session-token",
+    // Stand in for a request web/proxy.ts already validated, so
+    // rejectUnsafeMutation's missing-Origin branch (SEC-001, exercised
+    // elsewhere) doesn't fire here -- these tests target the SEC-007 path
+    // guard, not the mutation trust boundary.
+    //
+    // This used to be a client-supplied `x-navgator-token`, which the guard
+    // merely checked for presence. That was unsound and was reproduced
+    // failing: a garbage token value made an Origin-less mutation MORE
+    // privileged. The guard now reads a header only the proxy can produce.
+    "x-navgator-proxy-verified": "1",
   };
   const all = new Map(Object.entries(headerEntries).map(([k, v]) => [k.toLowerCase(), v]));
   return {

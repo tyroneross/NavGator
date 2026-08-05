@@ -66,14 +66,22 @@ function fakePostRequest(
   // SEC-001: a mutation with no Origin header is no longer a free pass. These
   // tests exercise route-handler logic (body validation, confirm gating), not
   // the trust boundary, so they stand in for a request that already cleared
-  // web/proxy.ts — which is exactly what a present x-navgator-token means by
-  // the time a route handler runs. The boundary itself is covered by
-  // web-dashboard-auth.test.ts, and the "missing Origin AND no token" shape
-  // has its own explicit test below so this default can never quietly hide a
-  // regression in the guard.
+  // web/proxy.ts — which is what `x-navgator-proxy-verified: 1` means by the
+  // time a route handler runs. That header is stamped by the proxy only
+  // after a constant-time token comparison, and any inbound copy is stripped
+  // on every path, so a client cannot forge it.
+  //
+  // This default was previously a client-supplied `x-navgator-token`, which
+  // the guard only checked for PRESENCE. That was reproduced failing live:
+  // with the token env unset, an Origin-less POST carrying
+  // `x-navgator-token: totally-fake` reached the handler while the same
+  // request without the header was rejected. The boundary itself is covered
+  // by web-dashboard-auth.test.ts, and the "missing Origin AND unstamped"
+  // shape has its own explicit test below so this default can never quietly
+  // hide a regression in the guard.
   const headerEntries: FakeHeaders = {
     host,
-    "x-navgator-token": "proxy-validated-token",
+    "x-navgator-proxy-verified": "1",
     ...(opts.headers ?? {}),
   };
   if (contentType !== null) headerEntries["content-type"] = contentType;
@@ -284,23 +292,38 @@ describe("registry-health route (G5 dashboard hygiene surface)", () => {
   });
 
   // --- Case 8 (SEC-001): the shape fakePostRequest now papers over ---------
-  // Every other POST test here sends x-navgator-token so it can reach the
+  // Every other POST test here sends the proxy stamp so it can reach the
   // handler logic it actually tests. That default would silently absorb a
   // regression in rejectUnsafeMutation's missing-Origin branch, so pin the
   // real behaviour explicitly: a loopback POST with neither an Origin header
-  // nor a dashboard token is rejected before any CLI call happens. This is
+  // nor the proxy's stamp is rejected before any CLI call happens. This is
   // the exact request a non-browser local process makes.
-  it("rejects a mutation that has neither an Origin header nor a dashboard token", async () => {
+  it("rejects a mutation that has neither an Origin header nor the proxy stamp", async () => {
     const { POST } = await import("../../web/app/api/registry-health/route.js");
     const res = await POST(
       fakePostRequest(() => Promise.resolve({ action: "prune-tmp", confirm: true }), {
-        headers: { "x-navgator-token": "" },
+        headers: { "x-navgator-proxy-verified": "" },
       }) as never,
     );
     expect(res.status).toBe(403);
     const body = await readJson(res);
     expect(body.success).toBe(false);
     expect(body.error).toContain("dashboard session token");
+    expect(runNavGatorCli).not.toHaveBeenCalled();
+  });
+
+  // f2 regression, at the route surface rather than the guard unit: a
+  // client-supplied token header — even a well-formed one — must not
+  // substitute for the proxy's stamp. Before this change, an arbitrary
+  // string here reached the handler.
+  it("a client-supplied x-navgator-token does not substitute for the proxy stamp", async () => {
+    const { POST } = await import("../../web/app/api/registry-health/route.js");
+    const res = await POST(
+      fakePostRequest(() => Promise.resolve({ action: "prune-tmp", confirm: true }), {
+        headers: { "x-navgator-proxy-verified": "", "x-navgator-token": "totally-fake" },
+      }) as never,
+    );
+    expect(res.status).toBe(403);
     expect(runNavGatorCli).not.toHaveBeenCalled();
   });
 });

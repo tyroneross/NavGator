@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useActiveProject } from "@/lib/project-context"
+import { apiFetch } from "@/lib/api-client"
 
 interface DiagramViewProps {
   selectedComponent: string | null
@@ -344,7 +345,7 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
       try {
         const params = new URLSearchParams()
         if (activeProjectPath) params.set("path", activeProjectPath)
-        const res = await fetch(`/api/graph?${params}`)
+        const res = await apiFetch(`/api/graph?${params}`)
         const json = await res.json()
         if (json.success && json.data && json.data.nodes?.length > 0) {
           setGraphData(json.data)

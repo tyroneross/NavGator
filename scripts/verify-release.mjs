@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { request as nodeHttpRequest } from 'node:http'
 import { readFileSync, realpathSync } from 'node:fs'
-import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -666,6 +666,24 @@ async function probeDashboard(packageDir, tempRoot) {
   }
   const child = launched.process
   assert.equal(launched.port, port, 'CLI dashboard helper preserves the selected port')
+
+  // SEC-001/SEC-009: the 0600 session file is the ONLY way a non-browser
+  // local client can obtain the session token now that it no longer travels
+  // through any URL, so its mode is load-bearing rather than decorative.
+  const sessionFile = path.join(dashboardHome, '.navgator', 'dashboard-session.json')
+  const sessionStat = await stat(sessionFile)
+  assert.equal(
+    sessionStat.mode & 0o777,
+    0o600,
+    'dashboard session file is readable only by the invoking user',
+  )
+  const sessionRecord = await readJson(sessionFile)
+  assert.equal(sessionRecord.token, launched.token, 'session file carries the session token')
+  assert.equal(
+    JSON.stringify(sessionRecord).includes(launched.bootstrapNonce),
+    false,
+    'session file does not also store the bootstrap nonce',
+  )
   assert.equal(
     path.resolve(child.spawnargs[1]),
     path.join(packageDir, 'web', 'server.cjs'),
@@ -684,10 +702,17 @@ async function probeDashboard(packageDir, tempRoot) {
           signal: AbortSignal.timeout(1_000),
         })
         if (response.status === 200) {
-          assert.match(
-            response.headers.get('content-security-policy') ?? '',
-            /frame-ancestors 'none'/,
-            'packed dashboard denies framing with CSP',
+          const csp = response.headers.get('content-security-policy') ?? ''
+          assert.match(csp, /frame-ancestors 'none'/, 'packed dashboard denies framing with CSP')
+          // SEC-006: without a script-src, nothing constrained where script in
+          // this privileged origin could come from — and a remote analytics
+          // script was in fact being injected in dev. The packed build must
+          // also NOT carry the dev-only 'unsafe-eval'.
+          assert.match(csp, /script-src 'self' 'unsafe-inline'/, 'packed dashboard constrains script-src to self')
+          assert.equal(
+            csp.includes("'unsafe-eval'"),
+            false,
+            "packed dashboard omits 'unsafe-eval' (development-only)",
           )
           assert.equal(response.headers.get('x-frame-options'), 'DENY', 'packed dashboard denies framing')
 
@@ -710,25 +735,74 @@ async function probeDashboard(packageDir, tempRoot) {
           })
           assert.equal(wrongTokenRead.status, 401, 'wrong-token local API read is rejected')
 
-          const bootstrap = await fetch(`http://127.0.0.1:${port}/?nvt=${launched.token}`, {
+          // HIGH-1: the browser-open URL is an argv, and `ps -axww` shows
+          // other users' full argv. Assert on the EXACT string the CLI hands
+          // to the browser-open call — the session token must not be in it.
+          assert.notEqual(launched.bootstrapNonce, launched.token, 'bootstrap nonce is a distinct secret')
+          assert.equal(
+            launched.bootstrapUrl.includes(launched.token),
+            false,
+            'browser-open URL (an argv) does not carry the session token',
+          )
+          assert.ok(
+            launched.bootstrapUrl.includes(launched.bootstrapNonce),
+            'browser-open URL carries the single-use bootstrap nonce',
+          )
+
+          // The nonce redeems ONCE, into a URL FRAGMENT. A fragment is never
+          // transmitted to a server and is stripped from Referer, so the
+          // session token never crosses a network boundary again.
+          const bootstrap = await fetch(launched.bootstrapUrl.replace('localhost', '127.0.0.1'), {
             redirect: 'manual',
             signal: AbortSignal.timeout(2_000),
           })
-          assert.equal(bootstrap.status, 302, 'bootstrap query param redirects')
-          const setCookie = bootstrap.headers.get('set-cookie') ?? ''
-          assert.match(setCookie, /navgator_session=/, 'bootstrap sets the session cookie')
-          assert.match(setCookie, /HttpOnly/i, 'session cookie is httpOnly')
-          assert.match(setCookie, /SameSite=strict/i, 'session cookie is SameSite=strict')
-          assert.ok(
-            !(bootstrap.headers.get('location') ?? '').includes(launched.token),
-            'bootstrap redirect does not leak the token into Location',
+          assert.equal(bootstrap.status, 302, 'bootstrap nonce redirects')
+          // HIGH-2: no cookie anywhere. A `localhost` cookie ignores port
+          // (RFC 6265 s8.5), so it would be broadcast to every other
+          // localhost server the browser visits.
+          assert.equal(bootstrap.headers.get('set-cookie'), null, 'bootstrap sets NO cookie')
+          const location = bootstrap.headers.get('location') ?? ''
+          assert.ok(location.includes(`#t=${launched.token}`), 'bootstrap hands the token over in a fragment')
+          assert.equal(
+            location.split('#')[0].includes(launched.token),
+            false,
+            'bootstrap redirect does not leak the token outside the fragment',
           )
 
+          // Replay: this is the `ps`-reading attacker. The nonce is burned.
+          const replay = await fetch(launched.bootstrapUrl.replace('localhost', '127.0.0.1'), {
+            redirect: 'manual',
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.notEqual(replay.status, 302, 'a replayed bootstrap nonce does not redirect')
+          assert.equal(replay.headers.get('location'), null, 'a replayed nonce yields no redirect target')
+          assert.equal(
+            JSON.stringify([...replay.headers]).includes(launched.token),
+            false,
+            'a replayed nonce yields no credential',
+          )
+
+          // A stale cookie from the previous design must not authenticate.
           const cookieRead = await fetch(`http://127.0.0.1:${port}/api/components`, {
             headers: { cookie: `navgator_session=${launched.token}` },
             signal: AbortSignal.timeout(2_000),
           })
-          assert.equal(cookieRead.status, 200, 'bootstrap cookie authorizes API reads')
+          assert.equal(cookieRead.status, 401, 'a session cookie no longer authorizes API reads')
+
+          // f2: the guard reads a stamp only the proxy can produce. A
+          // client-supplied copy is stripped on every path.
+          const forgedStamp = await fetch(`http://127.0.0.1:${port}/api/components`, {
+            headers: { 'x-navgator-proxy-verified': '1' },
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(forgedStamp.status, 401, 'a client-supplied proxy-verified stamp authorizes nothing')
+
+          // SEC-005: deny-by-default. A route that does not exist yet must
+          // still be gated, not fall through unauthenticated.
+          const unlistedRoute = await fetch(`http://127.0.0.1:${port}/some-future-route`, {
+            signal: AbortSignal.timeout(2_000),
+          })
+          assert.equal(unlistedRoute.status, 401, 'a non-/api route is authenticated by default')
 
           const routes = [
             '/api/components',

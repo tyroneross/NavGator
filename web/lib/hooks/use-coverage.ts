@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { CoverageReport, CoverageApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseCoverageResult {
   coverage: CoverageReport | null;
@@ -37,7 +38,7 @@ export function useCoverage(options: UseCoverageOptions = {}): UseCoverageResult
         if (forceRefresh) params.set("refresh", "true");
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/coverage?${params.toString()}`);
+        const response = await apiFetch(`/api/coverage?${params.toString()}`);
         const result: CoverageApiResponse = await response.json();
 
         if (result.success && result.data) {

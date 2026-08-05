@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { Component, Connection } from "@/lib/types"
+import { apiFetch } from "@/lib/api-client"
 
 interface ImpactAnalysisProps {
   componentName: string | null
@@ -43,8 +44,8 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
       setError(null)
       try {
         const [compRes, connRes] = await Promise.all([
-          fetch("/api/components?refresh=true"),
-          fetch("/api/connections?refresh=true"),
+          apiFetch("/api/components?refresh=true"),
+          apiFetch("/api/connections?refresh=true"),
         ])
 
         const compData = await compRes.json()

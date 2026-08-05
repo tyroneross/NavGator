@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { ProjectStatus, StatusApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseStatusResult {
   status: ProjectStatus | null;
@@ -39,7 +40,7 @@ export function useStatus(options: UseStatusOptions = {}): UseStatusResult {
         if (forceRefresh) params.set("refresh", "true");
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/status?${params.toString()}`);
+        const response = await apiFetch(`/api/status?${params.toString()}`);
         const result: StatusApiResponse = await response.json();
 
         if (result.success && result.data) {

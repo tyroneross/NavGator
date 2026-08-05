@@ -13,17 +13,96 @@ import { buildExecutiveSummary } from '../../agent-output.js';
 import { isSandboxMode } from '../../sandbox.js';
 import { scan } from '../../scanner.js';
 import type { JournalActor, JournalOp } from '../../registry-journal.js';
-import { mintDashboardToken, writeDashboardSession } from '../../dashboard-session.js';
+import {
+  deleteDashboardSession,
+  mintBootstrapNonce,
+  mintDashboardToken,
+  writeDashboardSession,
+} from '../../dashboard-session.js';
 import { EXIT_CODES } from '../exit-codes.js';
 
 // =============================================================================
 // SHARED HELPERS
 // =============================================================================
 
+/**
+ * Open a URL in the user's browser WITHOUT going through a shell.
+ *
+ * The previous form was `exec(`${openCmd} ${url}`)`, which does two bad
+ * things at once: it interposes a `/bin/sh -c <whole command line>` process
+ * whose argv is a second copy of the URL in the process table, and it leaves
+ * the unquoted `?` and `&` in the URL exposed to shell globbing and job
+ * control. An argv array goes straight to `execvp` — no shell, no second
+ * copy, no quoting to get wrong.
+ *
+ * This is hygiene, not the control. What actually keeps a `ps`-reading
+ * attacker from getting a usable credential is that the value in this URL is
+ * a single-use, short-TTL nonce rather than the session token (see
+ * `src/dashboard-session.ts`). `spawn` alone would still print the URL in
+ * the child's own argv.
+ *
+ * `start` on Windows is a `cmd.exe` builtin rather than an executable, so it
+ * cannot be `spawn`ed directly; `cmd /c start ""` is the argv-array
+ * equivalent (the empty string is the window title `start` otherwise steals
+ * from the first quoted argument).
+ */
+export function browserOpenArgv(
+  url: string,
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform === 'darwin') return { command: 'open', args: [url] };
+  if (platform === 'win32') return { command: 'cmd', args: ['/c', 'start', '', url] };
+  return { command: 'xdg-open', args: [url] };
+}
+
+/**
+ * `spawnFn` is injectable so a test can assert on the EXACT argv without
+ * launching a browser. The default is the real `spawn`; no production call
+ * site passes anything.
+ */
+export function openInBrowser(url: string, spawnFn: typeof spawn = spawn): void {
+  const { command, args } = browserOpenArgv(url);
+  try {
+    const child = spawnFn(command, args, {
+      stdio: 'ignore',
+      detached: true,
+    });
+    // A browser launcher that fails (headless box, no xdg-open) must not
+    // take the dashboard down with it — the URL is already on stdout.
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // Same reasoning as above.
+  }
+}
+
+/**
+ * The one place the browser-open URL is built.
+ *
+ * Both `navgator ui` call sites go through this, so there is exactly one
+ * line to audit for "does a secret that must not enter an argv end up in an
+ * argv". It takes the NONCE, and there is no parameter it could accept the
+ * session token through.
+ */
+export function bootstrapUrl(port: number, bootstrapNonce: string): string {
+  return `http://localhost:${port}/?nvt=${bootstrapNonce}`;
+}
+
 export async function launchWebUI(options: {
   port?: number;
   projectPath?: string;
-}): Promise<{ port: number; process: ChildProcess; token: string }> {
+}): Promise<{
+  port: number;
+  process: ChildProcess;
+  token: string;
+  bootstrapNonce: string;
+  /**
+   * The exact string handed to the browser-open call. Returned so a live
+   * verifier can assert on the value that becomes an argv, rather than on a
+   * reconstruction of it.
+   */
+  bootstrapUrl: string;
+}> {
   const port = options.port || 3000;
   const projectPath = options.projectPath || process.cwd();
 
@@ -43,8 +122,14 @@ export async function launchWebUI(options: {
   // SEC-001: mint a per-launch capability token so the dashboard trust
   // boundary is not "any loopback process" but "the process that ran
   // `navgator ui`". See web/proxy.ts for enforcement and
-  // src/dashboard-session.ts for the token lifecycle.
+  // src/dashboard-session.ts for the two-secret lifecycle.
+  //
+  // `token` is the session credential and NEVER enters an argv or a URL. The
+  // separate single-use `bootstrapNonce` is the only value the browser-open
+  // URL carries, so the only secret the process table can leak is one the
+  // proxy burns on first use and expires after ~5 minutes.
   const token = mintDashboardToken();
+  const bootstrapNonce = mintBootstrapNonce();
   writeDashboardSession(token, port);
 
   const child = spawn('node', [serverJs], {
@@ -56,12 +141,23 @@ export async function launchWebUI(options: {
       NAVGATOR_PROJECT_PATH: projectPath,
       NAVGATOR_CLI_ENTRY: cliEntry,
       NAVGATOR_DASHBOARD_TOKEN: token,
+      NAVGATOR_DASHBOARD_BOOTSTRAP: bootstrapNonce,
     },
     cwd: packageRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  // Wait for "Ready" or listening message
+  // Wait for "Ready" or listening message.
+  //
+  // The child's output is FORWARDED to this process's stdio, not just
+  // string-matched. The previous version consumed stdout/stderr solely to
+  // look for "ready" and threw the rest away, which is why the proxy's
+  // "running WITHOUT session auth" warning — the one thing that was supposed
+  // to make degraded mode loud — never reached a terminal. Anything the
+  // dashboard says about its own security posture has to be visible.
+  child.stdout?.pipe(process.stdout);
+  child.stderr?.pipe(process.stderr);
+
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
       resolve(); // proceed even if no explicit "Ready" message after 5s
@@ -91,7 +187,13 @@ export async function launchWebUI(options: {
     });
   });
 
-  return { port, process: child, token };
+  return {
+    port,
+    process: child,
+    token,
+    bootstrapNonce,
+    bootstrapUrl: bootstrapUrl(port, bootstrapNonce),
+  };
 }
 
 async function launchUI(projectPath?: string): Promise<void> {
@@ -103,30 +205,29 @@ async function launchUI(projectPath?: string): Promise<void> {
   console.log(`   Project: ${resolvedPath}`);
   console.log('');
 
-  const { process: serverProcess, token } = await launchWebUI({
+  const { process: serverProcess, bootstrapUrl: url } = await launchWebUI({
     port,
     projectPath: resolvedPath,
   });
 
-  // Bootstrap URL carries the session token exactly once; web/proxy.ts
-  // trades it for an httpOnly cookie via redirect so it never persists in
-  // the URL bar, browser history, or an outbound Referer header.
-  const url = `http://localhost:${port}/?nvt=${token}`;
+  // `url` becomes an argv, so it may only ever carry the SINGLE-USE
+  // bootstrap nonce — never the session token. `ps -axww` on macOS shows
+  // other users' full argv, so anything here is public to every account on
+  // the box; the proxy burns this value on first redemption and expires it
+  // after ~5 minutes, so what leaks is worthless by the time it is read.
   console.log(`Dashboard running at: http://localhost:${port}`);
   console.log('');
   console.log('Press Ctrl+C to stop');
   console.log('');
 
-  // Try to open browser
-  const { exec } = await import('child_process');
-  const openCmd = process.platform === 'darwin' ? 'open' :
-                  process.platform === 'win32' ? 'start' : 'xdg-open';
-  exec(`${openCmd} ${url}`);
+  openInBrowser(url);
 
   // Keep process running, clean up child on exit
   const cleanup = () => {
     console.log('\nShutting down...');
     serverProcess.kill();
+    // The session token must not outlive the server it authenticates.
+    deleteDashboardSession();
     // A hard abort mid-signal-handler, not a normal unwind — process.exit()
     // stays here rather than exitCode (see exit-codes.ts's header).
     process.exit(EXIT_CODES.SUCCESS);
@@ -356,15 +457,13 @@ export function registerUICommand(program: Command): void {
         console.log(`   Project: ${projectPath}`);
         console.log('');
 
-        const { process: serverProcess, token } = await launchWebUI({
+        const { process: serverProcess, bootstrapUrl: url } = await launchWebUI({
           port,
           projectPath,
         });
 
-        // Bootstrap URL carries the session token exactly once; web/proxy.ts
-        // trades it for an httpOnly cookie via redirect so it never persists
-        // in the URL bar, browser history, or an outbound Referer header.
-        const url = `http://localhost:${port}/?nvt=${token}`;
+        // Nonce, not token — see the identical call site in launchUI() above
+        // for why nothing else may go in this URL.
         console.log(`Dashboard running at: http://localhost:${port}`);
         console.log('');
         console.log('Press Ctrl+C to stop');
@@ -372,16 +471,22 @@ export function registerUICommand(program: Command): void {
 
         // Try to open browser
         if (options.open !== false) {
-          const { exec } = await import('child_process');
-          const openCmd = process.platform === 'darwin' ? 'open' :
-                          process.platform === 'win32' ? 'start' : 'xdg-open';
-          exec(`${openCmd} ${url}`);
+          openInBrowser(url);
+        } else {
+          // With no browser launch there is no other way to redeem the
+          // nonce, so print it. A terminal is not the process table — this
+          // is visible to the invoking user, not to every account on the
+          // machine.
+          console.log('Open this one-time link to authenticate (valid for 5 minutes, single use):');
+          console.log(`  ${url}`);
+          console.log('');
         }
 
         // Keep process running, clean up child on exit
         const cleanup = () => {
           console.log('\nShutting down...');
           serverProcess.kill();
+          deleteDashboardSession();
           // Hard abort from a signal handler — see the `ui` cleanup above.
           process.exit(EXIT_CODES.SUCCESS);
         };

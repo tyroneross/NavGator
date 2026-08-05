@@ -10,6 +10,7 @@ import type {
   RegistryHealthFixApiResponse,
   RegistryHealthReport,
 } from "../types";
+import { apiFetch } from "../api-client";
 
 interface UseRegistryHealthResult {
   data: RegistryHealthReport | null;
@@ -32,7 +33,7 @@ export function useRegistryHealth(): UseRegistryHealthResult {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/registry-health");
+      const response = await apiFetch("/api/registry-health");
       const result: RegistryHealthApiResponse = await response.json();
       if (result.success && result.data) {
         setData(result.data);
@@ -56,7 +57,7 @@ export function useRegistryHealth(): UseRegistryHealthResult {
     setIsCleaning(true);
     setCleanupError(null);
     try {
-      const response = await fetch("/api/registry-health", {
+      const response = await apiFetch("/api/registry-health", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "prune-tmp", confirm: true }),

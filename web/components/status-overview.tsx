@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { useStatus, useComponents, usePrompts } from "@/lib/hooks"
 import type { View } from "@/app/page"
 import type { RulesApiResponse } from "@/lib/types"
+import { apiFetch } from "@/lib/api-client"
 
 interface StatusOverviewProps {
   onSelectComponent: (name: string) => void
@@ -68,7 +69,7 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
   // Fetch rules data
   const [rulesSummary, setRulesSummary] = useState<{ total: number; errors: number; warnings: number; info: number } | null>(null)
   useEffect(() => {
-    fetch("/api/rules")
+    apiFetch("/api/rules")
       .then((r) => r.json())
       .then((json: RulesApiResponse) => {
         if (json.success && json.data) {

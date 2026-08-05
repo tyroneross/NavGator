@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Connection, ConnectionsSummary, ConnectionsApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseConnectionsResult {
   connections: Connection[];
@@ -43,7 +44,7 @@ export function useConnections(options: UseConnectionsOptions = {}): UseConnecti
         if (forceRefresh) params.set("refresh", "true");
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/connections?${params.toString()}`);
+        const response = await apiFetch(`/api/connections?${params.toString()}`);
         const result: ConnectionsApiResponse = await response.json();
 
         if (result.success && result.data) {

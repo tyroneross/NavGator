@@ -10,11 +10,35 @@
  * well-formed `Host: 127.0.0.1:<port>` request and read or mutate the
  * dashboard with no further check.
  *
- * This module mints a random, per-launch bearer token, persists it to a
- * 0600 file only the invoking user can read, and hands it to the spawned
- * dashboard server via env var. `web/proxy.ts` then requires that token
- * (via cookie after a one-time bootstrap redirect, or via header for
- * scripted/CLI local clients) on top of the loopback check.
+ * TWO secrets, not one. The original design used a single value for both the
+ * browser-open URL and the steady-state credential, and a live reproduction
+ * showed that `ps -axww -o pid,user,command` printed the whole thing:
+ * `/bin/sh -c open http://localhost:3000/?nvt=<token>`. macOS `ps` shows
+ * other users' full argv, so the 0600 file blocked a cross-user FILE read
+ * while the process table handed the same secret to anyone running `ps` —
+ * and because the URL value WAS the session credential, a capture stayed
+ * valid for the whole session.
+ *
+ *   - `mintDashboardToken()` — the SESSION token. Reaches the server only
+ *     through `NAVGATOR_DASHBOARD_TOKEN` and the 0600 file. Never appears in
+ *     any argv, ever.
+ *   - `mintBootstrapNonce()` — a SINGLE-USE, short-TTL handoff nonce. This is
+ *     the only value that goes in the browser-open URL (`?nvt=`), so it is
+ *     the only value `ps` can capture. `web/proxy.ts` burns it on first
+ *     redemption and expires it ~5 minutes after server start, so a
+ *     `ps`-captured nonce is worthless by the time an attacker replays it.
+ *     Worst case is a race with the user's own browser, not a session-long
+ *     credential.
+ *
+ * Splitting them is the control. Switching the browser-open call from
+ * `exec(string)` to `spawn(cmd, [url])` is hygiene on top (it removes the
+ * extra `/bin/sh -c` copy and the unquoted-`?` glob fragility), but it does
+ * NOT by itself keep the value out of the process table.
+ *
+ * The 0600 file is what a legitimate non-browser local client reads to get
+ * the session token for the `x-navgator-token` header — now the ONLY way to
+ * obtain it, since it no longer travels through a URL. `navgator ui` unlinks
+ * it on shutdown.
  *
  * Home-directory resolution deliberately matches `homeConfigPath()` in
  * `src/home-config.ts`: `os.homedir()` resolved PER CALL, not cached in a
@@ -33,6 +57,14 @@ export declare function dashboardSessionPath(): string;
 /** 32 bytes of `crypto.randomBytes`, hex-encoded (64 hex chars). */
 export declare function mintDashboardToken(): string;
 /**
+ * The single-use browser handoff nonce. Same shape and same entropy as the
+ * session token — it is deliberately indistinguishable on the wire so a
+ * `ps`-derived capture tells an attacker nothing about which value it holds
+ * — but a completely independent value with a completely different lifetime.
+ * This is the ONLY secret that is allowed into an argv.
+ */
+export declare function mintBootstrapNonce(): string;
+/**
  * Persist the session record at 0600. `fs.writeFileSync`'s `mode` option
  * only applies when the file is CREATED — if `dashboard-session.json`
  * already exists from a prior launch, an overwriting write keeps that
@@ -48,4 +80,12 @@ export declare function writeDashboardSession(token: string, port: number): void
  * one exists.
  */
 export declare function readDashboardSession(): DashboardSessionRecord | null;
+/**
+ * Remove the session file. Called from `navgator ui`'s SIGINT/SIGTERM
+ * handler: a token that outlives the server it authenticates is a stale
+ * secret sitting at rest for no reason, and the previous cleanup killed the
+ * child without unlinking. Fail-open like every other `~/.navgator/*`
+ * writer — a shutdown path must never throw.
+ */
+export declare function deleteDashboardSession(): void;
 //# sourceMappingURL=dashboard-session.d.ts.map

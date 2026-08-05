@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "../api-client";
 
 export interface RegisteredProject {
   path: string;
@@ -38,7 +39,7 @@ export function useProjects(): UseProjectsResult {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/projects");
+      const response = await apiFetch("/api/projects");
       const result = await response.json();
       if (result.success) {
         setProjects(result.data.projects);
@@ -61,7 +62,7 @@ export function useProjects(): UseProjectsResult {
 
   const addProject = useCallback(async (path: string) => {
     try {
-      await fetch("/api/projects", {
+      await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "add", path }),
@@ -74,7 +75,7 @@ export function useProjects(): UseProjectsResult {
 
   const removeProject = useCallback(async (path: string) => {
     try {
-      await fetch("/api/projects", {
+      await apiFetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "remove", path }),

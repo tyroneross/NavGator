@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Component, ComponentsSummary, ComponentsApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseComponentsResult {
   components: Component[];
@@ -43,7 +44,7 @@ export function useComponents(options: UseComponentsOptions = {}): UseComponents
         if (forceRefresh) params.set("refresh", "true");
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/components?${params.toString()}`);
+        const response = await apiFetch(`/api/components?${params.toString()}`);
         const result: ComponentsApiResponse = await response.json();
 
         if (result.success && result.data) {

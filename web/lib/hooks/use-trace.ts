@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { TraceResult, TraceApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UseTraceResult {
   trace: TraceResult | null;
@@ -53,7 +54,7 @@ export function useTrace(options: UseTraceOptions = {}): UseTraceResult {
         if (filter) params.set("filter", filter);
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/trace?${params.toString()}`);
+        const response = await apiFetch(`/api/trace?${params.toString()}`);
         const result: TraceApiResponse = await response.json();
 
         if (result.success && result.data) {

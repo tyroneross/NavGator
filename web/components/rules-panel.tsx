@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { RuleViolation, RulesApiResponse } from "@/lib/types"
+import { apiFetch } from "@/lib/api-client"
 
 const severityConfig = {
   error: { icon: AlertCircle, color: "text-red-600", label: "ERROR" },
@@ -31,7 +32,7 @@ export function RulesPanel() {
     setIsLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/rules")
+      const res = await apiFetch("/api/rules")
       const json: RulesApiResponse = await res.json()
       if (json.success && json.data) {
         setViolations(json.data.violations)

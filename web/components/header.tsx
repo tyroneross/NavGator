@@ -18,6 +18,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useState, useEffect, useRef } from "react"
+import { apiFetch } from "@/lib/api-client"
 
 interface RegisteredProject {
   path: string
@@ -63,7 +64,7 @@ export function Header({
   const handleScan = async () => {
     setIsScanning(true)
     try {
-      await fetch("/api/scan", {
+      await apiFetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: activeProject }),

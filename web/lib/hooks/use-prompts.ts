@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { LLMCall, Prompt, LLMTrackingSummary, PromptsApiResponse } from "../types";
 import { useActiveProject } from "../project-context";
+import { apiFetch } from "../api-client";
 
 interface UsePromptsResult {
   calls: LLMCall[];
@@ -49,7 +50,7 @@ export function usePrompts(options: UsePromptsOptions = {}): UsePromptsResult {
         if (forceRefresh) params.set("refresh", "true");
         if (projectPath) params.set("path", projectPath);
 
-        const response = await fetch(`/api/prompts?${params.toString()}`);
+        const response = await apiFetch(`/api/prompts?${params.toString()}`);
         const result: PromptsApiResponse = await response.json();
 
         if (result.success && result.data) {
@@ -79,7 +80,7 @@ export function usePrompts(options: UsePromptsOptions = {}): UsePromptsResult {
       setError(null);
 
       try {
-        const response = await fetch("/api/prompts", {
+        const response = await apiFetch("/api/prompts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ path: path || projectPath }),

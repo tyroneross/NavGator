@@ -16,6 +16,24 @@ function cliEntry(): string {
   return entry;
 }
 
+/**
+ * The dashboard's own credentials, withheld from every CLI subprocess.
+ *
+ * `env: process.env` handed both secrets to `navgator scan` and to
+ * everything scan itself spawns (SCIP indexer, git). None of them
+ * authenticate to the dashboard, so none of them need the token; passing it
+ * only widens the set of processes whose environment (`/proc/<pid>/environ`,
+ * a crash dump, a debug log that prints `process.env`) discloses it.
+ */
+function cliEnv(): NodeJS.ProcessEnv {
+  const {
+    NAVGATOR_DASHBOARD_TOKEN: _token,
+    NAVGATOR_DASHBOARD_BOOTSTRAP: _bootstrap,
+    ...rest
+  } = process.env;
+  return rest;
+}
+
 export async function runNavGatorCli(
   args: string[],
   cwd: string,
@@ -25,6 +43,6 @@ export async function runNavGatorCli(
     cwd,
     timeout,
     maxBuffer: 20 * 1024 * 1024,
-    env: process.env,
+    env: cliEnv(),
   });
 }

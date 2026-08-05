@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "../api-client";
 
 export interface ScanConfig {
   rootPath: string;
@@ -78,7 +79,7 @@ export function useSettings(options: { autoFetch?: boolean } = {}): UseSettingsR
       const params = new URLSearchParams();
       if (forceRefresh) params.set("refresh", "true");
 
-      const response = await fetch(`/api/settings?${params.toString()}`);
+      const response = await apiFetch(`/api/settings?${params.toString()}`);
       const result = await response.json();
 
       if (result.success && result.data) {
@@ -99,7 +100,7 @@ export function useSettings(options: { autoFetch?: boolean } = {}): UseSettingsR
     setError(null);
 
     try {
-      const response = await fetch("/api/settings", {
+      const response = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),

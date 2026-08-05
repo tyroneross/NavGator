@@ -866,20 +866,54 @@ Without `ts-morph`, NavGator uses regex-based scanning which is faster but may m
 | `NAVGATOR_CONFIDENCE` | Confidence threshold (0-1) | `0.6` |
 | `NAVGATOR_MAX_RESULTS` | Max results per query | `20` |
 | `NAVGATOR_DASHBOARD_TOKEN` | Per-launch dashboard session token, set automatically by `navgator ui` — see [Dashboard security boundary](#dashboard-security-boundary) | unset |
+| `NAVGATOR_DASHBOARD_BOOTSTRAP` | Per-launch single-use browser handoff nonce, set automatically by `navgator ui` | unset |
+| `NAVGATOR_DASHBOARD_INSECURE` | Set to `1` to run the dashboard with **no** session auth (loopback check only). Required by `npm run dev:web`. | unset |
 
 ## Dashboard security boundary
 
-`navgator ui` serves the dashboard on loopback only (`127.0.0.1`), and `web/proxy.ts` rejects any request whose `Host` header doesn't resolve to a loopback hostname (`localhost`, `127.0.0.1`, `::1`). That check defends against DNS rebinding — a page at `evil.com` that a browser resolves to `127.0.0.1` still sends `Host: evil.com`, and this rejects it.
+### What this actually defends against
 
-Loopback alone does not mean "only `navgator ui` can talk to it." Any other process running on the same machine — a stray `npm postinstall` script, another agent, any sandboxed-but-networked tool — can also send a well-formed `Host: 127.0.0.1:<port>` request. To close that gap, `navgator ui` mints a random 32-byte session token on every launch, writes it to `~/.navgator/dashboard-session.json` at file mode `0600` (readable only by the invoking user), and passes it to the dashboard server as `NAVGATOR_DASHBOARD_TOKEN`.
+Be precise about the actor, because the honest claim is narrower than "the dashboard is protected."
 
-**How the token is enforced:**
-- The CLI opens the browser to a one-time bootstrap URL (`http://localhost:<port>/?nvt=<token>`). `web/proxy.ts` trades that query parameter for an `httpOnly`, `SameSite=Strict` cookie via a 302 redirect, so the token never persists in the URL bar, browser history, or an outbound `Referer` header.
-- Every `/api/*` request must then carry either that cookie or an `x-navgator-token` header equal to the token. A script that can read the 0600 session file (a legitimate local operator or automation) can call the API directly with the header — no browser required.
-- A missing or wrong token on `/api/*` gets a `401`, distinct from the `403` used for loopback/origin failures, so the two failure classes are distinguishable in logs.
-- Both comparisons are constant-time (length-checked first, then an XOR accumulator) so a token-guessing attempt can't use response timing to narrow the search.
+**Stopped:**
+- **A different local user.** The session token lives in `~/.navgator/dashboard-session.json` at mode `0600` and in the dashboard server's own environment. Another UID cannot read either, so it cannot authenticate, even though it can reach the loopback port.
+- **A process filesystem-sandboxed away from `$HOME` but still granted loopback network access.** This is the common shape for a sandboxed build step or tool: it can open a socket to `127.0.0.1:3000` but cannot read `~/.navgator/`. Before the token, that was enough to read the full architecture graph and every registered project path.
+- **A remote page via DNS rebinding.** `web/proxy.ts` rejects any request whose `Host` header doesn't resolve to a loopback hostname (`localhost`, `127.0.0.1`, `::1`). A page at `evil.com` that a browser resolves to `127.0.0.1` still sends `Host: evil.com`, and that is rejected.
 
-**Degraded dev mode.** If `NAVGATOR_DASHBOARD_TOKEN` is unset, the dashboard falls back to loopback-only enforcement (the pre-existing check) instead of locking every request out, and prints a one-time warning that it is running without session auth. This happens when someone runs `next dev` / `npm run dev:web` directly for web development, rather than through `navgator ui`. It is a deliberate trade, not a silent hole: an attacker cannot set or unset this server's own environment, and `navgator ui` always sets the token.
+**Not stopped:**
+- **Anything running as your own UID with normal filesystem access.** A stray `npm postinstall` script, another agent, any same-uid tool can simply `cat ~/.navgator/dashboard-session.json` and then call `/api/*` with the header. The `0600` mode does not separate that attacker from you — you are the same principal to the OS. If a same-uid process is hostile, this boundary is not what saves you.
+- **Anything that can read the server's environment** (`/proc/<pid>/environ` on Linux for your own processes, a core dump, a debugger).
+
+### How the credentials work
+
+There are **two** per-launch secrets, and the split is the point.
+
+| Secret | Env var | Carrier | Lifetime |
+|---|---|---|---|
+| Session token | `NAVGATOR_DASHBOARD_TOKEN` | `~/.navgator/dashboard-session.json` (0600), URL **fragment** at handoff, `x-navgator-token` header thereafter | The server process |
+| Bootstrap nonce | `NAVGATOR_DASHBOARD_BOOTSTRAP` | The browser-open URL (`?nvt=`) — the only secret in any argv | Single use, ~5 minutes |
+
+Why two: `ps -axww -o pid,user,command` prints another user's full argv on macOS. A single-secret design put the session token in the browser-open URL, so `ps` handed a full-session credential to every account on the machine. Now the only thing `ps` can capture is a nonce that `web/proxy.ts` burns on first redemption and expires after five minutes. The worst case is a race with your own browser over a few hundred milliseconds, not a session-long credential. The browser is also launched with an argv array (`spawn(cmd, [url])`) rather than a shell string, which removes the second `/bin/sh -c` copy of the URL — hygiene on top of the control, not the control itself.
+
+**The handoff:**
+1. `navgator ui` opens `http://localhost:<port>/?nvt=<nonce>`.
+2. `web/proxy.ts` validates the nonce in constant time, burns it, and 302-redirects to `/#t=<sessionToken>`. A URL **fragment** is never transmitted to any server and is stripped from `Referer` — the same carrier the OAuth implicit flow uses.
+3. A client bootstrap moves the token into `sessionStorage` and immediately clears the fragment with `history.replaceState`, so it does not persist in the URL bar or session history.
+4. Every subsequent `/api/*` call sends `x-navgator-token`.
+
+**Why `sessionStorage` and not a cookie.** Cookies are keyed by host and **ignore port** (RFC 6265 §8.5). A `navgator_session` cookie on `localhost` would be sent by the browser to *every* `http://localhost:<anything>` you visit — any Vite dev server, any demo server an npm postinstall started, any other agent's UI — each of which could replay it verbatim. `httpOnly` doesn't help (it stops page JS reading the cookie, not the receiving server) and `SameSite=Strict` doesn't fire (ports are not part of a "site", so `localhost:9999` → `localhost:3000` is same-site). `sessionStorage` is keyed by scheme + host + **port**, which is the boundary that has to hold. The dashboard sets no cookie at all.
+
+**Enforcement details:**
+- The proxy matcher is **deny-by-default** (`/((?!_next/static|_next/image|favicon.ico).*)`) with a small explicit allowlist for the app shell and static assets, so a route added later is authenticated unless someone deliberately exempts it.
+- A missing or wrong token gets a `401`, distinct from the `403` used for loopback/origin failures, so the two failure classes are distinguishable in logs.
+- Token comparison is constant-time (length-checked first, then an XOR accumulator), so guessing can't use response timing.
+- After validating, the proxy stamps `x-navgator-proxy-verified: 1` onto the forwarded request and strips any inbound copy on every path. Route guards read that stamp — not the client-supplied token header — so a garbage `x-navgator-token` can never make a request *more* privileged.
+- The token is withheld from every CLI subprocess the dashboard spawns (`navgator scan` and anything it spawns in turn).
+- `navgator ui` unlinks the session file on `SIGINT`/`SIGTERM`.
+
+**Non-browser clients.** A local operator or automation that can read the 0600 session file calls the API directly with `x-navgator-token` — no browser, no bootstrap. That file is now the only way to obtain the session token, since it no longer travels through any URL.
+
+**Degraded dev mode is explicit opt-in.** `NAVGATOR_DASHBOARD_INSECURE=1` runs the dashboard with loopback-only enforcement and prints a one-time warning; `npm run dev:web` sets it. Without it, an unset `NAVGATOR_DASHBOARD_TOKEN` **fails closed** with a `401` rather than silently degrading, and a set-but-empty token is a hard failure rather than a fallback. Degraded mode does not stamp `x-navgator-proxy-verified`, so origin-less mutations stay rejected even there. The child server's stdout and stderr are forwarded to your terminal so the warning is actually visible.
 
 ## Example Workflows
 
