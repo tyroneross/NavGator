@@ -316,15 +316,22 @@ function upgradeV1Snapshot(raw) {
     };
 }
 /**
- * Build a v2 snapshot from freshly-stored scan data (components + connections on disk)
+ * Build a v2 snapshot directly from records the caller already holds in
+ * memory (e.g. a scan's own `finalComponents` / `finalConnections`).
+ *
+ * This is the structural fix for the Phase 5 defect described in
+ * `.build-loop/issues/scanner-full-scan-diff-reports-zero-after.md`:
+ * `buildCurrentSnapshot` (below) re-reads storage, and on the full-scan path
+ * that read can race the consolidated `components.full.jsonl` /
+ * `connections.full.jsonl` rewrite — `clearStorage()` deletes those files
+ * early, and they aren't rewritten until after the diff is computed, so the
+ * storage-reading snapshot can see 0 components even though the scan
+ * genuinely persisted hundreds. Building the "current" side of the diff from
+ * the records the scan already holds and is *about* to persist makes
+ * `components_after` structurally equal to what gets written — it cannot
+ * disagree, because it IS the thing that gets written.
  */
-export async function buildCurrentSnapshot(config, projectRoot) {
-    // Dynamic import to avoid circular dependency (storage imports types, diff imports storage)
-    const { loadAllComponents, loadAllConnections } = await import('./storage.js');
-    const cfg = config || getConfig();
-    const root = projectRoot || process.cwd();
-    const components = await loadAllComponents(cfg, root);
-    const connections = await loadAllConnections(cfg, root);
+export function buildSnapshotFromRecords(components, connections, reason = 'post-scan') {
     const componentIdToName = new Map();
     for (const c of components) {
         componentIdToName.set(c.component_id, c.name);
@@ -335,7 +342,7 @@ export async function buildCurrentSnapshot(config, projectRoot) {
         snapshot_id: snapshotId,
         snapshot_version: '2.0',
         timestamp,
-        reason: 'post-scan',
+        reason,
         components: components.map((c) => ({
             component_id: c.component_id,
             name: c.name,
@@ -359,6 +366,23 @@ export async function buildCurrentSnapshot(config, projectRoot) {
             total_connections: connections.length,
         },
     };
+}
+/**
+ * Build a v2 snapshot from freshly-stored scan data (components + connections on disk).
+ *
+ * Storage-reading form, kept for callers that don't have the scan's in-memory
+ * records on hand (CLI `navgator diff`/`arch-diff`, `git-aware/canonical.ts`).
+ * The scanner's own Phase 5 diff does NOT use this — see
+ * `buildSnapshotFromRecords` above for why.
+ */
+export async function buildCurrentSnapshot(config, projectRoot) {
+    // Dynamic import to avoid circular dependency (storage imports types, diff imports storage)
+    const { loadAllComponents, loadAllConnections } = await import('./storage.js');
+    const cfg = config || getConfig();
+    const root = projectRoot || process.cwd();
+    const components = await loadAllComponents(cfg, root);
+    const connections = await loadAllConnections(cfg, root);
+    return buildSnapshotFromRecords(components, connections, 'post-scan');
 }
 // =============================================================================
 // CLI FORMATTERS

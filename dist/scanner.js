@@ -76,7 +76,7 @@ import { storeComponents, storeConnections, migratePerEntityFiles, buildIndex, b
 import { getConfig, ensureStorageDirectories, getIndexPath, SCHEMA_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
 import { acquireScanLease } from './scan-lock.js';
 import { scanLockPath } from './freshness/paths.js';
-import { computeArchitectureDiff, classifySignificance, loadLatestSnapshot, buildCurrentSnapshot, saveTimelineEntry, generateTimelineId, } from './diff.js';
+import { computeArchitectureDiff, classifySignificance, loadLatestSnapshot, buildSnapshotFromRecords, saveTimelineEntry, generateTimelineId, } from './diff.js';
 import { registerProject } from './projects.js';
 import { runAudit, updateEwmaForAudit } from './audit/index.js';
 /**
@@ -1739,7 +1739,14 @@ export async function scan(projectRoot, options = {}) {
             console.log('Phase 5: Computing architecture diff...');
         }
         try {
-            const currentSnapshot = await buildCurrentSnapshot(config, root);
+            // Build the "current" side from the scan's own in-memory records rather
+            // than re-reading storage. On the full-scan path `clearStorage()` has
+            // already deleted `components.full.jsonl`/`connections.full.jsonl`, and
+            // they aren't rewritten until after this phase (Phase 5.6, below) — a
+            // storage read here would see 0 components even though `finalComponents`
+            // is about to be persisted with the real count. See
+            // `.build-loop/issues/scanner-full-scan-diff-reports-zero-after.md`.
+            const currentSnapshot = buildSnapshotFromRecords(finalComponents, finalConnections);
             const diff = computeArchitectureDiff(preScanSnapshot, currentSnapshot);
             const { significance, triggers } = classifySignificance(diff);
             timelineEntry = {
