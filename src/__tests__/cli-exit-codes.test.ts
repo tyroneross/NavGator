@@ -47,10 +47,37 @@ function runCli(args: string[], cwd: string, timeout = 60_000): CliResult {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
+/** Newest mtime under a directory tree, or 0 if it does not exist. */
+function newestMtimeMs(dir: string): number {
+  if (!fs.existsSync(dir)) return 0;
+  let newest = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestMtimeMs(full) : fs.statSync(full).mtimeMs);
+  }
+  return newest;
+}
+
 beforeAll(() => {
   if (!fs.existsSync(cliEntry)) {
     throw new Error(
       `${cliEntry} does not exist — run \`npm run build:cli\` before running this test file.`
+    );
+  }
+
+  // This file is the only test that exercises the SHIPPED CLI, and it spawns
+  // dist/ rather than importing src/. That makes it silently vacuous against a
+  // stale build: mutating src/cli/index.ts's exitOverride(), the
+  // natural-language redirect, and find.ts's NOT_FOUND assignment each left
+  // this suite fully green until dist was rebuilt. A test that cannot fail is
+  // worse than no test, so compare the two trees and refuse to run rather than
+  // report a pass the source no longer earns.
+  const srcNewest = newestMtimeMs(path.join(repoRoot, 'src', 'cli'));
+  const distNewest = newestMtimeMs(path.join(repoRoot, 'dist', 'cli'));
+  if (srcNewest > distNewest) {
+    throw new Error(
+      `dist/cli is older than src/cli — run \`npm run build:cli\`. This suite spawns the built ` +
+        `CLI, so running it against a stale dist would assert the previous build's behaviour.`
     );
   }
 

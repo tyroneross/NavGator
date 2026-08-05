@@ -2,6 +2,7 @@ import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { EXIT_CODES } from '../exit-codes.js';
+import { checkDataAvailability } from './helpers.js';
 /**
  * Lightweight fuzzy scorer with no new dependencies.
  *
@@ -74,6 +75,17 @@ export function registerFindCommand(program) {
         .option('--agent', 'Output wrapped in agent envelope (implies --json)')
         .action(async (query, options) => {
         try {
+            // Must run BEFORE loadAllComponents — see the identical comment in
+            // list.ts. checkDataAvailability() walks up to the project root and
+            // chdir()s there; probing the raw cwd instead made `find` report
+            // NO_DATA from any subdirectory of a scanned project while its
+            // siblings answered normally.
+            const dataWarning = checkDataAvailability();
+            if (dataWarning) {
+                console.log(dataWarning);
+                process.exitCode = EXIT_CODES.NO_DATA;
+                return;
+            }
             const config = getConfig();
             let components = await loadAllComponents(config);
             if (options.type) {
@@ -97,9 +109,10 @@ export function registerFindCommand(program) {
                 score,
                 context: buildContext(comp),
             }));
-            // Applied before any output branch so --agent/--json share the same
-            // exit-code contract as human output: no components tracked yet is
-            // NO_DATA, a query that matched nothing is NOT_FOUND.
+            // NO_DATA is decided above by checkDataAvailability(). What remains
+            // here is the distinction the caller actually needs: a scanned project
+            // that tracks nothing at all is still NO_DATA, whereas a query that
+            // matched none of the tracked components is NOT_FOUND.
             if (components.length === 0) {
                 process.exitCode = EXIT_CODES.NO_DATA;
             }

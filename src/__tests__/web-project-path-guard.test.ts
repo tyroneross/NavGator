@@ -291,6 +291,24 @@ describe("POST /api/scan (SEC-007 path guard)", () => {
     expect(runNavGatorCli).toHaveBeenCalledTimes(1);
     expect(runNavGatorCli.mock.calls[0]![1]).toBe(path.resolve(registeredDir));
   });
+
+  // The launch-root carve-out exists FOR this flow -- the dashboard's Scan
+  // button posts `{ path: activeProject }`, and the active project is often the
+  // launch directory the user never registered -- but it was pinned only on the
+  // GET table. Removing the carve-out failed nine GET tests and zero POST ones,
+  // so the mutation could not see the case that motivated the code. Pin it
+  // where it actually matters.
+  it("allows the server's own default root when named explicitly", async () => {
+    runNavGatorCli.mockResolvedValueOnce({
+      stdout: JSON.stringify({ status: "noop" }),
+      stderr: "",
+    });
+    const { POST } = await import("../../web/app/api/scan/route.js");
+    const res = await POST(fakePostRequest({ path: defaultRootDir }) as never);
+    expect(res.status).toBe(200);
+    expect(runNavGatorCli).toHaveBeenCalledTimes(1);
+    expect(runNavGatorCli.mock.calls[0]![1]).toBe(path.resolve(defaultRootDir));
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -323,6 +341,21 @@ describe("POST /api/prompts (SEC-007 path guard)", () => {
     expect(res.status).toBe(200);
     expect(runNavGatorCli).toHaveBeenCalledTimes(1);
   });
+
+  it("allows the server's own default root when named explicitly", async () => {
+    runNavGatorCli.mockResolvedValueOnce({
+      stdout: JSON.stringify({
+        prompts: [],
+        summary: { totalPrompts: 0, byProvider: {}, byCategory: {}, templatesCount: 0, withToolsCount: 0 },
+        warnings: [],
+      }),
+      stderr: "",
+    });
+    const { POST } = await import("../../web/app/api/prompts/route.js");
+    const res = await POST(fakePostRequest({ path: defaultRootDir }) as never);
+    expect(res.status).toBe(200);
+    expect(runNavGatorCli).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -350,6 +383,18 @@ describe("POST /api/settings (SEC-007 path guard)", () => {
     expect(res.status).toBe(200);
     const written = JSON.parse(
       fs.readFileSync(path.join(registeredDir, ".navgator", "settings.json"), "utf-8"),
+    );
+    expect(written.display.theme).toBe("light");
+  });
+
+  it("allows the server's own default root when named explicitly", async () => {
+    const { POST } = await import("../../web/app/api/settings/route.js");
+    const res = await POST(
+      fakePostRequest({ projectPath: defaultRootDir, display: { theme: "light" } }) as never,
+    );
+    expect(res.status).toBe(200);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(defaultRootDir, ".navgator", "settings.json"), "utf-8"),
     );
     expect(written.display.theme).toBe("light");
   });

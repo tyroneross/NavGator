@@ -331,7 +331,7 @@ describe('R6 — autoRefreshIfStale', () => {
         connection.code_reference?.file === 'src/a.ts' &&
         connection.code_reference?.symbol === './b',
     )).toBe(false);
-  }, 60_000);
+  }, 15_000);
 
   it('uses auto mode so stale refresh honors tsconfig full-scan triggers', async () => {
     fs.mkdirSync(path.join(root, 'src'), { recursive: true });

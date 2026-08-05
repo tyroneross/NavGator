@@ -1,11 +1,10 @@
 import { Command } from 'commander';
-import * as fs from 'fs';
-import * as path from 'path';
 import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { mergeComponentAliases } from '../../component-identity.js';
 import { EXIT_CODES } from '../exit-codes.js';
+import { checkDataAvailability } from './helpers.js';
 
 export function registerListCommand(program: Command): void {
   program
@@ -17,6 +16,21 @@ export function registerListCommand(program: Command): void {
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
       try {
+        // Must run BEFORE loadAllComponents: checkDataAvailability walks up to
+        // the project root and chdir()s there, which is what makes the load
+        // return real data when invoked from a subdirectory. `list` and `find`
+        // were the only two data commands probing the raw cwd instead, so from
+        // `<project>/src` they returned an empty payload while their fourteen
+        // siblings returned everything. That was a silent wrong answer before
+        // the exit-code contract; once an agent branches on the code it becomes
+        // an actively misleading NO_DATA on a project that has been scanned.
+        const dataWarning = checkDataAvailability();
+        if (dataWarning) {
+          console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
+          return;
+        }
+
         const config = getConfig();
         let components = await loadAllComponents(config);
 
@@ -27,16 +41,9 @@ export function registerListCommand(program: Command): void {
           components = components.filter((c) => c.role.layer === options.layer);
         }
 
-        // Applied before any output branch so --agent/--json share the
-        // human-mode exit-code contract. Only "no scan has ever run" is
-        // NO_DATA — an empty result from a real, run scan (e.g. a --type
-        // filter matching nothing) is a legitimate empty answer, SUCCESS.
-        const cwd = process.cwd();
-        const navDir = path.join(cwd, '.navgator', 'architecture');
-        const hasNavData = fs.existsSync(navDir);
-        if (!hasNavData) {
-          process.exitCode = EXIT_CODES.NO_DATA;
-        }
+        // NO_DATA is decided above by checkDataAvailability(). An empty
+        // result from a scan that DID run (e.g. a --type filter matching
+        // nothing) is a legitimate empty answer, so it stays SUCCESS.
 
         if (options.agent) {
           console.log(wrapInEnvelope('list', components));
@@ -49,12 +56,9 @@ export function registerListCommand(program: Command): void {
         }
 
         if (components.length === 0) {
-          if (!hasNavData) {
-            console.log(`No NavGator data in ${cwd}`);
-            console.log('Run `navgator scan` first, or `navgator projects` to find scanned projects.');
-          } else {
-            console.log('No components found. Try running `navgator scan` to refresh.');
-          }
+          // The "no NavGator data at all" case already returned above with
+          // NO_DATA, so reaching here means a scan ran and tracked nothing.
+          console.log('No components found. Try running `navgator scan` to refresh.');
           return;
         }
 

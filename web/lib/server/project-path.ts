@@ -31,7 +31,9 @@ export const DEFAULT_PROJECT_REGISTRY_PATH = path.join(os.homedir(), ".navgator"
 
 /** The server's own default project root when no `path` param is supplied. */
 export function defaultProjectRoot(): string {
-  return process.env.NAVGATOR_PROJECT_PATH || process.cwd().replace(/\/web$/, "");
+  // The `/web` strip yields "" when cwd is exactly "/web", which would hand
+  // routes an empty root; fall back to cwd in that case.
+  return process.env.NAVGATOR_PROJECT_PATH || process.cwd().replace(/\/web$/, "") || process.cwd();
 }
 
 export type ResolvedProjectPath = { root: string };
@@ -55,7 +57,13 @@ function resolveProjectPathValue(
   registryPath: string,
 ): ResolvedProjectPath | NextResponse {
   if (!rawPath) {
-    return { root: defaultProjectRoot() };
+    // Resolved, not raw. The explicit branch below returns path.resolve(...),
+    // so returning the raw value here would hand routes two different strings
+    // for one directory whenever NAVGATOR_PROJECT_PATH needs normalizing
+    // (a trailing slash, an embedded `..`). Per-route caches key on that
+    // string and coverage.ts computes path.relative against it, so the two
+    // spellings must not diverge.
+    return { root: path.resolve(defaultProjectRoot()) };
   }
 
   const resolved = path.resolve(rawPath);
@@ -71,6 +79,14 @@ function resolveProjectPathValue(
   // added to the registry. So the allowlist is registered-projects PLUS the
   // launch root -- not a widening of the boundary, since an attacker who could
   // choose that value would already be choosing the server's own configuration.
+  //
+  // Comparison is exact string equality on the resolved path, so on a
+  // case-insensitive filesystem a case variant of a genuinely registered
+  // project (`/Users/x/Dev/Proj` against a registry entry of
+  // `/Users/x/dev/Proj`) is REJECTED even though both name the same directory.
+  // That is the safe direction and it stays: case-folding would widen the
+  // boundary. If this ever surfaces as a confusing 403 in practice, compare
+  // fs.realpathSync.native() of both sides rather than lowercasing.
   if (resolved !== path.resolve(defaultProjectRoot()) && !isRegisteredProjectPath(resolved, registryPath)) {
     return NextResponse.json(
       { success: false, error: REJECTED_PATH_MESSAGE },

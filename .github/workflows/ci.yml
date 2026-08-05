@@ -53,6 +53,16 @@ jobs:
       - name: Build release payload
         run: npm run build
 
+      # dist/ is committed on purpose (marketplace installs clone without
+      # building), and `npm test` runs BEFORE this step against whatever dist
+      # the commit shipped. So a change to src/cli/ that forgot to rebuild
+      # would leave cli-exit-codes.test.ts asserting against a stale binary and
+      # passing for the wrong reason — proven by mutation: three separate
+      # src/cli mutations left that suite 15/15 green until dist was rebuilt.
+      # This is the gate that makes the committed artifact match its source.
+      - name: Assert committed dist matches source
+        run: git diff --exit-code -- dist
+
       - name: Verify packed Claude and Codex surfaces
         run: npm run verify:release
 

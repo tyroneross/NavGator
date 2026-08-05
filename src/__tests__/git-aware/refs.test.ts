@@ -21,7 +21,7 @@ import {
 // this file past 5s and turned a passing behaviour test into a red build. Raise
 // the ceiling explicitly rather than letting scheduling luck decide, and do not
 // convert these to mocked git -- spawning the real binary is the point.
-vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+vi.setConfig({ testTimeout: 15_000, hookTimeout: 15_000 });
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });
