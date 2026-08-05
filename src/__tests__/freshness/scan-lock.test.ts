@@ -373,6 +373,48 @@ describe('owner-safe scan lease', () => {
     // fired with it.
   }, 180_000);
 
+  it('classifies a contention-timeout on the acquisition gate as retryable, not operational', () => {
+    // Deterministic companion to the high-fanout test above. That test proves
+    // the fix under real 40-process scheduling; this proves the classification
+    // itself without depending on any process race, so the assertion holds
+    // even on a runner with zero contention noise.
+    //
+    // Plant a live acquisition-gate record that this test process itself owns
+    // (a real, live PID), so `acquireScanLease` is forced through the
+    // busy-gate timeout branch every iteration instead of ever winning the
+    // gate. Meanwhile a real, live scan lease is held at `lockPath` for the
+    // whole test, so the contention message this produces is truthful.
+    const lockPath = scanLockPath(root);
+    const held = acquire({ startHeartbeat: false });
+
+    const gatePath = `${lockPath}.acquire`;
+    const now = Date.now();
+    fs.writeFileSync(gatePath, JSON.stringify({
+      version: 1,
+      pid: process.pid,
+      token: 'permanently-held-gate',
+      started_at: now,
+      heartbeat_at: now,
+      scan_type: 'acquisition-gate',
+    }));
+
+    const result = acquireScanLease(lockPath, 'contender', {
+      startHeartbeat: false,
+      gateWaitMs: 20,
+      gatePollMs: 5,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.retryable).toBe(true);
+      expect(result.message).toContain('Scan already in progress');
+      expect(result.message).toContain(`pid ${process.pid}`);
+    }
+    expect(readScanLease(lockPath)?.token).toBe(held.token);
+
+    fs.unlinkSync(gatePath);
+  });
+
   it('allows exactly one winner when two processes reclaim the same dead lease', async () => {
     const lockPath = scanLockPath(root);
     const dead: ScanLeaseRecord = {

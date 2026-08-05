@@ -203,7 +203,12 @@ function sleepSync(ms: number): void {
 
 type AcquisitionGateResult =
   | { ok: true; release: () => void }
-  | { ok: false; message: string };
+  // Genuinely operational: fs error, or a gate record that stayed unreadable
+  // past its stale grace period (corrupt/torn write, not a live contender).
+  | { ok: false; reason: 'operational'; message: string }
+  // The gate was alive and repeatedly held by other contenders for the whole
+  // wait budget. That IS contention — the caller lost a turn, not a resource.
+  | { ok: false; reason: 'contention'; message: string };
 
 type GateRecoveryResult = 'claimed' | 'wait' | 'error';
 
@@ -319,7 +324,11 @@ function acquireAcquisitionGate(
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-        return { ok: false, message: `Could not acquire scan gate: ${(error as Error).message}` };
+        return {
+          ok: false,
+          reason: 'operational',
+          message: `Could not acquire scan gate: ${(error as Error).message}`,
+        };
       }
       const existing = readScanLease(gatePath);
       if (!existing) {
@@ -331,6 +340,7 @@ function acquireAcquisitionGate(
         if (now() >= deadline) {
           return {
             ok: false,
+            reason: 'operational',
             message: `Timed out waiting for a stable scan acquisition gate: ${gatePath}`,
           };
         }
@@ -348,7 +358,11 @@ function acquireAcquisitionGate(
           now,
         );
         if (recovery === 'error') {
-          return { ok: false, message: `Could not recover scan acquisition gate: ${gatePath}` };
+          return {
+            ok: false,
+            reason: 'operational',
+            message: `Could not recover scan acquisition gate: ${gatePath}`,
+          };
         }
         if (recovery === 'claimed') {
           // This recovery claim is the only successor authorized to remove the
@@ -361,8 +375,14 @@ function acquireAcquisitionGate(
         continue;
       }
       if (now() >= deadline) {
+        // The gate was alive and repeatedly held by other contenders for the
+        // entire wait budget: this owner simply never won a turn. That is
+        // contention, not an operational fault — the caller maps it to a
+        // retryable result and re-derives the truthful reason from the
+        // canonical scan lease (see acquireScanLease).
         return {
           ok: false,
+          reason: 'contention',
           message: `Timed out waiting for scan acquisition gate: ${gatePath}`,
         };
       }
@@ -455,7 +475,31 @@ export function acquireScanLease(
     options.gatePollMs ?? 2,
   );
   if (!gate.ok) {
-    return { ok: false, retryable: false, message: gate.message };
+    if (gate.reason === 'operational') {
+      return { ok: false, retryable: false, message: gate.message };
+    }
+    // Contention on the acquisition-gate turnstile, not an operational fault.
+    // Re-derive the reason from the canonical scan lease so a caller who lost
+    // the gate race gets the same truthful "Scan already in progress" message
+    // as a caller who lost the lease race directly.
+    const contentionNow = nowFn();
+    const currentLease = readScanLease(lockPath);
+    if (currentLease && !canReclaim(currentLease, pidAlive, processFingerprint)) {
+      return {
+        ok: false,
+        retryable: true,
+        message: formatContention(currentLease, contentionNow),
+      };
+    }
+    // No live scan lease is actually held right now — the gate itself was
+    // simply saturated by other contenders passing through it. Still
+    // retryable (contention is transient by nature), but the message says
+    // what actually happened rather than borrowing the lease-contention copy.
+    return {
+      ok: false,
+      retryable: true,
+      message: `${gate.message} (gate contention; no active scan lease observed)`,
+    };
   }
 
   try {
