@@ -17,6 +17,7 @@ import {
   type Severity,
 } from '../../lessons-store.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 // =============================================================================
 // HELPERS
@@ -158,7 +159,7 @@ export function registerLessonsCommand(program: Command): void {
         }
       } catch (err) {
         console.error('lessons list failed:', err instanceof Error ? err.message : err);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 
@@ -187,7 +188,7 @@ export function registerLessonsCommand(program: Command): void {
           } else {
             console.log(`No lesson with id "${id}" in scope=${scope}`);
           }
-          process.exitCode = 1;
+          process.exitCode = EXIT_CODES.NOT_FOUND;
           return;
         }
         if (!emit('lessons.show', found, options)) {
@@ -195,7 +196,7 @@ export function registerLessonsCommand(program: Command): void {
         }
       } catch (err) {
         console.error('lessons show failed:', err instanceof Error ? err.message : err);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 
@@ -226,7 +227,7 @@ export function registerLessonsCommand(program: Command): void {
         }
       } catch (err) {
         console.error('lessons search failed:', err instanceof Error ? err.message : err);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 
@@ -246,6 +247,14 @@ export function registerLessonsCommand(program: Command): void {
           applies_to: options.tag && options.tag.length > 0 ? options.tag : undefined,
           project_name: options.projectName,
         });
+        // 'not-found' names a lesson id that does not exist — NOT_FOUND.
+        // 'already-global' is a state conflict (the lesson exists, the
+        // promotion just can't proceed) that fits neither NOT_FOUND nor
+        // USAGE cleanly; left at OPERATIONAL as a documented exception (see
+        // this task's return notes) rather than inventing a sixth code.
+        const promoteExitCode = result.reason === 'not-found'
+          ? EXIT_CODES.NOT_FOUND
+          : EXIT_CODES.OPERATIONAL;
         if (!emit('lessons.promote', result, options)) {
           if (result.promoted) {
             console.log(`Promoted ${id} to global store.`);
@@ -254,14 +263,14 @@ export function registerLessonsCommand(program: Command): void {
             }
           } else {
             console.log(`Not promoted: ${result.reason}`);
-            process.exitCode = 1;
+            process.exitCode = promoteExitCode;
           }
         } else if (!result.promoted) {
-          process.exitCode = 1;
+          process.exitCode = promoteExitCode;
         }
       } catch (err) {
         console.error('lessons promote failed:', err instanceof Error ? err.message : err);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 
@@ -276,19 +285,20 @@ export function registerLessonsCommand(program: Command): void {
       try {
         ensureGlobalLessonsFile();
         const result = demoteLesson(id);
+        // demoteLesson's only failure reason is 'not-found'.
         if (!emit('lessons.demote', result, options)) {
           if (result.demoted) {
             console.log(`Demoted ${id} from global store.`);
           } else {
             console.log(`Not demoted: ${result.reason}`);
-            process.exitCode = 1;
+            process.exitCode = EXIT_CODES.NOT_FOUND;
           }
         } else if (!result.demoted) {
-          process.exitCode = 1;
+          process.exitCode = EXIT_CODES.NOT_FOUND;
         }
       } catch (err) {
         console.error('lessons demote failed:', err instanceof Error ? err.message : err);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

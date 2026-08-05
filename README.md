@@ -53,6 +53,23 @@ Opting in:
 
 Without `--with-mcp`, no MCP server is registered on either host.
 
+### Exit codes
+
+`navgator <command> --agent` returns one of five exit codes so a caller can
+decide what happened without parsing stdout. `0`–`2` predate this contract and
+keep their existing meanings; `3` and `4` are additive.
+
+| Code | Name | Meaning | Caller should |
+|---|---|---|---|
+| `0` | `SUCCESS` | Command ran, produced its result | Read stdout |
+| `1` | `OPERATIONAL` | Unexpected failure — exception, unreadable/unwritable state, spawn failure | Read stderr; treat as a bug or environment problem, not a retry target |
+| `2` | `NO_DATA` | Ran fine, but nothing to report yet — no scan data, stale index, lock busy, nothing to diff. Not an error. | Run `navgator scan` (or retry once the lock clears) |
+| `3` | `NOT_FOUND` | The named entity does not exist — unknown component, unregistered project, missing lesson id, unknown model | Check the name/id (candidates are usually printed), don't retry unchanged |
+| `4` | `USAGE` | The invocation itself was wrong — bad/missing arguments, mutually exclusive flags, or a request this surface can't serve (e.g. a natural-language argument) | Fix the invocation; retrying unchanged will fail the same way |
+
+Named constants live in `src/cli/exit-codes.ts` — reference those, not the
+bare numbers, from anything that shells out to `navgator`.
+
 ## Migrating off the MCP tools
 
 Every MCP tool has a direct CLI replacement. `review` and `explore` are new in

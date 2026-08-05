@@ -1,1 +1,1 @@
-{"version":3,"file":"trace.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/trace.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AAQpC,wBAAgB,oBAAoB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAgE3D"}
+{"version":3,"file":"trace.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/trace.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AASpC,wBAAgB,oBAAoB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAkE3D"}

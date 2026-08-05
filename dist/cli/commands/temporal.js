@@ -1,6 +1,7 @@
 import { getConfig, getStoragePath } from '../../config.js';
 import { isInitialized, listSnapshots, findFirstSeen, diffSince, } from '../../temporal/git-store.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { EXIT_CODES } from '../exit-codes.js';
 function getStoreDir() {
     return getStoragePath(getConfig());
 }
@@ -22,9 +23,15 @@ export function registerTemporalCommands(program) {
             console.log(notInitMsg());
             if (options.json || options.agent)
                 console.log(JSON.stringify({ query, hit: null }));
+            process.exitCode = EXIT_CODES.NO_DATA;
             return;
         }
         const hit = findFirstSeen(storeDir, query);
+        // Applied before any output branch so --agent/--json share the
+        // human-mode code: a query matching no snapshot is NOT_FOUND.
+        if (!hit) {
+            process.exitCode = EXIT_CODES.NOT_FOUND;
+        }
         if (options.agent) {
             console.log(wrapInEnvelope('first-seen', { query, hit }));
             return;
@@ -53,9 +60,15 @@ export function registerTemporalCommands(program) {
         const storeDir = getStoreDir();
         if (!isInitialized(storeDir)) {
             console.log(notInitMsg());
+            process.exitCode = EXIT_CODES.NO_DATA;
             return;
         }
         const result = diffSince(storeDir, options.since);
+        // A failed diff here is git rejecting `--since <ref>` (unknown
+        // revision) — a bad argument value, USAGE — not a crash.
+        if (!result.ok) {
+            process.exitCode = EXIT_CODES.USAGE;
+        }
         if (options.agent) {
             console.log(wrapInEnvelope('changes', { since: options.since, ok: result.ok, stat: result.stat, error: result.error }));
             return;
@@ -66,7 +79,7 @@ export function registerTemporalCommands(program) {
         }
         if (!result.ok) {
             console.error(`changes failed: ${result.error}`);
-            process.exit(1);
+            return;
         }
         if (result.stat.trim() === '') {
             console.log(`No changes since ${options.since}.`);
@@ -88,6 +101,7 @@ export function registerTemporalCommands(program) {
             console.log(notInitMsg());
             if (options.json || options.agent)
                 console.log(JSON.stringify({ snapshots: [] }));
+            process.exitCode = EXIT_CODES.NO_DATA;
             return;
         }
         const snapshots = listSnapshots(storeDir, Number(options.limit) || 20);

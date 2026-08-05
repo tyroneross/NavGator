@@ -10,6 +10,7 @@ import {
   type RuleViolation,
 } from '../../rules.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function buildRulesAgentData(
   violations: RuleViolation[],
@@ -57,6 +58,7 @@ export function registerRulesCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const config = getConfig();
@@ -90,7 +92,7 @@ export function registerRulesCommand(program: Command): void {
         console.log(formatRulesOutput(violations, options.severity));
       } catch (error) {
         console.error('Rules check failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

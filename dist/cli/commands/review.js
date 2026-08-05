@@ -1,6 +1,7 @@
 import { wrapInEnvelope } from '../../agent-output.js';
 import { buildReviewReport, formatReviewReport } from '../../review-report.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 export function registerReviewCommand(program) {
     program
         .command('review')
@@ -13,12 +14,18 @@ export function registerReviewCommand(program) {
             const dataWarning = checkDataAvailability();
             if (dataWarning) {
                 console.error(dataWarning);
-                process.exit(1);
+                process.exitCode = EXIT_CODES.NO_DATA;
+                return;
             }
             const report = await buildReviewReport({ component: options.component });
             if ('error' in report) {
+                // buildReviewReport's only error case is "no architecture data"
+                // (an unresolvable --component is silently ignored, not an
+                // error) — NO_DATA, checked defensively in case it and
+                // checkDataAvailability above go stale independently.
                 console.error(report.error);
-                process.exit(1);
+                process.exitCode = EXIT_CODES.NO_DATA;
+                return;
             }
             if (options.agent) {
                 console.log(wrapInEnvelope('review', report));
@@ -32,7 +39,7 @@ export function registerReviewCommand(program) {
         }
         catch (error) {
             console.error('Review failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

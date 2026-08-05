@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { scanPromptsOnly, formatPromptsOutput, formatPromptDetail } from '../../scanner.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerPromptsCommand(program: Command): void {
   program
@@ -16,6 +17,7 @@ export function registerPromptsCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const result = await scanPromptsOnly(process.cwd());
@@ -43,6 +45,7 @@ export function registerPromptsCommand(program: Command): void {
             for (const p of result.prompts.slice(0, 10)) {
               console.log(`  - ${p.name} (${p.location.file}:${p.location.lineStart})`);
             }
+            process.exitCode = EXIT_CODES.NOT_FOUND;
             return;
           }
 
@@ -80,7 +83,7 @@ export function registerPromptsCommand(program: Command): void {
         }
       } catch (error) {
         console.error('Prompt scan failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

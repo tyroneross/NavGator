@@ -6,6 +6,7 @@ import { getConfig } from '../../config.js';
 import { autoRefreshIfStale } from '../../scanner.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerStatusCommand(program: Command): void {
   program
@@ -19,6 +20,7 @@ export function registerStatusCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
 
@@ -36,6 +38,7 @@ export function registerStatusCommand(program: Command): void {
 
         if (!index) {
           console.log('No architecture data found. Run `navgator scan` first.');
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
 
@@ -349,7 +352,7 @@ export function registerStatusCommand(program: Command): void {
         }
       } catch (error) {
         console.error('Status check failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

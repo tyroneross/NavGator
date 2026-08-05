@@ -12,6 +12,7 @@ import { buildExecutiveSummary } from '../../agent-output.js';
 import { isSandboxMode } from '../../sandbox.js';
 import { scan } from '../../scanner.js';
 import { mintDashboardToken, writeDashboardSession } from '../../dashboard-session.js';
+import { EXIT_CODES } from '../exit-codes.js';
 // =============================================================================
 // SHARED HELPERS
 // =============================================================================
@@ -101,7 +102,9 @@ async function launchUI(projectPath) {
     const cleanup = () => {
         console.log('\nShutting down...');
         serverProcess.kill();
-        process.exit(0);
+        // A hard abort mid-signal-handler, not a normal unwind — process.exit()
+        // stays here rather than exitCode (see exit-codes.ts's header).
+        process.exit(EXIT_CODES.SUCCESS);
     };
     process.on('SIGINT', cleanup);
     process.on('SIGTERM', cleanup);
@@ -114,7 +117,7 @@ async function runScan() {
     });
     if (result.status === 'busy') {
         console.error(`Scan busy: ${result.message}`);
-        process.exitCode = 2;
+        process.exitCode = EXIT_CODES.NO_DATA;
         return;
     }
     console.log('\n========================================');
@@ -268,7 +271,7 @@ export function registerSetupCommand(program) {
         }
         catch (error) {
             console.error('Setup failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -319,14 +322,15 @@ export function registerUICommand(program) {
             const cleanup = () => {
                 console.log('\nShutting down...');
                 serverProcess.kill();
-                process.exit(0);
+                // Hard abort from a signal handler — see the `ui` cleanup above.
+                process.exit(EXIT_CODES.SUCCESS);
             };
             process.on('SIGINT', cleanup);
             process.on('SIGTERM', cleanup);
         }
         catch (error) {
             console.error('Failed to start UI:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -364,7 +368,7 @@ export function registerHistoryCommand(program) {
         }
         catch (error) {
             console.error('Failed to load history:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -384,6 +388,7 @@ export function registerDiffCommand(program) {
             const timeline = await loadTimeline(config);
             if (timeline.entries.length === 0) {
                 console.log('No timeline entries found. Run `navgator scan` at least twice to see diffs.');
+                process.exitCode = EXIT_CODES.NO_DATA;
                 return;
             }
             let entry;
@@ -395,7 +400,8 @@ export function registerDiffCommand(program) {
                     for (const e of timeline.entries.slice(-5).reverse()) {
                         console.log(`  ${e.id}  (${new Date(e.timestamp).toLocaleString()})`);
                     }
-                    process.exit(1);
+                    process.exitCode = EXIT_CODES.NOT_FOUND;
+                    return;
                 }
             }
             else {
@@ -409,7 +415,7 @@ export function registerDiffCommand(program) {
         }
         catch (error) {
             console.error('Failed to load diff:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -434,7 +440,7 @@ export function registerProjectsCommand(program) {
         }
         catch (error) {
             console.error('Failed to list projects:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -471,12 +477,12 @@ export function registerRegistryLogCommand(program) {
             const { readJournal, formatJournal } = await import('../../registry-journal.js');
             if (options.actor && !isValidJournalActor(options.actor)) {
                 console.error(`Invalid --actor "${options.actor}". Valid values: ${VALID_JOURNAL_ACTORS.join(', ')}`);
-                process.exit(1);
+                process.exitCode = EXIT_CODES.USAGE;
                 return;
             }
             if (options.op && !isValidJournalOp(options.op)) {
                 console.error(`Invalid --op "${options.op}". Valid values: ${VALID_JOURNAL_OPS.join(', ')}`);
-                process.exit(1);
+                process.exitCode = EXIT_CODES.USAGE;
                 return;
             }
             const parsedLimit = Number.parseInt(options.limit, 10);
@@ -501,7 +507,7 @@ export function registerRegistryLogCommand(program) {
         }
         catch (error) {
             console.error('Failed to load registry journal:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }
@@ -531,7 +537,7 @@ export function registerSummaryCommand(program) {
         }
         catch (error) {
             console.error('Summary generation failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

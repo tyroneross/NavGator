@@ -43,6 +43,7 @@ import {
 } from '../../memory/store.js';
 import { mirrorAll, mirrorStatus } from '../../memory/mirror.js';
 import { defaultRegistryDir } from '../../registry-journal.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 interface DoctorCommandOptions {
   json?: boolean;
@@ -84,7 +85,7 @@ export function registerDoctorCommand(program: Command): void {
         console.error(
           `navgator doctor failed: ${error instanceof Error ? error.message : String(error)}`
         );
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }
@@ -464,7 +465,21 @@ async function runFix(options: DoctorCommandOptions): Promise<void> {
     yes: Boolean(options.yes),
   });
 
-  if (outcome.status === 'aborted-backup-failed') process.exitCode = 1;
+  if (outcome.status === 'aborted-backup-failed') {
+    // Couldn't write/verify a backup before mutating — an unexpected
+    // filesystem failure, not a bad invocation.
+    process.exitCode = EXIT_CODES.OPERATIONAL;
+  } else if (outcome.status === 'aborted-non-tty') {
+    // `--fix` needs a human at a TTY or an explicit `--yes`; a
+    // non-interactive caller (an agent shelling out, cron, CI) that omitted
+    // `--yes` made a bad invocation for this context, not a crash — and this
+    // path did not clean anything, so it must not read as SUCCESS to an
+    // agent deciding whether to retry.
+    process.exitCode = EXIT_CODES.USAGE;
+  }
+  // 'aborted-declined': the interactive prompt did exactly what was asked
+  // (asked, got "no", changed nothing) — a legitimate SUCCESS, not an error.
+  // 'nothing-to-clean' / 'cleaned': also SUCCESS.
 
   const report = await computeHealth();
   const payload = outcome.cleanup ? { ...report, cleanup: outcome.cleanup } : report;

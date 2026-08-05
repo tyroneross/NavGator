@@ -5,6 +5,7 @@ import { wrapInEnvelope } from '../../agent-output.js';
 import { ArchitectureLayer } from '../../types.js';
 import { extractSubgraph, subgraphToMermaid } from '../../subgraph.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerSubgraphCommand(program: Command): void {
   program
@@ -23,6 +24,7 @@ export function registerSubgraphCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const config = getConfig();
@@ -55,7 +57,7 @@ export function registerSubgraphCommand(program: Command): void {
         console.log(JSON.stringify(result, null, 2));
       } catch (error) {
         console.error('Subgraph extraction failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

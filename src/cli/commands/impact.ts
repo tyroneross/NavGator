@@ -6,6 +6,7 @@ import { wrapInEnvelope } from '../../agent-output.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
 import { resolveFileConnections, formatFileImpact, formatFileConnections } from '../../file-resolve.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerImpactCommand(program: Command): void {
   program
@@ -18,6 +19,7 @@ export function registerImpactCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const config = getConfig();
@@ -73,6 +75,7 @@ export function registerImpactCommand(program: Command): void {
               console.log(`  ... and ${components.length - 10} more`);
             }
           }
+          process.exitCode = EXIT_CODES.NOT_FOUND;
           return;
         }
 
@@ -182,7 +185,7 @@ export function registerImpactCommand(program: Command): void {
         }
       } catch (error) {
         console.error('Impact analysis failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

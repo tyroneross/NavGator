@@ -278,6 +278,13 @@ describe('R6 — autoRefreshIfStale', () => {
     expect(readDirty(root)).toEqual(['src/pending.ts']);
   });
 
+  // Two real scan() runs (a full baseline, then an incremental with an injected
+  // late edit) plus lease acquisition -- wall time is dominated by filesystem
+  // and scan work, not by the contract under test. The assertion is about
+  // behaviour (captured dirty paths are forced through), never latency, so the
+  // inherited 5s default was an accidental ceiling. It held until the suite
+  // grew a batch of subprocess-spawning CLI tests; the added contention on a
+  // 2-core runner pushed this past 5s. Set the budget explicitly.
   it('forces captured dirty paths when hashes already contain a late edit', async () => {
     writeImportFixture(root);
     await scan(root, { mode: 'full' });
@@ -324,7 +331,7 @@ describe('R6 — autoRefreshIfStale', () => {
         connection.code_reference?.file === 'src/a.ts' &&
         connection.code_reference?.symbol === './b',
     )).toBe(false);
-  });
+  }, 60_000);
 
   it('uses auto mode so stale refresh honors tsconfig full-scan triggers', async () => {
     fs.mkdirSync(path.join(root, 'src'), { recursive: true });

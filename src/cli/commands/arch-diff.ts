@@ -16,6 +16,7 @@ import { promisify } from 'util';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { pruneBranchSnapshots, writeSnapshotForCurrentRef } from '../../git-aware/canonical.js';
 import { premergeDiff } from '../../git-aware/premerge-diff.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 3000;
@@ -110,15 +111,15 @@ export function registerArchDiffCommand(program: Command): void {
           printHuman(data);
         }
 
-        // House convention (mirrors scan-remote): exitCode 2 signals "ran
+        // House convention (mirrors scan-remote): NO_DATA signals "ran
         // fine, nothing to report yet" — never a crash, but never silently
-        // 0 as though the diff itself succeeded.
+        // SUCCESS as though the diff itself succeeded.
         if (!result.available) {
-          process.exitCode = 2;
+          process.exitCode = EXIT_CODES.NO_DATA;
         }
       } catch (error) {
         console.error('arch-diff failed:', error instanceof Error ? error.message : String(error));
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

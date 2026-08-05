@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,6 +11,17 @@ import {
   isWorktree,
   slugifyRef,
 } from '../../git-aware/refs.js';
+
+// Every test in this file shells out to real `git` (init, config, add, commit,
+// rev-parse), so wall time is dominated by subprocess spawns, not by the code
+// under test. These are behaviour assertions -- "degrades safely", "resolves
+// trunk" -- never latency budgets, so vitest's 5s default was an accidental
+// ceiling rather than a deliberate one. It held until the suite grew a batch of
+// subprocess-spawning CLI tests; on a 2-core runner the added contention pushed
+// this file past 5s and turned a passing behaviour test into a red build. Raise
+// the ceiling explicitly rather than letting scheduling luck decide, and do not
+// convert these to mocked git -- spawning the real binary is the point.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' });

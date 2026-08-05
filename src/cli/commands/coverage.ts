@@ -4,6 +4,7 @@ import { getConfig } from '../../config.js';
 import { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope } from '../../agent-output.js';
 import { computeCoverage, formatCoverageOutput, type CoverageReport } from '../../coverage.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function buildCoverageAgentData(report: CoverageReport) {
   const boundedGaps = boundAgentCollection(report.gaps, AGENT_OUTPUT_LIMITS.commandItems);
@@ -35,6 +36,7 @@ export function registerCoverageCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const config = getConfig();
@@ -106,7 +108,7 @@ export function registerCoverageCommand(program: Command): void {
         console.log(formatCoverageOutput(report, !!options.gapsOnly));
       } catch (error) {
         console.error('Coverage check failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

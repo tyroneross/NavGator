@@ -5,8 +5,9 @@
  * Architecture connection tracker for Claude Code
  */
 
-import { Command } from 'commander';
+import { Command, CommanderError } from 'commander';
 import { NAVGATOR_VERSION } from '../version.js';
+import { EXIT_CODES } from './exit-codes.js';
 import { registerScanCommand } from './commands/scan.js';
 import { registerStatusCommand } from './commands/status.js';
 import { registerImpactCommand } from './commands/impact.js';
@@ -61,6 +62,18 @@ program
   .version(NAVGATOR_VERSION)
   .option('--sandbox', 'Run in sandbox mode (restricts network, interactive, child processes)')
   .addHelpText('beforeAll', NAVGATOR_LOGO);
+
+// Commander's own parse-time errors (unknown command/option, missing
+// required argument, mutually exclusive flags, ...) call process.exit(1) by
+// default — the same code a genuine crash uses. exitOverride() makes
+// Commander throw a CommanderError instead, which `runProgram()` below
+// catches and remaps: a real invocation error becomes USAGE (4); --help and
+// --version (which Commander also routes through this path, at exitCode 0)
+// stay SUCCESS (0). Must run before any `.command()` registration —
+// `copyInheritedSettings()` copies the exit callback onto a subcommand at
+// the moment it is created, so an override added after registration would
+// not reach any subcommand, including `lessons`'s nested subcommands.
+program.exitOverride();
 
 // Apply sandbox flag globally before any command runs
 program.hook('preAction', () => {
@@ -117,7 +130,8 @@ const hasCommandOrFlag = process.argv.length > 2;
  *
  * Run 1 — D3: redirect such input to /navgator:plan. The planner agent runs
  * inside Claude Code; the bare CLI cannot reach it. Print a redirect message
- * and exit 0 so wrappers don't treat this as a failure.
+ * and exit USAGE (4) — this surface could not serve the request, which an
+ * agent shelling out must be able to tell apart from a fulfilled command.
  */
 function looksLikeNaturalLanguage(rawArg: string | undefined, knownCommands: Set<string>): boolean {
   if (!rawArg) return false;
@@ -131,28 +145,52 @@ function looksLikeNaturalLanguage(rawArg: string | undefined, knownCommands: Set
   return false;
 }
 
+/**
+ * Run Commander's parse, translating a thrown CommanderError (from
+ * `exitOverride()` above) into the exit-code contract. Commander's own
+ * parse-time errors all carry exitCode 1 except help/version (exitCode 0);
+ * remap the former to USAGE (4) rather than letting it collide with
+ * OPERATIONAL (1), and leave the latter as SUCCESS (0).
+ */
+function runProgram(): void {
+  try {
+    program.parse();
+  } catch (err) {
+    if (err instanceof CommanderError) {
+      process.exitCode = err.exitCode === 0 ? EXIT_CODES.SUCCESS : EXIT_CODES.USAGE;
+      return;
+    }
+    throw err;
+  }
+}
+
 if (!hasCommandOrFlag) {
   // No arguments at all → show welcome menu
   showWelcomeMenu('no-command').catch((err) => {
     console.error('Error:', err);
-    process.exit(1);
+    // Nothing runs after this .catch() callback, so exitCode (not exit())
+    // is enough — no truncation risk from an in-flight write.
+    process.exitCode = EXIT_CODES.OPERATIONAL;
   });
 } else if (!isFlag && arg !== undefined) {
   // Build the set of registered subcommand names from commander's metadata.
   const knownCommands = new Set<string>(program.commands.map((c) => c.name()));
   if (looksLikeNaturalLanguage(arg, knownCommands)) {
-    // Natural-language intent — redirect to /navgator:plan.
+    // Natural-language intent — redirect to /navgator:plan. This surface
+    // cannot serve the request (USAGE), not a fulfilled command (SUCCESS):
+    // an agent shelling out must be able to tell the two apart.
     const intent = arg;
     process.stdout.write(
       `navgator "${intent}" needs Claude Code. From a terminal use a subcommand directly ` +
         `(e.g. \`navgator scan\`, \`navgator impact <component>\`), or run /navgator:plan "${intent}" ` +
         `from inside Claude Code.\n`
     );
-    process.exit(0);
+    process.exitCode = EXIT_CODES.USAGE;
+  } else {
+    // Non-NL token → fall through to commander (it will print its own error).
+    runProgram();
   }
-  // Non-NL token → fall through to commander (it will print its own error).
-  program.parse();
 } else {
   // Has a flag (--help, --version, etc.) → let Commander handle it
-  program.parse();
+  runProgram();
 }

@@ -1,1 +1,1 @@
-{"version":3,"file":"arch-diff.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/arch-diff.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;GAWG;AACH,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AA8DpC,wBAAgB,uBAAuB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAiD9D"}
+{"version":3,"file":"arch-diff.d.ts","sourceRoot":"","sources":["../../../src/cli/commands/arch-diff.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;GAWG;AACH,OAAO,EAAE,OAAO,EAAE,MAAM,WAAW,CAAC;AA+DpC,wBAAgB,uBAAuB,CAAC,OAAO,EAAE,OAAO,GAAG,IAAI,CAiD9D"}

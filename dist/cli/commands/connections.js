@@ -4,6 +4,7 @@ import { wrapInEnvelope } from '../../agent-output.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
 import { resolveFileConnections, formatFileConnections } from '../../file-resolve.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 export function registerConnectionsCommand(program) {
     program
         .command('connections <component>')
@@ -19,6 +20,7 @@ export function registerConnectionsCommand(program) {
             const dataWarning = checkDataAvailability();
             if (dataWarning) {
                 console.log(dataWarning);
+                process.exitCode = EXIT_CODES.NO_DATA;
                 return;
             }
             const config = getConfig();
@@ -52,6 +54,7 @@ export function registerConnectionsCommand(program) {
                         console.log(`  - ${name}`);
                     }
                 }
+                process.exitCode = EXIT_CODES.NOT_FOUND;
                 return;
             }
             // Apply classification filter
@@ -118,7 +121,7 @@ export function registerConnectionsCommand(program) {
         }
         catch (error) {
             console.error('Connections query failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

@@ -24,6 +24,7 @@ import {
 } from '../../portfolio/scan.js';
 import { buildCrossRepoMap } from '../../portfolio/cross-repo.js';
 import type { CrossRepoMap, CrossRepoRepoInput, PortfolioScanResult } from '../../portfolio/types.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 interface PortfolioCommandOptions {
   depth: string;
@@ -103,7 +104,7 @@ export function registerPortfolioCommand(program: Command): void {
         render(map, options, scanResult, 0);
       } catch (error) {
         console.error(`Portfolio failed: ${error instanceof Error ? error.message : String(error)}`);
-        process.exitCode = 1;
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

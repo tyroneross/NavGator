@@ -1,6 +1,7 @@
 import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { EXIT_CODES } from '../exit-codes.js';
 /**
  * Lightweight fuzzy scorer with no new dependencies.
  *
@@ -96,6 +97,15 @@ export function registerFindCommand(program) {
                 score,
                 context: buildContext(comp),
             }));
+            // Applied before any output branch so --agent/--json share the same
+            // exit-code contract as human output: no components tracked yet is
+            // NO_DATA, a query that matched nothing is NOT_FOUND.
+            if (components.length === 0) {
+                process.exitCode = EXIT_CODES.NO_DATA;
+            }
+            else if (hits.length === 0) {
+                process.exitCode = EXIT_CODES.NOT_FOUND;
+            }
             if (options.agent) {
                 console.log(wrapInEnvelope('find', { query, hits }));
                 return;
@@ -121,7 +131,7 @@ export function registerFindCommand(program) {
         }
         catch (err) {
             console.error(`Error: ${err.message}`);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

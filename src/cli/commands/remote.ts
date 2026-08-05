@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { scanRemote } from '../../remote/scan-remote.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 /**
  * `navgator scan-remote <url>` — shallow-clone a GitHub repo into a local
@@ -46,7 +47,12 @@ export function registerScanRemoteCommand(program: Command): void {
           } else {
             console.error(`Invalid GitHub URL: ${outcome.url}`);
           }
-          process.exitCode = 2;
+          // Pre-existing convention, kept: NO_DATA rather than USAGE, even
+          // though a malformed URL/ref reads more naturally as a bad
+          // invocation. This file is explicitly named as one where 2 is
+          // already load-bearing; the contract's back-compat-visible change
+          // is scoped to 1→3/4, not to reclassifying an existing 2.
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
 
@@ -59,7 +65,8 @@ export function registerScanRemoteCommand(program: Command): void {
           } else {
             console.error(`Invalid --ref value: ${outcome.ref}`);
           }
-          process.exitCode = 2;
+          // See the invalid_url comment above — same documented exception.
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
 
@@ -77,7 +84,7 @@ export function registerScanRemoteCommand(program: Command): void {
           } else {
             console.error(`Scan busy: ${outcome.message}`);
           }
-          process.exitCode = 2;
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
 
@@ -121,7 +128,7 @@ export function registerScanRemoteCommand(program: Command): void {
         }
       } catch (error) {
         console.error('scan-remote failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

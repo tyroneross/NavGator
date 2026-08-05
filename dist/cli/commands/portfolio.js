@@ -16,6 +16,7 @@ import { listProjects } from '../../projects.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { scanPortfolio, assertLocalStorageMode, excludeRemoteOriginProjects, formatRemoteExclusionNote, } from '../../portfolio/scan.js';
 import { buildCrossRepoMap } from '../../portfolio/cross-repo.js';
+import { EXIT_CODES } from '../exit-codes.js';
 /** Always present, in every output mode, per the plan's heuristic-labeling requirement. */
 const SERVICE_CALL_DISCLAIMER = 'serviceCalls are heuristic/inferred (host-match or service-name-match) — not a verified call graph.';
 export function registerPortfolioCommand(program) {
@@ -82,7 +83,7 @@ export function registerPortfolioCommand(program) {
         }
         catch (error) {
             console.error(`Portfolio failed: ${error instanceof Error ? error.message : String(error)}`);
-            process.exitCode = 1;
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

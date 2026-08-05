@@ -13,6 +13,7 @@ import {
 import { ArchitectureLayer } from '../../types.js';
 import { resolveComponent, findCandidates } from '../../resolve.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerDiagramCommand(program: Command): void {
   program
@@ -32,6 +33,7 @@ export function registerDiagramCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.log(dataWarning);
+          process.exitCode = EXIT_CODES.NO_DATA;
           return;
         }
         const config = getConfig();
@@ -39,7 +41,8 @@ export function registerDiagramCommand(program: Command): void {
 
         if (!graph) {
           console.error('No architecture data found. Run `navgator scan` first.');
-          process.exit(1);
+          process.exitCode = EXIT_CODES.NO_DATA;
+          return;
         }
 
         const diagramOpts: DiagramOptions = {
@@ -71,7 +74,8 @@ export function registerDiagramCommand(program: Command): void {
                 console.log(`  - ${c.name}`);
               }
             }
-            process.exit(1);
+            process.exitCode = EXIT_CODES.NOT_FOUND;
+            return;
           }
 
           diagram = generateComponentDiagram(graph, component.component_id, 2, diagramOpts);
@@ -79,7 +83,8 @@ export function registerDiagramCommand(program: Command): void {
           const validLayers: ArchitectureLayer[] = ['frontend', 'backend', 'database', 'queue', 'infra', 'content', 'external'];
           if (!validLayers.includes(options.layer as ArchitectureLayer)) {
             console.error(`Invalid layer "${options.layer}". Valid layers: ${validLayers.join(', ')}`);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.USAGE;
+            return;
           }
           diagram = generateLayerDiagram(graph, options.layer as ArchitectureLayer, diagramOpts);
         } else if (options.summary) {
@@ -107,7 +112,7 @@ export function registerDiagramCommand(program: Command): void {
         }
       } catch (error) {
         console.error('Diagram generation failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }

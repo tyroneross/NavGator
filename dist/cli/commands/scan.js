@@ -1,5 +1,6 @@
 import { scan } from '../../scanner.js';
 import { wrapInEnvelope } from '../../agent-output.js';
+import { EXIT_CODES } from '../exit-codes.js';
 export function registerScanCommand(program) {
     program
         .command('scan')
@@ -83,7 +84,7 @@ export function registerScanCommand(program) {
                 else {
                     console.error(`Scan busy: ${result.message}`);
                 }
-                process.exitCode = 2;
+                process.exitCode = EXIT_CODES.NO_DATA;
                 return;
             }
             // JSON/Agent output mode
@@ -204,7 +205,7 @@ export function registerScanCommand(program) {
         }
         catch (error) {
             console.error('Scan failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

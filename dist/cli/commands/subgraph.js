@@ -3,6 +3,7 @@ import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { extractSubgraph, subgraphToMermaid } from '../../subgraph.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 export function registerSubgraphCommand(program) {
     program
         .command('subgraph')
@@ -20,6 +21,7 @@ export function registerSubgraphCommand(program) {
             const dataWarning = checkDataAvailability();
             if (dataWarning) {
                 console.log(dataWarning);
+                process.exitCode = EXIT_CODES.NO_DATA;
                 return;
             }
             const config = getConfig();
@@ -48,7 +50,7 @@ export function registerSubgraphCommand(program) {
         }
         catch (error) {
             console.error('Subgraph extraction failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

@@ -4,6 +4,7 @@ import { loadAllComponents } from '../../storage.js';
 import { getConfig } from '../../config.js';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { mergeComponentAliases } from '../../component-identity.js';
+import { EXIT_CODES } from '../exit-codes.js';
 export function registerListCommand(program) {
     program
         .command('list')
@@ -22,6 +23,16 @@ export function registerListCommand(program) {
             if (options.layer) {
                 components = components.filter((c) => c.role.layer === options.layer);
             }
+            // Applied before any output branch so --agent/--json share the
+            // human-mode exit-code contract. Only "no scan has ever run" is
+            // NO_DATA — an empty result from a real, run scan (e.g. a --type
+            // filter matching nothing) is a legitimate empty answer, SUCCESS.
+            const cwd = process.cwd();
+            const navDir = path.join(cwd, '.navgator', 'architecture');
+            const hasNavData = fs.existsSync(navDir);
+            if (!hasNavData) {
+                process.exitCode = EXIT_CODES.NO_DATA;
+            }
             if (options.agent) {
                 console.log(wrapInEnvelope('list', components));
                 return;
@@ -31,9 +42,7 @@ export function registerListCommand(program) {
                 return;
             }
             if (components.length === 0) {
-                const cwd = process.cwd();
-                const navDir = path.join(cwd, '.navgator', 'architecture');
-                if (!fs.existsSync(navDir)) {
+                if (!hasNavData) {
                     console.log(`No NavGator data in ${cwd}`);
                     console.log('Run `navgator scan` first, or `navgator projects` to find scanned projects.');
                 }
@@ -63,7 +72,7 @@ export function registerListCommand(program) {
         }
         catch (error) {
             console.error('List failed:', error);
-            process.exit(1);
+            process.exitCode = EXIT_CODES.OPERATIONAL;
         }
     });
 }

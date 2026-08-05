@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { wrapInEnvelope } from '../../agent-output.js';
 import { buildExploreReport, formatExploreReport } from '../../explore-report.js';
 import { checkDataAvailability } from './helpers.js';
+import { EXIT_CODES } from '../exit-codes.js';
 
 export function registerExploreCommand(program: Command): void {
   program
@@ -15,7 +16,8 @@ export function registerExploreCommand(program: Command): void {
         const dataWarning = checkDataAvailability();
         if (dataWarning) {
           console.error(dataWarning);
-          process.exit(1);
+          process.exitCode = EXIT_CODES.NO_DATA;
+          return;
         }
 
         const depth = parseInt(options.depth, 10);
@@ -25,7 +27,14 @@ export function registerExploreCommand(program: Command): void {
 
         if ('error' in report) {
           console.error(report.error);
-          process.exit(1);
+          // buildExploreReport's own error shape distinguishes "no
+          // architecture data" (already handled above via
+          // checkDataAvailability, but defensively re-checked here in case
+          // the two go stale independently) from "component not found".
+          process.exitCode = report.error.startsWith('No architecture data')
+            ? EXIT_CODES.NO_DATA
+            : EXIT_CODES.NOT_FOUND;
+          return;
         }
 
         if (options.agent) {
@@ -41,7 +50,7 @@ export function registerExploreCommand(program: Command): void {
         console.log(formatExploreReport(report));
       } catch (error) {
         console.error('Explore failed:', error);
-        process.exit(1);
+        process.exitCode = EXIT_CODES.OPERATIONAL;
       }
     });
 }
