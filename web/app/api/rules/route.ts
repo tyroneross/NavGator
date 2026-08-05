@@ -7,19 +7,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { RulesApiResponse, RuleViolation } from "@/lib/types";
 import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
+import { resolveProjectPath } from "@/lib/server/project-path";
 
 /**
  * GET /api/rules
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
-  const projectPath = searchParams.get("path");
+
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
 
   try {
-    const root =
-      projectPath ||
-      process.env.NAVGATOR_PROJECT_PATH ||
-      process.cwd().replace(/\/web$/, "");
+    const root = resolved.root;
 
     const { components, connections } = await loadArchitectureRecords(root);
 

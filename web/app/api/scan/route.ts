@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as path from "path";
 import { runNavGatorCli } from "@/lib/server/navgator-cli";
 import { rejectUnsafeMutation } from "@/lib/server/request-guard";
+import { resolveProjectPathFromBody } from "@/lib/server/project-path";
 
 interface ScanResponse {
   success: boolean;
@@ -49,9 +50,21 @@ export async function POST(request: NextRequest) {
   try {
     const rejected = rejectUnsafeMutation(request);
     if (rejected) return rejected;
-    const body = await request.json().catch(() => ({}));
+    // Explicit unknown-field cast: under tsconfig.test.json (no "dom" lib),
+    // NextRequest#json() resolves to `Promise<unknown>` via @types/node's
+    // undici fetch types rather than lib.dom.d.ts's `Promise<any>`, so an
+    // untyped `body` fails property access at compile time. Same pattern as
+    // web/app/api/registry-health/route.ts's `body: unknown` + cast.
+    const body = (await request.json().catch(() => ({}))) as { path?: unknown; prompts?: boolean };
+
+    // SEC-007: validate `path` against the registered-project allowlist
+    // before it becomes the CLI's cwd — an unregistered path here is the
+    // worse-in-kind variant of this bug: a scan doesn't just read, it
+    // creates a `.navgator/` tree in whatever directory it's pointed at.
+    const resolved = resolveProjectPathFromBody(body.path);
+    if (resolved instanceof NextResponse) return resolved;
     const projectPath = path.resolve(
-      /* turbopackIgnore: true */ body.path || process.env.NAVGATOR_PROJECT_PATH || process.cwd().replace(/\/web$/, ""),
+      /* turbopackIgnore: true */ resolved.root,
     );
     const includePrompts = body.prompts !== false;
 

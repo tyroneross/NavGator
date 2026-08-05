@@ -10,6 +10,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import { runNavGatorCli } from "@/lib/server/navgator-cli";
 import { rejectUnsafeMutation } from "@/lib/server/request-guard";
+import { resolveProjectPath, resolveProjectPathFromBody } from "@/lib/server/project-path";
 import {
   transformScanResultWithDefaults,
   generateDemoData,
@@ -33,9 +34,9 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const demoMode = searchParams.get("demo") === "true";
   const refresh = searchParams.get("refresh") === "true";
-  const projectPath = searchParams.get("path");
 
-  // Demo mode - return synthetic data
+  // Demo mode never touches the filesystem, so it's exempt from path
+  // validation and returns before `path` is even read.
   if (demoMode) {
     const demoData = generateDemoData();
     return NextResponse.json<PromptsApiResponse>({
@@ -45,7 +46,15 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const cacheKey = projectPath || "__default__";
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
+  const projectPath = resolved.root;
+
+  // Preserve the pre-SEC-007 cache-key convention: no explicit `path` still
+  // buckets under the literal "__default__" key.
+  const cacheKey = searchParams.get("path") ? projectPath : "__default__";
   const cached = promptsCache.get(cacheKey);
 
   // Check cache
@@ -134,15 +143,26 @@ export async function POST(request: NextRequest) {
   try {
     const rejected = rejectUnsafeMutation(request);
     if (rejected) return rejected;
-    const body = await request.json();
-    const projectPath = body.path;
+    // Explicit unknown-field cast: under tsconfig.test.json (no "dom" lib),
+    // NextRequest#json() resolves to `Promise<unknown>` via @types/node's
+    // undici fetch types rather than lib.dom.d.ts's `Promise<any>`, so an
+    // untyped `body` fails property access at compile time. Same pattern as
+    // web/app/api/registry-health/route.ts's `body: unknown` + cast.
+    const body = (await request.json()) as { path?: unknown };
+
+    // SEC-007: validate `path` against the registered-project allowlist
+    // before it is handed to the CLI scan below — an unregistered path here
+    // would let a scan write a `.navgator/` tree into an arbitrary cwd.
+    const resolved = resolveProjectPathFromBody(body.path);
+    if (resolved instanceof NextResponse) return resolved;
+    const projectPath = resolved.root;
 
     // Run NavGator scan
     const scanResult = await runNavGatorScan(projectPath);
 
     if (scanResult) {
       const data = transformScanResultWithDefaults(scanResult);
-      const postCacheKey = projectPath || "__default__";
+      const postCacheKey = body.path ? projectPath : "__default__";
       promptsCache.set(postCacheKey, { data, timestamp: Date.now() });
 
       return NextResponse.json<PromptsApiResponse>({

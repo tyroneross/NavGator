@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Component, ComponentsApiResponse, ComponentsSummary } from "@/lib/types";
 import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
+import { resolveProjectPath } from "@/lib/server/project-path";
 
 // Cache for component data (keyed by project path)
 const componentsCache = new Map<string, { data: ComponentsApiResponse["data"]; timestamp: number }>();
@@ -19,9 +20,9 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const demoMode = searchParams.get("demo") === "true";
   const refresh = searchParams.get("refresh") === "true";
-  const projectPath = searchParams.get("path");
 
-  // Demo mode
+  // Demo mode never touches the filesystem, so it's exempt from path
+  // validation and returns before `path` is even read.
   if (demoMode) {
     return NextResponse.json<ComponentsApiResponse>({
       success: true,
@@ -30,7 +31,15 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const cacheKey = projectPath || "__default__";
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
+  const projectPath = resolved.root;
+
+  // Preserve the pre-SEC-007 cache-key convention: no explicit `path` still
+  // buckets under the literal "__default__" key.
+  const cacheKey = searchParams.get("path") ? projectPath : "__default__";
   const cached = componentsCache.get(cacheKey);
 
   // Check cache

@@ -796,6 +796,42 @@ async function probeDashboard(packageDir, tempRoot) {
           assert.equal(scanHealthPayload.available, true, 'packed dashboard resolves its packaged CLI entry')
           assert.equal(scanHealthPayload.version, expectedVersion, 'packed dashboard executes the packaged CLI version')
 
+          // SEC-007: /api/scan only accepts a path the registry knows about,
+          // so a scan can no longer create a .navgator/ tree in an arbitrary
+          // directory. Register the fixture first, through the real
+          // POST /api/projects path the dashboard's own "add project" button
+          // uses — the UI never scans an unregistered path either (header.tsx
+          // scans `activeProject`, which comes from the project list). This
+          // makes the probe exercise the genuine register-then-scan flow
+          // rather than a shape no user can produce.
+          for (const fixture of [dashboardScanProject, traceStressProject]) {
+            const registered = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                origin: `http://127.0.0.1:${port}`,
+                'sec-fetch-site': 'same-origin',
+                ...authHeaders,
+              },
+              body: JSON.stringify({ action: 'add', path: fixture }),
+              signal: AbortSignal.timeout(10_000),
+            })
+            assert.equal(registered.status, 200, `fixture ${path.basename(fixture)} registers through the dashboard`)
+          }
+
+          const unregisteredScan = await fetch(`http://127.0.0.1:${port}/api/scan`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              origin: `http://127.0.0.1:${port}`,
+              'sec-fetch-site': 'same-origin',
+              ...authHeaders,
+            },
+            body: JSON.stringify({ path: path.join(tempRoot, 'never-registered'), prompts: false }),
+            signal: AbortSignal.timeout(10_000),
+          })
+          assert.equal(unregisteredScan.status, 403, 'scan of an unregistered path is rejected')
+
           const scanResponse = await fetch(`http://127.0.0.1:${port}/api/scan`, {
             method: 'POST',
             headers: {

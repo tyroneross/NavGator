@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SubgraphApiResponse, SubgraphResult } from "@/lib/types";
 import { loadArchitectureRecords } from "@/lib/server/architecture-storage";
+import { resolveProjectPath } from "@/lib/server/project-path";
 
 function boundedInteger(value: string | null, fallback: number, min: number, max: number): number {
   const parsed = value === null ? fallback : Number.parseInt(value, 10);
@@ -21,13 +22,14 @@ export async function GET(request: NextRequest) {
   const layers = searchParams.get("layers");
   const classification = searchParams.get("classification") || undefined;
   const maxNodes = boundedInteger(searchParams.get("maxNodes"), 50, 1, 200);
-  const projectPath = searchParams.get("path");
+
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
 
   try {
-    const root =
-      projectPath ||
-      process.env.NAVGATOR_PROJECT_PATH ||
-      process.cwd().replace(/\/web$/, "");
+    const root = resolved.root;
 
     const { components, connections } = await loadArchitectureRecords(root);
 

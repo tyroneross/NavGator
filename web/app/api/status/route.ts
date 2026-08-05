@@ -9,6 +9,7 @@ import * as fs from "fs/promises";
 import { readFileSync } from "fs";
 import * as path from "path";
 import type { StatusApiResponse, ProjectStatus } from "@/lib/types";
+import { resolveProjectPath } from "@/lib/server/project-path";
 
 // Cache for status data (keyed by project path)
 const statusCache = new Map<string, { data: ProjectStatus; timestamp: number }>();
@@ -20,9 +21,17 @@ const CACHE_TTL = 30000; // 30 second cache
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const refresh = searchParams.get("refresh") === "true";
-  const projectPath = searchParams.get("path");
 
-  const cacheKey = projectPath || "__default__";
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
+  const projectPath = resolved.root;
+
+  // Preserve the pre-SEC-007 cache-key convention: no explicit `path` still
+  // buckets under the literal "__default__" key rather than the resolved
+  // default's absolute path.
+  const cacheKey = searchParams.get("path") ? projectPath : "__default__";
   const cached = statusCache.get(cacheKey);
 
   // Check cache

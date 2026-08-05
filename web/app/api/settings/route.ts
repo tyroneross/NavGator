@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { rejectUnsafeMutation } from "@/lib/server/request-guard";
+import { resolveProjectPath, resolveProjectPathFromBody } from "@/lib/server/project-path";
 
 interface SettingsData {
   scan: {
@@ -127,7 +128,12 @@ async function loadSettings(
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const refresh = searchParams.get("refresh") === "true";
-  const projectPath = searchParams.get("path");
+
+  // SEC-007: validate `path` against the registered-project allowlist before
+  // it reaches any filesystem read below.
+  const resolved = resolveProjectPath(searchParams);
+  if (resolved instanceof NextResponse) return resolved;
+  const projectPath = resolved.root;
 
   if (!refresh && cachedData && Date.now() - cacheTimestamp < CACHE_TTL) {
     return NextResponse.json({
@@ -160,8 +166,27 @@ export async function POST(request: NextRequest) {
   try {
     const rejected = rejectUnsafeMutation(request);
     if (rejected) return rejected;
-    const body = await request.json();
-    const projectPath = body.projectPath || null;
+    // Explicit unknown-field cast: under tsconfig.test.json (no "dom" lib),
+    // NextRequest#json() resolves to `Promise<unknown>` via @types/node's
+    // undici fetch types rather than lib.dom.d.ts's `Promise<any>`, so an
+    // untyped `body` fails property access (and the `...body.scan` spreads
+    // below) at compile time. Same pattern as
+    // web/app/api/registry-health/route.ts's `body: unknown` + cast.
+    const body = (await request.json()) as {
+      projectPath?: unknown;
+      scan?: Partial<SettingsData["scan"]>;
+      detection?: Partial<SettingsData["detection"]>;
+      notifications?: Partial<SettingsData["notifications"]>;
+      display?: Partial<SettingsData["display"]>;
+    };
+
+    // SEC-007: validate `projectPath` against the registered-project
+    // allowlist before it's used to build a write target below — an
+    // unregistered path here would let a save write settings.json (and
+    // create the enclosing .navgator/ directory) in an arbitrary directory.
+    const resolved = resolveProjectPathFromBody(body.projectPath);
+    if (resolved instanceof NextResponse) return resolved;
+    const projectPath = resolved.root;
     const settingsPath = getSettingsPath(projectPath);
 
     // Load existing, merge with incoming
