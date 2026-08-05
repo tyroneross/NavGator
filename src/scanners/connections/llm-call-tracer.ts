@@ -154,6 +154,46 @@ interface CallPattern {
   requiresClientVar: boolean;  // true for OOP SDKs, false for functional (Vercel AI)
 }
 
+/**
+ * KNOWN GAPS in the receiver-derivation scheme (getReceiverRegex, below in
+ * PASS 2). Each is scoped out rather than guessed at; consolidated here so
+ * a future audit doesn't have to re-derive them from the call-pattern table.
+ *
+ * 1. Computed receiver — `clients[0].chat.completions.create(...)`. Not
+ *    matched. `clientVars` is keyed on plain identifiers, so a computed
+ *    member expression could never resolve to a ClientInit even if captured.
+ * 2. Call-expression receiver — `getClient().chat.completions.create(...)`.
+ *    Same reasoning: the receiver isn't a variable, so there's nothing to
+ *    look up.
+ * 3. Namespaced/multi-segment receiver narrowing (independent-audit finding
+ *    f3) — `deps.openai.chat.completions.create(...)` captures the bare
+ *    trailing identifier `"openai"`, not the full `"deps.openai"` path (the
+ *    pre-c76b9d8 hand-written regex captured up to two segments, so it
+ *    produced `"deps.openai"` — which never matched `clientVars` either,
+ *    since ClientInit variable names are always simple identifiers or
+ *    `"this.<prop>"`; that shape was a silent miss both before and after).
+ *    This is a **pinned, intentional** choice, not an accident:
+ *      - Recall: a bare trailing identifier is far more likely to match a
+ *        registered client than a dotted path is (`openai` is normally the
+ *        registered ClientInit; `deps.openai` normally isn't, and a change
+ *        that requires full-path matching would just reintroduce the miss).
+ *      - Precision risk: if a *different*, unrelated object happens to have
+ *        a property with the same trailing name as a real registered client
+ *        in the same file (e.g. `this.deps.openai` where `deps.openai` is a
+ *        duck-typed stand-in, while a genuine `const openai = new OpenAI()`
+ *        also exists at module scope), the anchor gets attributed to the
+ *        real client even though it isn't the actual receiver.
+ *    Judged acceptable because the common real-world shape for a namespaced
+ *    receiver is dependency injection re-exposing the *same* client under a
+ *    namespace (so the trailing name is usually correct, not misleading),
+ *    and because closing the residual collision case needs alias/property
+ *    tracking across assignments (`this.deps = { openai }`) — the same class
+ *    of multi-line variable-tracking work already deferred for Bedrock's
+ *    two-line `new Command(...)` form above. Pinned by the
+ *    `openai-namespaced-receiver.ts` fixture in
+ *    `__tests__/fixtures/llm-providers/` — if this behavior ever needs to
+ *    change, that test should fail loudly rather than silently pass.
+ */
 const SDK_DEFINITIONS: SDKDefinition[] = [
   // OpenAI
   {
@@ -574,12 +614,22 @@ function findClientInits(lines: string[], file: string, imports: SDKImport[]): C
  *
  * Compiled once per CallPattern and cached — this runs per line per pattern
  * over an entire repo scan, so must not be compiled inside the inner loop.
+ *
+ * `\??` between the receiver capture and the pattern handles optional
+ * chaining (`openai?.chat.completions.create(`) without widening the
+ * capture group itself — `openai` is still what gets captured, the `?.` is
+ * just consumed and discarded. A computed (`clients[0].chat...`) or
+ * call-expression (`getClient().chat...`) receiver is deliberately left
+ * unmatched: neither can ever resolve against `clientVars` (which is keyed
+ * on plain identifiers and `this.<prop>`), so matching them would only
+ * produce an anchor with an unresolvable receiver — see the KNOWN GAPS note
+ * above SDK_DEFINITIONS.
  */
 const receiverRegexCache = new Map<CallPattern, RegExp>();
 function getReceiverRegex(cp: CallPattern): RegExp {
   let re = receiverRegexCache.get(cp);
   if (!re) {
-    re = new RegExp(`((?:this\\.)?[A-Za-z_$][\\w$]*)${cp.pattern.source}`);
+    re = new RegExp(`((?:this\\.)?[A-Za-z_$][\\w$]*)\\??${cp.pattern.source}`);
     receiverRegexCache.set(cp, re);
   }
   return re;

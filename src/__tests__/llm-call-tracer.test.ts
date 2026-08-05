@@ -98,6 +98,28 @@ describe('llm-call-tracer: receiver regex regression (OpenAI/Groq chat.completio
   });
 });
 
+describe('llm-call-tracer: receiver-shape gaps closed after independent audit (f7, f3)', () => {
+  it('detects optional chaining on the receiver: openai?.chat.completions.create (f7)', async () => {
+    await stageFixtures('openai-optional-chaining.ts');
+    const { calls } = await traceLLMCalls(scratchDir);
+    const call = findCallFor(calls, 'openai-optional-chaining.ts');
+    expect(call.provider.name).toBe('openai');
+    expect(call.anchor.method).toBe('chat.completions.create');
+    expect(call.provider.clientVariable).toBe('openai');
+    expect(call.model.value).toBe('gpt-4o');
+  });
+
+  it('pins the namespaced-receiver narrowing: deps.openai.chat.completions.create attributes to the bare "openai" client (f3, intentional — see KNOWN GAPS comment above SDK_DEFINITIONS)', async () => {
+    await stageFixtures('openai-namespaced-receiver.ts');
+    const { calls } = await traceLLMCalls(scratchDir);
+    const call = findCallFor(calls, 'openai-namespaced-receiver.ts');
+    expect(call.provider.name).toBe('openai');
+    expect(call.anchor.method).toBe('chat.completions.create');
+    expect(call.provider.clientVariable).toBe('openai');
+    expect(call.model.value).toBe('gpt-4o');
+  });
+});
+
 describe('llm-call-tracer: SDK table audit additions', () => {
   it('tightens Anthropic .beta. to messages-only: detects beta.messages.create, does NOT flag beta.agents.list as an LLM call', async () => {
     await stageFixtures('anthropic-beta-tightening.ts');
