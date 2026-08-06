@@ -760,7 +760,7 @@ async function probeDashboard(packageDir, tempRoot) {
           // HIGH-2: no cookie anywhere. A `localhost` cookie ignores port
           // (RFC 6265 s8.5), so it would be broadcast to every other
           // localhost server the browser visits.
-          assert.equal(bootstrap.headers.get('set-cookie'), null, 'bootstrap sets NO cookie')
+          assert.equal(bootstrap.headers.get('set-cookie'), null, 'bootstrap sets NO cookie') // nosec: asserts the ABSENCE of Set-Cookie — this is the test for the cookie issue, not an instance of it
           const location = bootstrap.headers.get('location') ?? ''
           assert.ok(location.includes(`#t=${launched.token}`), 'bootstrap hands the token over in a fragment')
           assert.equal(
