@@ -31,6 +31,7 @@ import {
   buildPagerankIndex,
 } from '../deep-map/partition.js';
 import { percentileIndex, normalizeFileMap, scoreEscalation } from '../deep-map/escalate.js';
+import { ESCALATION_WEIGHTS } from '../deep-map/types.js';
 import {
   generateRunId,
   isContained,
@@ -120,6 +121,18 @@ describe('deep-map component filter', () => {
     expect(globToRegExp('web/**').test('webbing/a')).toBe(false);
     expect(globToRegExp('a?c.ts').test('abc.ts')).toBe(true);
     expect(globToRegExp('a?c.ts').test('abbc.ts')).toBe(false);
+  });
+
+  it('requires the separator that `**/` stands for', () => {
+    // `**/` means "zero or more whole directories". Compiling it to a bare `.*`
+    // and swallowing the slash loses the boundary: `**/test` became `^.*test$`
+    // and matched `mytest`, silently excluding a file the user never named.
+    const m = globToRegExp('**/test');
+    expect(m.test('test')).toBe(true);
+    expect(m.test('a/b/test')).toBe(true);
+    expect(m.test('mytest')).toBe(false);
+    expect(globToRegExp('src/**/util.ts').test('src/aXutil.ts')).toBe(false);
+    expect(globToRegExp('src/**/util.ts').test('src/a/util.ts')).toBe(true);
   });
 
   it('treats a regex metacharacter in a pattern as a literal', () => {
@@ -404,6 +417,88 @@ describe('deep-map escalation scoring', () => {
       { threshold: 1.1 }
     );
     expect(none.escalated).toHaveLength(0);
+  });
+
+  it('composes the score from the published weights, term by term', () => {
+    // The audit that prompted this test zeroed each of the five terms in turn
+    // and the whole suite stayed green — nothing verified that the published
+    // weight vector was applied at all. Rank assertions were not enough,
+    // because centrality dominates rank on a real graph. This asserts the
+    // arithmetic, so removing or reweighting any term fails here.
+    const a = comp('a', ['src/a.ts']);
+    const b = comp('b', ['src/b.ts']);
+    const c = comp('c', ['src/c.ts']);
+    const llm = comp('openai', ['src/llm.ts'], { type: 'llm' });
+    const components = [a, b, c, llm];
+    // a and b in community 0, c in community 1 → a's edge to c crosses.
+    const metrics = metricsFor(components, (x) => (x === c ? 1 : 0), (x) => (x === a ? 1 : 0.1));
+    const connections = [
+      conn(a, b),
+      conn(a, c),
+      conn(a, llm, 'service-call'),
+    ];
+    const result = scoreEscalation({
+      components,
+      connections,
+      metrics,
+      violations: [{ rule_id: 'layer-violation', severity: 'error', component: 'a', message: '' }],
+      fileMap: {},
+    });
+
+    const scored = result.ranked.find((r) => r.name === 'a')!;
+    // a: highest pagerank of 3 mappable → percentile 1.
+    expect(scored.signals.centrality).toBe(1);
+    // a has 2 internal edges (b, c); 1 of them crosses communities.
+    expect(scored.raw.total_edges).toBe(2);
+    expect(scored.raw.cross_community_edges).toBe(1);
+    expect(scored.signals.bridge).toBeCloseTo(0.5, 10);
+    // 1 structural violation, saturating at 3.
+    expect(scored.signals.violations).toBeCloseTo(1 / 3, 10);
+    // 1 service-call edge to an llm-typed component, saturating at 3.
+    expect(scored.signals.llm_density).toBeCloseTo(1 / 3, 10);
+
+    const w = ESCALATION_WEIGHTS;
+    const expected =
+      scored.signals.centrality * w.centrality +
+      scored.signals.bridge * w.bridge +
+      scored.signals.violations * w.violations +
+      scored.signals.llm_density * w.llm_density;
+    expect(scored.score).toBeCloseTo(expected, 10);
+    // And the weights must still sum to 1, or the score stops being a 0..1 value.
+    expect(w.centrality + w.bridge + w.violations + w.llm_density).toBeCloseTo(1, 10);
+  });
+
+  it('keeps the bridge ratio independent of external package edges', () => {
+    // The denominator must count internal edges only. Counting `uses-package`
+    // links to npm would suppress the ratio for any component with many
+    // external dependencies, making a signal that claims to be
+    // degree-independent sensitive to external fan-out.
+    const plain = comp('plain', ['src/plain.ts']);
+    const heavy = comp('heavy', ['src/heavy.ts']);
+    const far1 = comp('far1', ['src/far1.ts']);
+    const far2 = comp('far2', ['src/far2.ts']);
+    const pkgs = Array.from({ length: 20 }, (_, i) =>
+      comp(`pkg${i}`, ['package.json'], { type: 'npm' })
+    );
+    const components = [plain, heavy, far1, far2, ...pkgs];
+    const metrics = metricsFor(
+      components,
+      (x) => (x === far1 || x === far2 ? 1 : 0),
+      () => 0.1
+    );
+    const connections = [
+      conn(plain, far1),
+      conn(plain, far2),
+      conn(heavy, far1),
+      conn(heavy, far2),
+      ...pkgs.map((p) => conn(heavy, p, 'uses-package')),
+    ];
+    const result = scoreEscalation({ components, connections, metrics, violations: [], fileMap: {} });
+    const p = result.ranked.find((r) => r.name === 'plain')!;
+    const h = result.ranked.find((r) => r.name === 'heavy')!;
+    expect(p.signals.bridge).toBe(1);
+    expect(h.signals.bridge).toBe(1);
+    expect(h.raw.total_edges).toBe(2);
   });
 
   it('states the numbers behind every reason it gives', () => {

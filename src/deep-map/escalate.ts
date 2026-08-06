@@ -13,8 +13,10 @@
  * signal, and `DEGREE_DERIVED_RULE_IDS` is subtracted from the violation count.
  *
  * What remains measures four different things: magnitude (`centrality`), shape
- * (`bridge`), direction/reachability faults (`violations`), semantic surface
- * (`llm_density`), and mass (`size`).
+ * (`bridge`), direction/reachability faults (`violations`), and semantic
+ * surface (`llm_density`). A fifth, `size`, was designed and then removed —
+ * measurement showed a component always maps to exactly one file, so its
+ * percentile was constant and its weight could never fire.
  */
 
 import type {
@@ -47,8 +49,8 @@ export interface EscalationOptions extends ComponentFilterOptions {
  * from escalating anything.
  *
  * An absolute threshold alone does not survive contact with real graphs. At the
- * 0.60 it started as, NavGator's own 437-component graph escalated nothing: the
- * top score was 0.534, because percentile-based signals compress as node count
+ * 0.60 it started as, NavGator's own graph escalated nothing — the top score
+ * sits around 0.54 — because percentile-based signals compress as node count
  * grows. A cutoff that never fires is a dead feature, and one tuned to this repo
  * would fire wrongly on the next.
  */
@@ -108,7 +110,7 @@ export function normalizeFileMap(raw: unknown): Record<string, string> {
 function indexViolationsByComponentId(
   violations: RuleViolation[],
   components: ArchitectureComponent[]
-): { byId: Map<string, string[]>; unresolved: number } {
+): { byId: Map<string, string[]>; unresolved: number; histogram: Record<string, number> } {
   const idsByName = new Map<string, string[]>();
   for (const c of components) {
     const list = idsByName.get(c.name);
@@ -117,6 +119,7 @@ function indexViolationsByComponentId(
   }
 
   const byId = new Map<string, string[]>();
+  const histogram: Record<string, number> = {};
   let unresolved = 0;
   for (const v of violations) {
     if (DEGREE_DERIVED_RULE_IDS.includes(v.rule_id)) continue;
@@ -134,8 +137,9 @@ function indexViolationsByComponentId(
       if (list) list.push(v.rule_id);
       else byId.set(id, [v.rule_id]);
     }
+    histogram[v.rule_id] = (histogram[v.rule_id] ?? 0) + 1;
   }
-  return { byId, unresolved };
+  return { byId, unresolved, histogram };
 }
 
 export interface EscalationInputs {
@@ -155,8 +159,9 @@ export function scoreEscalation(
   const weights = options.weights ?? ESCALATION_WEIGHTS;
 
   // Same mappable set the partitioner uses. Scoring vendored third-party code
-  // would spend the four deep slots describing someone else's package: three of
-  // this repo's top-ten PageRank nodes are vendored `semver` modules.
+  // would spend the four deep slots describing someone else's package: two of
+  // this repo's top-ten PageRank nodes are vendored `semver` modules, and four
+  // of the top eight once external packages are set aside.
   const internal = selectMappableComponents(inputs.components, options).kept;
   const internalIds = new Set(internal.map((c) => c.component_id));
   const pagerank = buildPagerankIndex(inputs.metrics);
@@ -184,18 +189,26 @@ export function scoreEscalation(
   for (const conn of inputs.connections) {
     const from = conn.from.component_id;
     const to = conn.to.component_id;
+    // `totalEdges` counts INTERNAL edges only, matching the numerator. Counting
+    // every edge here would put `uses-package` links to npm in the denominator
+    // while the numerator can only ever count internal ones, so a component
+    // with many external dependencies would have its bridge score mechanically
+    // suppressed — making a signal that claims to be degree-independent
+    // sensitive to external fan-out.
     if (internalIds.has(from)) {
-      totalEdges.set(from, (totalEdges.get(from) ?? 0) + 1);
-      if (groupKey.has(to) && groupKey.get(to) !== groupKey.get(from)) {
-        crossEdges.set(from, (crossEdges.get(from) ?? 0) + 1);
+      if (groupKey.has(to)) {
+        totalEdges.set(from, (totalEdges.get(from) ?? 0) + 1);
+        if (groupKey.get(to) !== groupKey.get(from)) {
+          crossEdges.set(from, (crossEdges.get(from) ?? 0) + 1);
+        }
       }
       if (conn.connection_type === 'service-call' && llmComponentIds.has(to)) {
         llmCalls.set(from, (llmCalls.get(from) ?? 0) + 1);
       }
     }
-    if (internalIds.has(to)) {
+    if (internalIds.has(to) && groupKey.has(from)) {
       totalEdges.set(to, (totalEdges.get(to) ?? 0) + 1);
-      if (groupKey.has(from) && groupKey.get(from) !== groupKey.get(to)) {
+      if (groupKey.get(from) !== groupKey.get(to)) {
         crossEdges.set(to, (crossEdges.get(to) ?? 0) + 1);
       }
     }
@@ -212,9 +225,12 @@ export function scoreEscalation(
   const pagerankForInternal = new Map<string, number>();
   for (const id of internalIds) pagerankForInternal.set(id, pagerank.get(id) ?? 0);
   const pagerankPct = percentileIndex(pagerankForInternal);
-  const filePct = percentileIndex(fileCounts);
 
-  const { byId: violationsById, unresolved } = indexViolationsByComponentId(
+  const {
+    byId: violationsById,
+    unresolved,
+    histogram: violationHistogram,
+  } = indexViolationsByComponentId(
     inputs.violations,
     inputs.components
   );
@@ -237,15 +253,13 @@ export function scoreEscalation(
       bridge,
       violations: Math.min(1, structural.length / SATURATION_COUNT),
       llm_density: Math.min(1, calls / SATURATION_COUNT),
-      size: filePct.get(id) ?? 0,
     };
 
     const score =
       signals.centrality * weights.centrality +
       signals.bridge * weights.bridge +
       signals.violations * weights.violations +
-      signals.llm_density * weights.llm_density +
-      signals.size * weights.size;
+      signals.llm_density * weights.llm_density;
 
     const raw: EscalationRaw = {
       pagerank: pagerank.get(id) ?? 0,
@@ -255,7 +269,6 @@ export function scoreEscalation(
       structural_violations: structural,
       llm_calls: calls,
       file_count: files,
-      file_count_percentile: signals.size,
     };
 
     const reasons: string[] = [];
@@ -268,8 +281,6 @@ export function scoreEscalation(
     if (structural.length > 0)
       reasons.push(`${structural.length} structural violation(s): ${structural.join(', ')}`);
     if (calls > 0) reasons.push(`${calls} LLM service-call edge(s)`);
-    if (signals.size > 0)
-      reasons.push(`${files} file(s), ${(signals.size * 100).toFixed(0)}th percentile by size`);
 
     return { component_id: id, name: c.name, score, signals, raw, reasons };
   });
@@ -285,5 +296,6 @@ export function scoreEscalation(
     ranked,
     degree_derived_rules_excluded: DEGREE_DERIVED_RULE_IDS,
     unresolved_violations: unresolved,
+    violation_rule_histogram: violationHistogram,
   };
 }
