@@ -259,10 +259,13 @@ validates, attributes, and reports.
 Groups come from Louvain communities restricted to project-authored components;
 oversized communities split by breadth-first search so each part stays connected.
 Escalation is a weighted score over centrality, cross-cluster bridging,
-direction and reachability faults, LLM-call surface, and size — degree is
+direction and reachability faults, and LLM-call surface — degree is
 represented once, by PageRank, and the degree-derived rules are excluded from
-the violation count so one property cannot wear three weights. Every escalated
-component prints the numbers that escalated it.
+the violation count so one property cannot wear three weights. A rule that fires
+on more than half the components scored is withheld from the violation count as
+well, and named in the manifest: a flag present on most of the population cannot
+rank that population. Every escalated component prints the numbers that
+escalated it.
 
 **Findings never enter the graph.** They live in `.navgator/deep-map/`, carry
 `tier`, `packet_id`, `source: 'llm'`, and are joined to components only at read

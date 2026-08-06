@@ -4,18 +4,34 @@ import { getConfig } from '../../config.js';
 import { AGENT_OUTPUT_LIMITS, boundAgentCollection, wrapInEnvelope } from '../../agent-output.js';
 import {
   checkRules,
+  countComponentsPerRule,
+  detectRuleDegeneracy,
   getBuiltinRules,
   loadCustomRules,
   formatRulesOutput,
+  type RuleDegeneracyReport,
   type RuleViolation,
 } from '../../rules.js';
 import { checkDataAvailability } from './helpers.js';
 import { EXIT_CODES } from '../exit-codes.js';
 
+/**
+ * Prevalence check over the violations just produced. A rule that fires on most
+ * of the codebase is reported as one misconfiguration, not as N findings — see
+ * `detectRuleDegeneracy`.
+ */
+export function measureRuleDegeneracy(
+  violations: RuleViolation[],
+  componentCount: number
+): RuleDegeneracyReport {
+  return detectRuleDegeneracy(countComponentsPerRule(violations), componentCount);
+}
+
 export function buildRulesAgentData(
   violations: RuleViolation[],
   rulesChecked: number,
-  severity?: string
+  severity?: string,
+  degeneracy?: RuleDegeneracyReport
 ) {
   const severityRank = { error: 0, warning: 1, info: 2 } as const;
   const selected = (severity
@@ -40,6 +56,9 @@ export function buildRulesAgentData(
       info: violations.filter(v => v.severity === 'info').length,
     },
     rules_checked: rulesChecked,
+    // Present on every run so a consumer can branch on it without probing.
+    // `degenerate: []` is the healthy answer, not a missing field.
+    degeneracy: degeneracy ?? null,
     truncation: {
       violations: bounded.truncation,
     },
@@ -67,9 +86,10 @@ export function registerRulesCommand(program: Command): void {
 
         const allRules = [...getBuiltinRules(), ...loadCustomRules()];
         const violations = checkRules(components, connections, allRules);
+        const degeneracy = measureRuleDegeneracy(violations, components.length);
 
         if (options.agent) {
-          const data = buildRulesAgentData(violations, allRules.length, options.severity);
+          const data = buildRulesAgentData(violations, allRules.length, options.severity, degeneracy);
           console.log(wrapInEnvelope('rules', data));
           return;
         }
@@ -85,11 +105,15 @@ export function registerRulesCommand(program: Command): void {
               warnings: violations.filter(v => v.severity === 'warning').length,
               info: violations.filter(v => v.severity === 'info').length,
             },
+            degeneracy,
           }, null, 2));
           return;
         }
 
         console.log(formatRulesOutput(violations, options.severity));
+        for (const warning of degeneracy.warnings) {
+          console.log(`\nDEGENERATE RULE: ${warning}`);
+        }
       } catch (error) {
         console.error('Rules check failed:', error);
         process.exitCode = EXIT_CODES.OPERATIONAL;

@@ -466,6 +466,71 @@ describe('deep-map escalation scoring', () => {
     expect(scored.score).toBeCloseTo(expected, 10);
     // And the weights must still sum to 1, or the score stops being a 0..1 value.
     expect(w.centrality + w.bridge + w.violations + w.llm_density).toBeCloseTo(1, 10);
+    // Every published weight must be able to fire. Summing to 1 does not catch a
+    // zeroed term once the rest are renormalised, and the arithmetic assertion
+    // above passes trivially when both sides are zero — so state it directly.
+    // A signal not worth weighting should be deleted, as `size` was, not left in
+    // the published table at zero where it reads as a contribution.
+    for (const [key, weight] of Object.entries(w)) {
+      expect(weight, `weight '${key}' is published but cannot contribute`).toBeGreaterThan(0);
+    }
+  });
+
+  it('withholds a rule that fires on most components, and still discloses it', () => {
+    // The measured failure: `transitively-dead` fired on 425 of 451 components
+    // while carrying 0.30 of the weight vector. A flag present on nearly the
+    // whole population cannot rank that population, so it must not feed the
+    // score — but hiding it would trade one silent problem for another, so the
+    // histogram still reports it and the manifest names the exclusion.
+    const components = Array.from({ length: 24 }, (_, i) => comp(`n${i}`, [`src/n${i}.ts`]));
+    const metrics = metricsFor(components, () => 0, () => 0.1);
+
+    const violations: RuleViolation[] = [
+      // Fires on 20 of 24 (83%) — degenerate.
+      ...components.slice(0, 20).map((c) => ({
+        rule_id: 'transitively-dead',
+        severity: 'warning' as const,
+        component: c.name,
+        message: '',
+      })),
+      // Fires on 1 of 24 — discriminating.
+      { rule_id: 'layer-violation', severity: 'error' as const, component: 'n23', message: '' },
+    ];
+
+    const result = scoreEscalation({ components, connections: [], metrics, violations, fileMap: {} });
+
+    expect(result.degenerate_rules_excluded).toEqual(['transitively-dead']);
+    expect(result.rule_degeneracy.degenerate[0]!.share_of_components).toBeCloseTo(20 / 24, 6);
+    // Disclosed, not erased.
+    expect(result.violation_rule_histogram['transitively-dead']).toBe(20);
+
+    // A component the degenerate rule alone flagged scores no violation signal.
+    const flooded = result.ranked.find((r) => r.name === 'n0')!;
+    expect(flooded.signals.violations).toBe(0);
+    expect(flooded.raw.structural_violations).toEqual([]);
+
+    // The rule that still discriminates keeps its contribution.
+    const real = result.ranked.find((r) => r.name === 'n23')!;
+    expect(real.raw.structural_violations).toEqual(['layer-violation']);
+    expect(real.signals.violations).toBeGreaterThan(0);
+  });
+
+  it('keeps feeding a rule that fires on a minority of components', () => {
+    // The post-fix measurement: 89 of 451 is a finding, not a misconfiguration,
+    // so the gate must not swallow it.
+    const components = Array.from({ length: 24 }, (_, i) => comp(`n${i}`, [`src/n${i}.ts`]));
+    const metrics = metricsFor(components, () => 0, () => 0.1);
+    const violations: RuleViolation[] = components.slice(0, 5).map((c) => ({
+      rule_id: 'transitively-dead',
+      severity: 'warning' as const,
+      component: c.name,
+      message: '',
+    }));
+
+    const result = scoreEscalation({ components, connections: [], metrics, violations, fileMap: {} });
+
+    expect(result.degenerate_rules_excluded).toEqual([]);
+    expect(result.ranked.find((r) => r.name === 'n0')!.signals.violations).toBeGreaterThan(0);
   });
 
   it('keeps the bridge ratio independent of external package edges', () => {

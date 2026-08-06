@@ -20,6 +20,7 @@ import type {
   PartitionResult,
 } from '../deep-map/types.js';
 import { ESCALATION_WEIGHTS, DEGREE_DERIVED_RULE_IDS, UNTRUSTED_SOURCE_NOTE } from '../deep-map/types.js';
+import { RULE_DEGENERACY_SHARE } from '../rules.js';
 import { createMockComponent, createMockConnection } from './helpers.js';
 import type { ArchitectureComponent, ArchitectureConnection } from '../types.js';
 
@@ -140,6 +141,14 @@ function buildEscalation(): EscalationResult {
     degree_derived_rules_excluded: DEGREE_DERIVED_RULE_IDS,
     unresolved_violations: 0,
     violation_rule_histogram: { 'layer-violation': 1 },
+    degenerate_rules_excluded: [],
+    rule_degeneracy: {
+      population: 5,
+      total_violations: 1,
+      threshold: RULE_DEGENERACY_SHARE,
+      degenerate: [],
+      warnings: [],
+    },
   };
 }
 

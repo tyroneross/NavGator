@@ -675,11 +675,13 @@ counted; so is one whose evidence resolves to no real file. Delete
 `.navgator/deep-map/` and everything else still works exactly as before.
 
 **Escalation is computed, not guessed.** Centrality, how much a component
-bridges across clusters, direction and reachability faults, LLM-call surface,
-and size. Degree is deliberately represented once — by PageRank — and the
+bridges across clusters, direction and reachability faults, and LLM-call
+surface. Degree is deliberately represented once — by PageRank — and the
 degree-derived rules are excluded from the violation count, so one property
-cannot quietly supply most of the score. Every escalated component prints the
-numbers that escalated it, so you can disagree on evidence.
+cannot quietly supply most of the score. A rule that fires on more than half the
+components scored is withheld too and named in the manifest, because a flag
+present on most of the codebase ranks nothing. Every escalated component prints
+the numbers that escalated it, so you can disagree on evidence.
 
 **Cost is capped and reported.** Tier 1 only by default; tiers 2 and 3 must be
 asked for. The manifest carries estimated input tokens per packet, and the

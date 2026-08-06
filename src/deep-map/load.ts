@@ -67,7 +67,7 @@ export async function loadTier0(
   const violations =
     components.length > 0
       ? checkRules(components, connections, [
-          ...getBuiltinRules(),
+          ...getBuiltinRules(projectRoot),
           ...loadCustomRules(projectRoot),
         ])
       : [];

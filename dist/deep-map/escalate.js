@@ -17,7 +17,16 @@
  * surface (`llm_density`). A fifth, `size`, was designed and then removed —
  * measurement showed a component always maps to exactly one file, so its
  * percentile was constant and its weight could never fire.
+ *
+ * `DEGREE_DERIVED_RULE_IDS` excludes rules for what they measure. A second,
+ * runtime exclusion covers what a rule actually measured *here*: a rule firing
+ * on more than half the components scored cannot rank them, so it is withheld
+ * from the `violations` signal and named in the manifest. That case is not
+ * hypothetical — `transitively-dead` fired on 425 of NavGator's own 451
+ * components while carrying 0.30 of the weight vector, and the constant term it
+ * contributed was indistinguishable from signal in the output.
  */
+import { detectRuleDegeneracy, } from '../rules.js';
 import { DEEP_MAP_LIMITS, DEGREE_DERIVED_RULE_IDS, ESCALATION_WEIGHTS, } from './types.js';
 import { buildCommunityIndex, buildPagerankIndex } from './partition.js';
 import { selectMappableComponents } from './filter.js';
@@ -85,7 +94,7 @@ export function normalizeFileMap(raw) {
  * violations are counted and reported rather than dropped, so a broken join
  * shows up as a number instead of as a quietly lower score.
  */
-function indexViolationsByComponentId(violations, components) {
+function indexViolationsByComponentId(violations, components, excludedRuleIds = new Set()) {
     const idsByName = new Map();
     for (const c of components) {
         const list = idsByName.get(c.name);
@@ -109,6 +118,11 @@ function indexViolationsByComponentId(violations, components) {
             unresolved++;
             continue;
         }
+        // Counted in the histogram either way — a degenerate rule is disclosed, not
+        // erased — but kept out of the per-component list that feeds the score.
+        histogram[v.rule_id] = (histogram[v.rule_id] ?? 0) + 1;
+        if (excludedRuleIds.has(v.rule_id))
+            continue;
         for (const id of ids) {
             const list = byId.get(id);
             if (list)
@@ -116,9 +130,35 @@ function indexViolationsByComponentId(violations, components) {
             else
                 byId.set(id, [v.rule_id]);
         }
-        histogram[v.rule_id] = (histogram[v.rule_id] ?? 0) + 1;
     }
     return { byId, unresolved, histogram };
+}
+/**
+ * Which rules are too prevalent to rank by, measured against the components
+ * actually scored. This is the runtime counterpart to `DEGREE_DERIVED_RULE_IDS`:
+ * that list names rules excluded because of what they measure, this one excludes
+ * rules because of what they *did* measure on this graph.
+ *
+ * The distinct-component count is what the share is taken over, so a rule that
+ * emits several violations against one component cannot look prevalent.
+ */
+function measureDegeneracy(violations, internalNames, population) {
+    const seen = new Map();
+    for (const v of violations) {
+        if (DEGREE_DERIVED_RULE_IDS.includes(v.rule_id))
+            continue;
+        if (!v.component || !internalNames.has(v.component))
+            continue;
+        const set = seen.get(v.rule_id);
+        if (set)
+            set.add(v.component);
+        else
+            seen.set(v.rule_id, new Set([v.component]));
+    }
+    const counts = {};
+    for (const [ruleId, set] of seen)
+        counts[ruleId] = set.size;
+    return detectRuleDegeneracy(counts, population);
 }
 export function scoreEscalation(inputs, options = {}) {
     const threshold = options.threshold ?? DEFAULT_ESCALATION_FLOOR;
@@ -183,7 +223,12 @@ export function scoreEscalation(inputs, options = {}) {
     for (const id of internalIds)
         pagerankForInternal.set(id, pagerank.get(id) ?? 0);
     const pagerankPct = percentileIndex(pagerankForInternal);
-    const { byId: violationsById, unresolved, histogram: violationHistogram, } = indexViolationsByComponentId(inputs.violations, inputs.components);
+    // Measure prevalence first, then score with the degenerate rules withheld.
+    // Both passes are over the same violation list, so the histogram reported in
+    // the manifest still describes everything that fired.
+    const degeneracy = measureDegeneracy(inputs.violations, new Set(internal.map((c) => c.name)), internal.length);
+    const degenerateRuleIds = degeneracy.degenerate.map((d) => d.rule_id);
+    const { byId: violationsById, unresolved, histogram: violationHistogram, } = indexViolationsByComponentId(inputs.violations, inputs.components, new Set(degenerateRuleIds));
     const ranked = internal.map((c) => {
         const id = c.component_id;
         const edges = totalEdges.get(id) ?? 0;
@@ -236,6 +281,8 @@ export function scoreEscalation(inputs, options = {}) {
         degree_derived_rules_excluded: DEGREE_DERIVED_RULE_IDS,
         unresolved_violations: unresolved,
         violation_rule_histogram: violationHistogram,
+        degenerate_rules_excluded: degenerateRuleIds,
+        rule_degeneracy: degeneracy,
     };
 }
 //# sourceMappingURL=escalate.js.map

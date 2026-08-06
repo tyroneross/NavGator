@@ -26,14 +26,7 @@
  *      `semver` is visible rather than silent.
  */
 import type { ArchitectureComponent } from '../types.js';
-/**
- * Directory names that mean "not authored here" in every ecosystem we scan.
- * Deliberately conservative: each entry would be surprising as a hand-written
- * source directory. `dist`, `build`, `out`, and `runtime` are NOT here — they
- * are common hand-written directory names and excluding them by default would
- * silently drop real code.
- */
-export declare const VENDOR_PATH_SEGMENTS: readonly string[];
+export { VENDOR_PATH_SEGMENTS, VENDOR_CONTAINER_SEGMENTS, EXTERNAL_PACKAGE_TYPES, } from '../vendor-paths.js';
 export interface ComponentFilterOptions {
     /** Extra glob patterns to exclude, e.g. `web/runtime/**`. */
     exclude?: string[];

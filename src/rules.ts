@@ -7,6 +7,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ArchitectureComponent, ArchitectureConnection } from './types.js';
 import { detectImportCycles, detectLayerViolations, detectShallowModules, getTopFanOut, getTopHotspots } from './architecture-insights.js';
+import { detectEntryPoints, entryCandidatePaths } from './entry-points.js';
+import {
+  EXTERNAL_PACKAGE_TYPES,
+  hasVendorSegment,
+  underPackageContainer,
+} from './vendor-paths.js';
 
 export interface ArchitectureRule {
   id: string;
@@ -25,9 +31,13 @@ export interface RuleViolation {
 }
 
 /**
- * Get all built-in architecture rules
+ * Get all built-in architecture rules.
+ *
+ * `projectRoot` is used by reachability analysis to read the package manifests
+ * that declare a project's entry points. It defaults to `process.cwd()`, the
+ * same default `loadCustomRules` uses.
  */
-export function getBuiltinRules(): ArchitectureRule[] {
+export function getBuiltinRules(projectRoot?: string): ArchitectureRule[] {
   return [
     {
       id: 'orphan-component',
@@ -276,7 +286,7 @@ export function getBuiltinRules(): ArchitectureRule[] {
       description: 'Component unreachable from any entry point via connection graph',
       severity: 'warning',
       check: (components, connections) => {
-        return checkTransitivelyDead(components, connections);
+        return checkTransitivelyDead(components, connections, projectRoot);
       },
     },
   ];
@@ -348,18 +358,67 @@ function checkDuplicateResourceCreation(
 // =============================================================================
 
 /**
- * BFS from entry points through the connection graph.
- * Components unreachable from any entry point are transitively dead.
+ * Component types that describe a declared dependency or a piece of
+ * environment, not source this project is asked to keep alive.
+ */
+const DEAD_CODE_EXCLUDED_TYPES: ReadonlySet<string> = new Set([
+  'npm',
+  'pip',
+  'spm',
+  'cargo',
+  'go',
+  'gem',
+  'composer',
+  'infra',
+  'config',
+  'document',
+]);
+
+/**
+ * Files that declare dependencies rather than contain code. A component whose
+ * every path is one of these was detected *from* a manifest — `next` read out
+ * of a package.json — so calling it dead code is a category error, no matter
+ * what type the scanner assigned it.
+ */
+const DEPENDENCY_MANIFESTS: ReadonlySet<string> = new Set([
+  'package.json',
+  'package-lock.json',
+  'requirements.txt',
+  'pyproject.toml',
+  'Pipfile',
+  'Cargo.toml',
+  'Cargo.lock',
+  'Package.swift',
+  'go.mod',
+  'Gemfile',
+  'composer.json',
+  'pubspec.yaml',
+  'build.gradle',
+  'pom.xml',
+]);
+
+/**
+ * BFS from entry points through the connection graph. Components unreachable
+ * from any entry point are transitively dead.
  *
- * Entry points are identified by:
- * - type: 'api-endpoint', 'worker', 'cron' (natural entry points)
- * - component names matching app delegate patterns (AppDelegate, App, @main)
- * - tags containing 'entrypoint', 'route', or 'navigation-root'
- * - role.layer === 'infra' or role.layer === 'external' (not code we own)
+ * Roots come from `detectEntryPoints`, which reads the package manifest instead
+ * of pattern-matching component names — see that module for why the previous
+ * root set reported 94% of NavGator's own components as dead.
+ *
+ * Two classes are excluded from candidacy rather than from the traversal, so a
+ * finding always names something the author could actually delete:
+ *
+ *   - **Declared dependencies.** A component detected only from a manifest is a
+ *     dependency record. It is also a graph sink, so it is unreachable by
+ *     construction.
+ *   - **Vendored code.** A checked-in copy of someone else's package is
+ *     unreachable whenever the copy is loaded by a mechanism the import graph
+ *     does not carry, and reporting it tells the author nothing they can act on.
  */
 function checkTransitivelyDead(
   components: ArchitectureComponent[],
-  connections: ArchitectureConnection[]
+  connections: ArchitectureConnection[],
+  projectRoot?: string
 ): RuleViolation[] {
   if (components.length === 0) return [];
 
@@ -373,23 +432,7 @@ function checkTransitivelyDead(
     adj.get(conn.from.component_id)?.add(conn.to.component_id);
   }
 
-  // Identify entry points
-  const entryPointTypes = new Set(['api-endpoint', 'worker', 'cron', 'xcode-target']);
-  const entryPointNamePatterns = /App$|AppDelegate|@main|ContentView|SceneDelegate|(?:^|[\/\\.:#\s_-])Main(?:$|[\/\\.:#\s_-])/i;
-  const excludedTypes = new Set(['npm', 'pip', 'spm', 'cargo', 'go', 'gem', 'composer', 'infra', 'config', 'document']);
-
-  const entryPoints = new Set<string>();
-  for (const c of components) {
-    if (entryPointTypes.has(c.type)) {
-      entryPoints.add(c.component_id);
-    } else if (entryPointNamePatterns.test(c.name)) {
-      entryPoints.add(c.component_id);
-    } else if (c.tags?.some(t => ['entrypoint', 'route', 'navigation-root'].includes(t))) {
-      entryPoints.add(c.component_id);
-    } else if (c.role.layer === 'infra' || c.role.layer === 'external') {
-      entryPoints.add(c.component_id);
-    }
-  }
+  const entryPoints = detectEntryPoints(components, { projectRoot }).ids;
 
   // If no entry points found, skip (can't determine reachability without roots)
   if (entryPoints.size === 0) return [];
@@ -414,16 +457,30 @@ function checkTransitivelyDead(
     }
   }
 
+  const connectedIds = new Set<string>();
+  for (const conn of connections) {
+    connectedIds.add(conn.from.component_id);
+    connectedIds.add(conn.to.component_id);
+  }
+  const externalNames = new Set(
+    components.filter(c => EXTERNAL_PACKAGE_TYPES.includes(c.type)).map(c => c.name)
+  );
+
   // Components not reachable and not excluded types are transitively dead
   const violations: RuleViolation[] = [];
   for (const c of components) {
     if (reachable.has(c.component_id)) continue;
-    if (excludedTypes.has(c.type)) continue;
+    if (DEAD_CODE_EXCLUDED_TYPES.has(c.type)) continue;
     // Skip components that already have no connections (caught by orphan-component)
-    const hasAnyConnection = connections.some(
-      conn => conn.from.component_id === c.component_id || conn.to.component_id === c.component_id
-    );
-    if (!hasAnyConnection) continue;
+    if (!connectedIds.has(c.component_id)) continue;
+
+    const paths = entryCandidatePaths(c, projectRoot);
+    if (paths.length > 0 && paths.every(p => DEPENDENCY_MANIFESTS.has(path.posix.basename(p)))) {
+      continue;
+    }
+    if (paths.some(p => hasVendorSegment(p) || underPackageContainer(p, externalNames))) {
+      continue;
+    }
 
     violations.push({
       rule_id: 'transitively-dead',
@@ -435,6 +492,102 @@ function checkTransitivelyDead(
   }
 
   return violations;
+}
+
+// =============================================================================
+// RULE DEGENERACY
+// =============================================================================
+
+/**
+ * A rule firing on more than this share of the components it could apply to is
+ * treated as degenerate. The bound is a discrimination argument, not a taste
+ * one: a flag present on most of the population cannot separate that population,
+ * so ranking by it ranks by noise. `transitively-dead` sat at 0.94 on
+ * NavGator's own graph and nothing in the output said so.
+ */
+export const RULE_DEGENERACY_SHARE = 0.5;
+
+/** Minimum population before the share is meaningful — 3 of 4 is not a signal. */
+export const RULE_DEGENERACY_MIN_POPULATION = 20;
+
+export interface DegenerateRule {
+  rule_id: string;
+  /** Components this rule flagged. */
+  components: number;
+  /** components / population. */
+  share_of_components: number;
+  /** This rule's violations / all violations counted. */
+  share_of_violations: number;
+}
+
+export interface RuleDegeneracyReport {
+  population: number;
+  total_violations: number;
+  threshold: number;
+  degenerate: DegenerateRule[];
+  /** One line per degenerate rule, ready to print. */
+  warnings: string[];
+}
+
+/**
+ * Find rules so prevalent they cannot discriminate.
+ *
+ * `counts` maps rule_id to the number of distinct components that rule flagged;
+ * `population` is how many components the rules ran against. The histogram this
+ * consumes already exists in the deep-map manifest — this is what makes it
+ * assert something instead of merely being available for inspection.
+ */
+export function detectRuleDegeneracy(
+  counts: Record<string, number>,
+  population: number,
+  threshold: number = RULE_DEGENERACY_SHARE
+): RuleDegeneracyReport {
+  const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+  const degenerate: DegenerateRule[] = [];
+
+  if (population >= RULE_DEGENERACY_MIN_POPULATION) {
+    for (const [rule_id, components] of Object.entries(counts)) {
+      const share = components / population;
+      if (share <= threshold) continue;
+      degenerate.push({
+        rule_id,
+        components,
+        share_of_components: share,
+        share_of_violations: total > 0 ? components / total : 0,
+      });
+    }
+  }
+  degenerate.sort((a, b) => b.share_of_components - a.share_of_components || a.rule_id.localeCompare(b.rule_id));
+
+  return {
+    population,
+    total_violations: total,
+    threshold,
+    degenerate,
+    warnings: degenerate.map(
+      d =>
+        `Rule '${d.rule_id}' fires on ${d.components} of ${population} components ` +
+        `(${(d.share_of_components * 100).toFixed(0)}%, ${(d.share_of_violations * 100).toFixed(0)}% of all violations). ` +
+        `A rule that flags most of the codebase cannot discriminate — treat it as unconfigured, not as ${d.components} findings.`
+    ),
+  };
+}
+
+/**
+ * Count distinct components per rule from a violation list, the shape
+ * `detectRuleDegeneracy` expects.
+ */
+export function countComponentsPerRule(violations: RuleViolation[]): Record<string, number> {
+  const seen = new Map<string, Set<string>>();
+  for (const v of violations) {
+    if (!v.component) continue;
+    const set = seen.get(v.rule_id);
+    if (set) set.add(v.component);
+    else seen.set(v.rule_id, new Set([v.component]));
+  }
+  const counts: Record<string, number> = {};
+  for (const [rule_id, set] of seen) counts[rule_id] = set.size;
+  return counts;
 }
 
 /**
@@ -531,9 +684,10 @@ function matchesPattern(
 export function checkRules(
   components: ArchitectureComponent[],
   connections: ArchitectureConnection[],
-  rules?: ArchitectureRule[]
+  rules?: ArchitectureRule[],
+  projectRoot?: string
 ): RuleViolation[] {
-  const allRules = rules || [...getBuiltinRules(), ...loadCustomRules()];
+  const allRules = rules || [...getBuiltinRules(projectRoot), ...loadCustomRules(projectRoot)];
   const violations: RuleViolation[] = [];
 
   for (const rule of allRules) {

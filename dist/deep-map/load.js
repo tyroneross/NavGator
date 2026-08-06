@@ -39,7 +39,7 @@ export async function loadTier0(config, projectRoot) {
     // component, so custom rules run alongside the builtins.
     const violations = components.length > 0
         ? checkRules(components, connections, [
-            ...getBuiltinRules(),
+            ...getBuiltinRules(projectRoot),
             ...loadCustomRules(projectRoot),
         ])
         : [];

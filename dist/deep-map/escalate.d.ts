@@ -17,10 +17,18 @@
  * surface (`llm_density`). A fifth, `size`, was designed and then removed —
  * measurement showed a component always maps to exactly one file, so its
  * percentile was constant and its weight could never fire.
+ *
+ * `DEGREE_DERIVED_RULE_IDS` excludes rules for what they measure. A second,
+ * runtime exclusion covers what a rule actually measured *here*: a rule firing
+ * on more than half the components scored cannot rank them, so it is withheld
+ * from the `violations` signal and named in the manifest. That case is not
+ * hypothetical — `transitively-dead` fired on 425 of NavGator's own 451
+ * components while carrying 0.30 of the weight vector, and the constant term it
+ * contributed was indistinguishable from signal in the output.
  */
 import type { ArchitectureComponent, ArchitectureConnection } from '../types.js';
 import type { MetricsReport } from '../metrics/pagerank-louvain.js';
-import type { RuleViolation } from '../rules.js';
+import { type RuleViolation } from '../rules.js';
 import { type EscalationResult, type EscalationSignals } from './types.js';
 import { type ComponentFilterOptions } from './filter.js';
 export interface EscalationOptions extends ComponentFilterOptions {

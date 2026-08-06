@@ -25,45 +25,11 @@
  *      `suspect_vendored` and counted in the manifest, so paying to describe
  *      `semver` is visible rather than silent.
  */
-/**
- * Directory names that mean "not authored here" in every ecosystem we scan.
- * Deliberately conservative: each entry would be surprising as a hand-written
- * source directory. `dist`, `build`, `out`, and `runtime` are NOT here — they
- * are common hand-written directory names and excluding them by default would
- * silently drop real code.
- */
-export const VENDOR_PATH_SEGMENTS = [
-    'node_modules',
-    'bower_components',
-    'vendor',
-    'third_party',
-    'thirdparty',
-    '__generated__',
-    '.next',
-    '.nuxt',
-    '.venv',
-    'site-packages',
-    'Pods',
-    'Carthage',
-];
-/** Directories that conventionally hold copies of other people's packages. */
-const VENDOR_CONTAINER_SEGMENTS = [
-    'packages',
-    'deps',
-    'externals',
-    'vendor',
-    'node_modules',
-    'third_party',
-];
-const EXTERNAL_PACKAGE_TYPES = [
-    'npm',
-    'pip',
-    'cargo',
-    'spm',
-    'go',
-    'gem',
-    'composer',
-];
+import { EXTERNAL_PACKAGE_TYPES, hasVendorSegment, underPackageContainer, } from '../vendor-paths.js';
+// The vendor vocabulary is shared with `rules.ts` so the two surfaces cannot
+// drift into disagreeing about what counts as somebody else's code. Re-exported
+// here because this module was its original home.
+export { VENDOR_PATH_SEGMENTS, VENDOR_CONTAINER_SEGMENTS, EXTERNAL_PACKAGE_TYPES, } from '../vendor-paths.js';
 /** Every file path a component claims. */
 export function componentPaths(component) {
     return component.source?.config_files ?? [];
@@ -126,18 +92,6 @@ export function globToRegExp(pattern) {
         }
     }
     return new RegExp(`^${out}$`);
-}
-function hasVendorSegment(filePath) {
-    return filePath.split('/').some((seg) => VENDOR_PATH_SEGMENTS.includes(seg));
-}
-function underPackageContainer(filePath, externalNames) {
-    const segs = filePath.split('/');
-    for (let i = 1; i < segs.length; i++) {
-        if (VENDOR_CONTAINER_SEGMENTS.includes(segs[i - 1]) && externalNames.has(segs[i])) {
-            return true;
-        }
-    }
-    return false;
 }
 /**
  * Select the internal, project-authored components worth mapping.

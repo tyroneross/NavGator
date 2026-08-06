@@ -13,6 +13,7 @@ import type {
   CompactConnection,
   ComponentType,
 } from '../types.js';
+import type { RuleDegeneracyReport } from '../rules.js';
 
 export const DEEP_MAP_SCHEMA_VERSION = '1.0';
 
@@ -180,13 +181,26 @@ export interface EscalationResult {
    * How many components each surviving rule contributed a violation to.
    *
    * Without this the `violations` signal can quietly collapse to a single rule
-   * and nobody sees it. On NavGator's own graph `transitively-dead` fires on
-   * ~94% of components — which says the entry-point detection is wrong for a
-   * CLI package, not that the code is dead — while `layer-violation` fires
-   * once. A signal that is nearly constant is not measuring anything, and the
-   * histogram is what makes that visible in the manifest instead of buried.
+   * and nobody sees it. That is not hypothetical: `transitively-dead` fired on
+   * 425 of NavGator's own 451 project components (~94%) because its entry-point
+   * detection had no notion of an npm package's `bin`/`main`/`exports`, so
+   * almost everything read as unreachable. A signal that is nearly constant is
+   * not measuring anything, and the histogram is what makes that visible in the
+   * manifest instead of buried.
+   *
+   * Counted before degeneracy exclusion, so a rule withheld from the score
+   * still appears here.
    */
   violation_rule_histogram: Record<string, number>;
+  /**
+   * Rules withheld from the `violations` signal this run because they fired on
+   * more than `RULE_DEGENERACY_SHARE` of the components scored. The runtime
+   * counterpart to `degree_derived_rules_excluded`: that list is fixed by what a
+   * rule measures, this one by what it measured here.
+   */
+  degenerate_rules_excluded: string[];
+  /** The prevalence measurement behind that exclusion, so it is falsifiable. */
+  rule_degeneracy: RuleDegeneracyReport;
 }
 
 // ---------------------------------------------------------------------------

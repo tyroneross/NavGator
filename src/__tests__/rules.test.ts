@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   getBuiltinRules,
   checkRules,
+  countComponentsPerRule,
+  detectRuleDegeneracy,
   formatRulesOutput,
+  RULE_DEGENERACY_MIN_POPULATION,
   ArchitectureRule,
   RuleViolation,
 } from '../rules.js';
@@ -357,6 +363,158 @@ describe('Architecture Rules', () => {
       );
 
       expect(violations).toHaveLength(0);
+    });
+  });
+
+  /**
+   * The defect: on a CLI/library package the root set found no front door, so
+   * every module behind it read as dead — 425 of 451 components on NavGator's
+   * own graph. These tests pin both directions. The differential in the first
+   * one is the important part: the SAME graph flips from "all dead" to "one
+   * dead" purely by whether the package manifest is readable, which is exactly
+   * the mechanism that was missing.
+   */
+  describe('transitively-dead entry-point resolution', () => {
+    let root: string;
+    let noManifest: string;
+
+    beforeAll(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-rules-cli-'));
+      fs.writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({ name: 'fixture', bin: { fixture: 'dist/cli/index.js' } })
+      );
+      noManifest = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-rules-bare-'));
+    });
+
+    afterAll(() => {
+      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(noManifest, { recursive: true, force: true });
+    });
+
+    // cli -> service -> storage is the live chain; abandoned imports storage but
+    // nothing imports abandoned. `sdk` reproduces the only root the pre-fix
+    // detector ever found on a CLI package: an external node, which is a graph
+    // SINK, so admitting it as a root reaches nothing.
+    const cliGraph = () => {
+      const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+      const service = createComponent({ name: 'service', type: 'component', file: 'src/service.ts' });
+      const storage = createComponent({ name: 'storage', type: 'component', file: 'src/storage.ts' });
+      const abandoned = createComponent({ name: 'abandoned', type: 'component', file: 'src/abandoned.ts' });
+      const sdk = createComponent({ name: 'openai', type: 'service', layer: 'external', file: 'package.json' });
+      return {
+        components: [cli, service, storage, abandoned, sdk],
+        connections: [
+          createConnection(cli, service, { connection_type: 'imports' }),
+          createConnection(service, storage, { connection_type: 'imports' }),
+          createConnection(abandoned, storage, { connection_type: 'imports' }),
+          createConnection(service, sdk, { connection_type: 'uses-package' }),
+        ],
+      };
+    };
+
+    it('reaches the whole chain behind a package bin and still flags what nothing imports', () => {
+      const { components, connections } = cliGraph();
+      const rule = getBuiltinRules(root).find(r => r.id === 'transitively-dead')!;
+
+      expect(rule.check(components, connections).map(v => v.component)).toEqual(['abandoned']);
+    });
+
+    it('reports the same graph as almost entirely dead when the manifest is missing', () => {
+      // This is the pre-fix behaviour, kept as the falsifier: if the fix were
+      // "stop flagging things", this assertion would fail too.
+      const { components, connections } = cliGraph();
+      const rule = getBuiltinRules(noManifest).find(r => r.id === 'transitively-dead')!;
+
+      expect(rule.check(components, connections).map(v => v.component).sort()).toEqual([
+        'abandoned',
+        'cli',
+        'service',
+        'storage',
+      ]);
+    });
+
+    it('does not report a declared dependency as dead code', () => {
+      // `next` is detected out of a package.json, so it is a dependency record,
+      // not source anybody can delete. It is also a graph sink, so reachability
+      // can never rescue it.
+      const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+      const framework = createComponent({
+        name: 'next',
+        type: 'framework',
+        layer: 'frontend',
+        file: 'package.json',
+      });
+      const rule = getBuiltinRules(root).find(r => r.id === 'transitively-dead')!;
+
+      const violations = rule.check(
+        [cli, framework],
+        [createConnection(framework, cli, { connection_type: 'uses-package' })]
+      );
+      expect(violations).toHaveLength(0);
+    });
+
+    it('does not report vendored third-party source as dead code', () => {
+      const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+      const vendored = createComponent({
+        name: 'vendored-lib',
+        type: 'component',
+        file: 'web/runtime/node_modules/left-pad/index.js',
+      });
+      const authored = createComponent({ name: 'authored', type: 'component', file: 'src/authored.ts' });
+      const rule = getBuiltinRules(root).find(r => r.id === 'transitively-dead')!;
+
+      const violations = rule.check(
+        [cli, vendored, authored],
+        [
+          createConnection(vendored, authored, { connection_type: 'imports' }),
+          createConnection(authored, cli, { connection_type: 'imports' }),
+        ]
+      );
+      // The vendored copy is skipped; the authored module it drags along is not.
+      expect(violations.map(v => v.component)).toEqual(['authored']);
+    });
+  });
+
+  describe('detectRuleDegeneracy', () => {
+    it('flags a rule that fires on most of the codebase', () => {
+      // The measured shape of the defect: 425 of 451 components, one rule.
+      const report = detectRuleDegeneracy(
+        { 'transitively-dead': 425, 'layer-violation': 1, 'circular-dependency': 5 },
+        451
+      );
+
+      expect(report.degenerate.map(d => d.rule_id)).toEqual(['transitively-dead']);
+      expect(report.degenerate[0]!.share_of_components).toBeCloseTo(425 / 451, 6);
+      expect(report.degenerate[0]!.share_of_violations).toBeCloseTo(425 / 431, 6);
+      expect(report.warnings[0]).toContain('transitively-dead');
+      expect(report.warnings[0]).toContain('425 of 451');
+    });
+
+    it('stays silent on a rule that discriminates', () => {
+      // The post-fix measurement on the same repo.
+      const report = detectRuleDegeneracy(
+        { 'transitively-dead': 89, 'layer-violation': 1, 'circular-dependency': 5 },
+        451
+      );
+      expect(report.degenerate).toEqual([]);
+      expect(report.warnings).toEqual([]);
+    });
+
+    it('refuses to call a tiny population degenerate', () => {
+      const population = RULE_DEGENERACY_MIN_POPULATION - 1;
+      const report = detectRuleDegeneracy({ 'some-rule': population }, population);
+      expect(report.degenerate).toEqual([]);
+    });
+
+    it('counts distinct components, so one noisy component is not prevalence', () => {
+      const violations: RuleViolation[] = [
+        { rule_id: 'r', severity: 'warning', component: 'a', message: '' },
+        { rule_id: 'r', severity: 'warning', component: 'a', message: '' },
+        { rule_id: 'r', severity: 'warning', component: 'b', message: '' },
+        { rule_id: 'r', severity: 'warning', message: '' },
+      ];
+      expect(countComponentsPerRule(violations)).toEqual({ r: 2 });
     });
   });
 
