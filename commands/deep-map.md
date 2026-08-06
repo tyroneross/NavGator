@@ -37,6 +37,10 @@ is analysis layered on top of it.
 navgator deep-map plan --tier 1 --agent
 ```
 
+Note the `run_id` it prints. Every later step takes `--run <that id>` so the
+whole pipeline stays in one run — otherwise each `plan` mints a fresh run and
+tier 3 sees only the most recent tier's findings.
+
 Read the manifest it prints. Before dispatching anything, check two things:
 
 - **`path_prefix` on each packet.** If a packet's prefix names vendored,
@@ -63,7 +67,7 @@ Write each result to `packets/<packet_id>.result.json` next to its packet.
 ### 4. Ingest
 
 ```
-navgator deep-map ingest --agent
+navgator deep-map ingest --run <run_id> --agent
 ```
 
 Read the rejection list. Rejections are signal, not noise: a run with many
@@ -75,7 +79,7 @@ blindly.
 ### 5. Escalate — only where the graph says so
 
 ```
-navgator deep-map plan --tier 2 --agent
+navgator deep-map plan --tier 2 --run <run_id> --agent
 ```
 
 Escalation is computed from the graph alone: centrality, how much a component
@@ -89,7 +93,7 @@ they are the components where being wrong costs the most. Ingest as before.
 ### 6. Synthesise
 
 ```
-navgator deep-map plan --tier 3 --agent
+navgator deep-map plan --tier 3 --run <run_id> --agent
 ```
 
 One packet carrying the graph statistics, the escalation table, and every
@@ -97,7 +101,7 @@ finding ingested so far. Run it once, with your strongest model. Ask it for the
 issues only visible across components. Ingest, then:
 
 ```
-navgator deep-map report --agent
+navgator deep-map report --run <run_id> --agent
 ```
 
 ### 7. Report to the user
@@ -114,7 +118,7 @@ design exists to prevent.
 ## Checking on a run
 
 ```
-navgator deep-map status --agent
+navgator deep-map status --run <run_id> --agent
 ```
 
 Shows which packets have results and which do not. NavGator cannot tell whether

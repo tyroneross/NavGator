@@ -650,15 +650,15 @@ out subagents over them in parallel; NavGator validates, attributes, and reports
 what comes back.
 
 ```bash
-navgator scan --agent                       # tier 0 — the source of truth
-navgator deep-map plan --tier 1 --agent     # emit packets
+navgator scan --agent                            # tier 0 — the source of truth
+navgator deep-map plan --tier 1 --agent          # emit packets; note the run_id it prints
 #   ... your agent dispatches one subagent per packet, in parallel,
 #   ... writing each result to packets/<packet_id>.result.json
-navgator deep-map ingest --agent            # validate + attribute
-navgator deep-map plan --tier 2 --agent     # deep pass on escalated components
-navgator deep-map plan --tier 3 --agent     # one synthesis pass
-navgator deep-map report --agent            # findings + what the run cost
-navgator deep-map status --agent            # which packets came back
+navgator deep-map ingest --run $RUN --agent      # validate + attribute
+navgator deep-map plan --tier 2 --run $RUN --agent   # deep pass on escalated components
+navgator deep-map plan --tier 3 --run $RUN --agent   # one synthesis pass over the whole run
+navgator deep-map report --run $RUN --agent      # findings + what the run cost
+navgator deep-map status --run $RUN --agent      # which packets came back
 ```
 
 | Tier | Pass | Cap |
@@ -695,7 +695,7 @@ report carries measured output bytes and rejection counts.
 | `--escalate-threshold <n>` | Score floor for tier 2 (default 0.4) |
 | `--exclude <glob>` | Exclude paths from mapping (repeatable) |
 | `--include-vendored` | Keep `node_modules`-style directories in scope |
-| `--run <id>` | Target a specific run instead of the latest |
+| `--run <id>` | Continue an existing run instead of starting a new one. Pass it on every step after the first `plan`, so all three tiers land in one run |
 | `--json` / `--agent` | Machine-readable output |
 
 **On vendored code.** Each packet reports the longest common path prefix of its

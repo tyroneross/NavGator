@@ -284,7 +284,17 @@ async function runPlan(options: PlanCommandOptions): Promise<void> {
     );
   }
 
-  const runId = generateRunId();
+  // Continue an existing run when the caller names one, rather than minting a
+  // fresh id per tier. The documented sequence is `plan --tier 1` → ingest →
+  // `plan --tier 2` → ingest → `plan --tier 3`; minting a run per invocation
+  // meant tier 3 read only the most recent run's findings and silently dropped
+  // every tier-1 finding, while `status` and `report` each described a fragment
+  // of the pipeline. One run now holds all of its tiers.
+  const existingManifest = sourceRunValidation.runId
+    ? readManifest(sourceRunValidation.runId, config)
+    : null;
+  const runId = existingManifest?.run_id ?? generateRunId();
+  const continuingRun = existingManifest !== null;
   const provenance = await resolveProvenance(process.cwd());
 
   const packetInput = {
@@ -379,6 +389,26 @@ async function runPlan(options: PlanCommandOptions): Promise<void> {
     cost: { packets: packets.length, estimated_input_tokens: totalEstimatedTokens },
     provenance,
   };
+
+  if (continuingRun && existingManifest) {
+    // Preserve what earlier tiers recorded: their packet summaries, their
+    // planned tiers, and the run's original creation time.
+    manifest.created_at = existingManifest.created_at;
+    manifest.tiers_planned = [...new Set([...existingManifest.tiers_planned, ...tiers])].sort();
+    const known = new Set(packetSummaries.map((p) => p.packet_id));
+    manifest.packets = [
+      ...existingManifest.packets.filter((p) => !known.has(p.packet_id)),
+      ...packetSummaries,
+    ];
+    manifest.cost = {
+      packets: manifest.packets.length,
+      estimated_input_tokens: manifest.packets.reduce(
+        (sum, p) => sum + p.estimated_input_tokens,
+        0
+      ),
+    };
+    if (!escalation && existingManifest.escalation) manifest.escalation = existingManifest.escalation;
+  }
 
   writeManifest(manifest, config);
   writeLatest(runId, config);

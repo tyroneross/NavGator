@@ -1769,7 +1769,7 @@ async function main() {
       removeTarball = true
     }
 
-    assert.equal(countMatching(files, /^commands\/[^/]+\.md$/), 13, 'packed Claude commands')
+    assert.equal(countMatching(files, /^commands\/[^/]+\.md$/), 14, 'packed Claude commands')
     assert.equal(countMatching(files, /^agents\/[^/]+\.md$/), 4, 'packed Claude agents')
     assert.equal(countMatching(files, /^skills\/[^/]+\/SKILL\.md$/), 6, 'packed shared skills')
     assert.ok(files.includes('scripts/promote-lessons.py'), 'promote-lessons script is packed')
