@@ -54,15 +54,20 @@ const PATH_CONVENTIONS = [
     ['test-file', /(^|\/)__tests__\//],
     ['test-file', /(^|\/)tests?\//],
     ['test-file', /\.(test|spec)\.[cm]?[jt]sx?$/],
-    // Next.js app router: the framework routes to these files by convention.
+    // Next.js routers. Anchored to an app root — `<root>/`, `<workspace>/`, or
+    // either plus `src/` — because that is where Next.js actually looks. Matching
+    // `app/` or `pages/` at ANY depth admits `web/components/pages/Landing.tsx`
+    // and `src/lib/pages/Profile.tsx`, which are ordinary components, and an
+    // entry-point source that admits ordinary components makes dead code there
+    // unreportable.
     [
         'framework-route',
-        /(^|\/)app\/(.*\/)?(page|layout|route|template|default|error|global-error|not-found|loading)\.[cm]?[jt]sx?$/,
+        /^(?:[^/]+\/)?(?:src\/)?app\/(?:.*\/)?(?:page|layout|route|template|default|error|global-error|not-found|loading)\.[cm]?[jt]sx?$/,
     ],
-    // Next.js pages router: every file under `pages/` is addressable.
-    ['framework-route', /(^|\/)pages\/.*\.[cm]?[jt]sx?$/],
-    // Next.js loads these by fixed name.
-    ['framework-route', /(^|\/)(middleware|instrumentation)\.[cm]?[jt]s$/],
+    // Pages router: every file under it is addressable as a route.
+    ['framework-route', /^(?:[^/]+\/)?(?:src\/)?pages\/.*\.[cm]?[jt]sx?$/],
+    // Next.js loads these by fixed name at the app root.
+    ['framework-route', /^(?:[^/]+\/)?(?:src\/)?(?:middleware|instrumentation)\.[cm]?[jt]s$/],
     // Loaded by a tool (vitest, next, tailwind, postcss, eslint), not imported.
     ['tooling-config', /(^|\/)[\w.-]*\.config\.[cm]?[jt]sx?$/],
     // Run directly by a human or by CI.

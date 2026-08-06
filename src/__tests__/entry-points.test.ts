@@ -167,6 +167,16 @@ describe('classifyPathConvention', () => {
 
   it('treats every pages-router file as a route', () => {
     expect(classifyPathConvention('pages/about.tsx')).toBe('framework-route');
+    expect(classifyPathConvention('web/pages/about.tsx')).toBe('framework-route');
+    expect(classifyPathConvention('web/src/pages/about.tsx')).toBe('framework-route');
+  });
+
+  it('anchors the router conventions to an app root, not to any nested folder', () => {
+    // `components/pages/` and `lib/pages/` are ordinary component folders. Next
+    // only routes `pages/` and `app/` at the app root (optionally under `src/`).
+    expect(classifyPathConvention('web/components/pages/Landing.tsx')).toBeNull();
+    expect(classifyPathConvention('src/lib/pages/Profile.tsx')).toBeNull();
+    expect(classifyPathConvention('src/lib/app/page.tsx')).toBeNull();
   });
 
   it('treats test files as roots because a runner discovers them', () => {
