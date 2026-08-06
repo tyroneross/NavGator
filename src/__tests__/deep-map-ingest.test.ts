@@ -7,19 +7,39 @@
  * validation contract the module documents (evidence grounding, size caps,
  * sanitization, determinism).
  *
+ * Also carries the security-review regression tests for SEC-004, SEC-002,
+ * SEC-003, SEC-008, and SEC-007 (2026-08-05 review) — grouped here per the
+ * fix plan rather than split across per-module test files, since the shared
+ * `projectRoot` + `config` fixtures below already cover ingest, store, load,
+ * and filter.
+ *
  * Uses `projectRoot` + `storageMode: 'local'` rather than `$HOME`, so results
  * live entirely under a per-test `mkdtemp` directory independent of the
  * suite-wide home redirect in `__tests__/setup/home-redirect.ts`.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
 import { ingestRun, validateResultPayload } from '../deep-map/ingest.js';
-import { generateRunId, resultPathFor, writePacket } from '../deep-map/store.js';
+import { generateRunId, getRunPath, resultPathFor, writePacket } from '../deep-map/store.js';
+import { readFindings } from '../deep-map/store.js';
+import { resolveProvenance } from '../deep-map/load.js';
+import { globToRegExp } from '../deep-map/filter.js';
 import { DEEP_MAP_LIMITS, DEEP_MAP_SCHEMA_VERSION, type DeepMapPacket, type DeepMapTier } from '../deep-map/types.js';
 import type { NavGatorConfig } from '../types.js';
+
+// SEC-002 regression: `resolveProvenance` must fail CLOSED (untrusted: true)
+// when the project registry cannot be read, not fail open to `local`. Mocked
+// at module scope (vitest hoists `vi.mock`) because only this one test needs
+// the registry read to throw; every other test in this file never touches
+// `../projects.js`.
+vi.mock('../projects.js', () => ({
+  listProjects: vi.fn(async () => {
+    throw new Error('registry unreadable (mocked for SEC-002 regression test)');
+  }),
+}));
 
 let projectRoot: string;
 let config: NavGatorConfig;
@@ -325,5 +345,164 @@ describe('deep-map ingest', () => {
     const unknown = report.rejections.filter((r) => r.reason === 'unknown_packet');
     expect(unknown).toHaveLength(1);
     expect(unknown[0]?.packet_id).toBe('DMP_t1_099');
+  });
+});
+
+// =============================================================================
+// Security review regressions (2026-08-05)
+// =============================================================================
+
+describe('SEC-004 — evidence grounding rejects open-ended prefix matches', () => {
+  it('accepts an exact known-path match and a path:symbol match', () => {
+    const exact = validateResultPayload(
+      { findings: [validFinding({ evidence: ['src/alpha.ts'] })] },
+      { packet_id: 'DMP_t1_000', tier: 1, run_id: 'DM_run', component_ids: ['COMP_alpha'] },
+      { knownComponentIds, knownFilePaths }
+    );
+    expect(exact.rejections).toHaveLength(0);
+    expect(exact.findings).toHaveLength(1);
+
+    const withSymbol = validateResultPayload(
+      { findings: [validFinding({ evidence: ['src/alpha.ts:handler'] })] },
+      { packet_id: 'DMP_t1_000', tier: 1, run_id: 'DM_run', component_ids: ['COMP_alpha'] },
+      { knownComponentIds, knownFilePaths }
+    );
+    expect(withSymbol.rejections).toHaveLength(0);
+    expect(withSymbol.findings).toHaveLength(1);
+  });
+
+  it('rejects a known path used as a bare string prefix for fabricated text', () => {
+    // Before the fix, `evidence.startsWith(knownPath)` accepted this: any
+    // known file path being a literal prefix of the evidence string grounded
+    // arbitrary trailing text, letting a short root file (or `src/alpha.ts`
+    // here) launder a fabricated claim as "grounded".
+    const result = validateResultPayload(
+      { findings: [validFinding({ evidence: ['src/alpha.ts and also nonsense'] })] },
+      { packet_id: 'DMP_t1_000', tier: 1, run_id: 'DM_run', component_ids: ['COMP_alpha'] },
+      { knownComponentIds, knownFilePaths }
+    );
+    expect(result.findings).toHaveLength(0);
+    expect(result.rejections).toHaveLength(1);
+    expect(result.rejections[0]?.reason).toBe('missing_evidence');
+  });
+});
+
+describe('SEC-002 — resolveProvenance fails closed on a registry read error', () => {
+  it('returns origin: unknown, untrusted: true when listProjects throws', async () => {
+    const provenance = await resolveProvenance(projectRoot);
+    expect(provenance.origin).toBe('unknown');
+    expect(provenance.untrusted).toBe(true);
+  });
+});
+
+describe('SEC-003 — readFindings validates shape before trusting a stored line', () => {
+  it('drops a line missing `kind` and a line whose `evidence` is a string, keeping the one valid line', () => {
+    const runId = generateRunId();
+    const runDir = getRunPath(runId, config, projectRoot);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const goodFinding = {
+      finding_id: 'DMP_t1_000_0',
+      run_id: runId,
+      packet_id: 'DMP_t1_000',
+      tier: 1,
+      component_id: 'COMP_alpha',
+      component_name: 'Alpha Service',
+      kind: 'purpose',
+      text: 'Handles alpha responsibilities.',
+      evidence: ['src/alpha.ts'],
+      confidence: 0.8,
+      source: 'llm',
+      ingested_at: 1700000000000,
+    };
+    const missingKind = { ...goodFinding, finding_id: 'DMP_t1_000_1' } as Record<string, unknown>;
+    delete missingKind['kind'];
+    const stringEvidence = {
+      ...goodFinding,
+      finding_id: 'DMP_t1_000_2',
+      evidence: 'src/alpha.ts', // string, not an array — malformed
+    };
+
+    const lines = [JSON.stringify(goodFinding), JSON.stringify(missingKind), JSON.stringify(stringEvidence)];
+    fs.writeFileSync(path.join(runDir, 'findings.jsonl'), lines.join('\n') + '\n');
+
+    const findings = readFindings(runId, config, projectRoot);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.finding_id).toBe('DMP_t1_000_0');
+  });
+});
+
+describe('SEC-008 — ingest refuses a symlinked result file', () => {
+  it('rejects a symlinked *.result.json with path_escape instead of parsing it', () => {
+    const runId = generateRunId();
+    const packet = makePacket({ packet_id: 'DMP_t1_000', run_id: runId, tier: 1, component_ids: ['COMP_alpha'] });
+    writePacket(packet, config, projectRoot);
+
+    const resultPath = resultPathFor(runId, packet.packet_id, config, projectRoot);
+    if (!resultPath) throw new Error('could not resolve result path');
+    fs.mkdirSync(path.dirname(resultPath), { recursive: true });
+
+    // Target lives entirely outside the run's packets directory, but even a
+    // symlink pointing INSIDE it must be rejected — the fix rejects on
+    // symlink-ness, not on where the link points.
+    const outsideTarget = path.join(projectRoot, 'outside-result.json');
+    fs.writeFileSync(outsideTarget, JSON.stringify({ findings: [validFinding()] }));
+    fs.symlinkSync(outsideTarget, resultPath);
+
+    const { report, findings } = ingestRun({
+      runId,
+      knownComponentIds,
+      knownFilePaths,
+      config,
+      projectRoot,
+      persist: false,
+    });
+
+    expect(findings).toHaveLength(0);
+    const escapeRejections = report.rejections.filter((r) => r.reason === 'path_escape');
+    expect(escapeRejections).toHaveLength(1);
+    expect(escapeRejections[0]?.packet_id).toBe(packet.packet_id);
+  });
+});
+
+describe('SEC-007 — glob complexity cap', () => {
+  it('throws on a pattern with more than 4 `**` segments', () => {
+    const evilPattern = Array.from({ length: 6 }, (_, i) => `seg${i}`).join('/**/');
+    expect(() => globToRegExp(evilPattern)).toThrow(/\*\*/);
+  });
+
+  it('still compiles and matches a normal exclude pattern', () => {
+    const re = globToRegExp('web/runtime/**');
+    expect(re.test('web/runtime/packages/semver/index.js')).toBe(true);
+    expect(re.test('web/other/index.js')).toBe(false);
+  });
+});
+
+describe('schema bounds that had no test until an audit mutated them', () => {
+  it('rejects a finding whose kind is not one of the six', () => {
+    // Mutating this guard to `if (false)` previously left the whole suite
+    // green, so the enum was enforced in code and unverified in test.
+    const result = validateResultPayload(
+      { findings: [validFinding({ kind: 'arbitrary-kind' })] },
+      { packet_id: 'DMP_t1_000', tier: 1, run_id: 'DM_run', component_ids: ['COMP_alpha'] },
+      { knownComponentIds, knownFilePaths }
+    );
+    expect(result.findings).toHaveLength(0);
+    expect(result.rejections).toHaveLength(1);
+    expect(result.rejections[0]?.reason).toBe('schema_violation');
+  });
+
+  it('keeps only the first evidencePerFinding entries', () => {
+    const tooMany = Array.from(
+      { length: DEEP_MAP_LIMITS.evidencePerFinding + 4 },
+      () => 'src/alpha.ts'
+    );
+    const result = validateResultPayload(
+      { findings: [validFinding({ evidence: tooMany })] },
+      { packet_id: 'DMP_t1_000', tier: 1, run_id: 'DM_run', component_ids: ['COMP_alpha'] },
+      { knownComponentIds, knownFilePaths }
+    );
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]!.evidence).toHaveLength(DEEP_MAP_LIMITS.evidencePerFinding);
   });
 });

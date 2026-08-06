@@ -119,21 +119,29 @@ export const DEGREE_DERIVED_RULE_IDS: readonly string[] = [
   'orphan-component', // degree == 0
 ];
 
-/** Normalized 0..1 contributions. Keys double as the published weight keys. */
+/**
+ * Normalized 0..1 contributions. Keys double as the published weight keys.
+ *
+ * There is no `size` signal. One was designed and carried a 0.15 weight until
+ * measurement killed it: in NavGator's model an internal component IS a file,
+ * so every component maps to exactly one path — 451 of 451 on this repo, and
+ * the same 1:1 shape in every other scanned repo checked. A percentile over a
+ * constant is zero for everyone, so that weight could never fire. Publishing a
+ * weight that cannot fire is exactly the fiction the degree-exclusion rule
+ * above exists to prevent, so it was removed rather than left in as decoration.
+ */
 export interface EscalationSignals {
   centrality: number;
   bridge: number;
   violations: number;
   llm_density: number;
-  size: number;
 }
 
 export const ESCALATION_WEIGHTS: EscalationSignals = {
-  centrality: 0.3,
-  bridge: 0.2,
-  violations: 0.25,
+  centrality: 0.35,
+  bridge: 0.25,
+  violations: 0.3,
   llm_density: 0.1,
-  size: 0.15,
 };
 
 /** The numbers behind each signal, so an escalation is falsifiable. */
@@ -144,8 +152,8 @@ export interface EscalationRaw {
   total_edges: number;
   structural_violations: string[];
   llm_calls: number;
+  /** Files attributed to the component. Reported, not scored — see EscalationSignals. */
   file_count: number;
-  file_count_percentile: number;
 }
 
 export interface EscalationScore {
@@ -168,6 +176,17 @@ export interface EscalationResult {
   degree_derived_rules_excluded: readonly string[];
   /** Violations whose component name matched no component, so nothing is dropped silently. */
   unresolved_violations: number;
+  /**
+   * How many components each surviving rule contributed a violation to.
+   *
+   * Without this the `violations` signal can quietly collapse to a single rule
+   * and nobody sees it. On NavGator's own graph `transitively-dead` fires on
+   * ~94% of components — which says the entry-point detection is wrong for a
+   * CLI package, not that the code is dead — while `layer-violation` fires
+   * once. A signal that is nearly constant is not measuring anything, and the
+   * histogram is what makes that visible in the manifest instead of buried.
+   */
+  violation_rule_histogram: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,12 +204,20 @@ export interface DeepMapPacketComponent {
 
 export interface DeepMapProvenance {
   project_path: string;
-  origin: 'local' | 'remote';
+  /**
+   * `unknown` is the fail-safe answer: it is what `resolveProvenance` returns
+   * when the project registry could not be read, and callers must treat it
+   * the same as `remote` for trust purposes — a read failure is never grounds
+   * to suppress the untrusted-source warning.
+   */
+  origin: 'local' | 'remote' | 'unknown';
   origin_url?: string;
   /**
-   * True when the scanned repo was fetched from a remote. Component names, file
-   * paths, and prompt strings then originate with the remote author, so the
-   * packet prompt carries the untrusted-source warning `scan-remote` uses.
+   * True when the scanned repo was fetched from a remote, or when provenance
+   * could not be determined at all. Component names, file paths, and prompt
+   * strings then originate with the remote author (or are of unverified
+   * origin), so the packet prompt carries the untrusted-source warning
+   * `scan-remote` uses.
    */
   untrusted: boolean;
 }

@@ -2,11 +2,13 @@
  * Which components are worth an LLM pass.
  *
  * Restricting to `type === 'component'` is not enough. Measured on NavGator
- * itself: 437 of 507 components are internal by that test, but 72 of those 437
- * are vendored third-party JavaScript checked into `web/runtime/` by a build
- * script — an entire 46-node Louvain community is the npm `semver` package.
- * Left in, ~16% of the tier-1 budget would pay an agent to describe code the
- * project did not write.
+ * itself at one point in time (the `.navgator/` store is gitignored and moves
+ * with the repo, so treat the figures as illustrative): most components are
+ * internal by that test, but roughly 70 of them are vendored third-party
+ * JavaScript checked into `web/runtime/` by a build script — an entire Louvain
+ * community of ~46 nodes is the npm `semver` package. Left in, about a sixth of
+ * the tier-1 budget would pay an agent to describe code the project did not
+ * write.
  *
  * There is no path heuristic that catches that case generally. The unambiguous
  * vendor directory names (`node_modules`, `vendor`, `Pods`, …) do not appear in
@@ -15,8 +17,9 @@
  * does three separate things instead of pretending one rule suffices:
  *
  *   1. Excludes the unambiguous vendor directories by default.
- *   2. Accepts explicit `--exclude` globs (also persistable in NavGator config),
- *      which is how a project excludes its own generated tree.
+ *   2. Accepts explicit `--exclude` globs (the CLI flag is the only source —
+ *      there is no persisted config key for this today), which is how a
+ *      project excludes its own generated tree.
  *   3. Flags what it could not decide: a component sitting under a container
  *      directory whose child name matches a scanned external package is marked
  *      `suspect_vendored` and counted in the manifest, so paying to describe
@@ -90,21 +93,60 @@ export function componentPaths(component: ArchitectureComponent): string[] {
   return component.source?.config_files ?? [];
 }
 
+/** Keeps a rejected pattern out of a wall of error text without hiding it entirely. */
+function truncateForError(pattern: string): string {
+  return pattern.length > 80 ? `${pattern.slice(0, 80)}…` : pattern;
+}
+
+/** Hard caps on pattern shape — see `globToRegExp` for why. */
+const GLOB_MAX_PATTERN_LENGTH = 400;
+const GLOB_MAX_DOUBLE_STAR_SEGMENTS = 4;
+
 /**
  * Minimal glob: `*` matches within a path segment, `**` matches across
  * segments, `?` matches one character. Enough for exclusion patterns and small
- * enough to reason about — no dependency, no catastrophic backtracking, since
- * the only quantifiers emitted are `[^/]*` and `.*`.
+ * enough to reason about — no dependency.
+ *
+ * Each `**` compiles to a `.*` quantifier. A single one is cheap, but several
+ * `**` segments separated by literals compose into polynomial-time
+ * backtracking on a crafted input (classic ReDoS shape: `.*a.*a.*a.*a`
+ * against a string with no `a`). Patterns are caller-supplied (`--exclude`),
+ * so the cap is enforced here rather than trusted to the caller: a pattern
+ * over `GLOB_MAX_PATTERN_LENGTH` chars or with more than
+ * `GLOB_MAX_DOUBLE_STAR_SEGMENTS` `**` segments throws before compiling,
+ * surfacing as a CLI usage error instead of a hang.
  */
 export function globToRegExp(pattern: string): RegExp {
+  if (pattern.length > GLOB_MAX_PATTERN_LENGTH) {
+    throw new Error(
+      `--exclude pattern is ${pattern.length} chars, over the ${GLOB_MAX_PATTERN_LENGTH}-char cap: ${JSON.stringify(
+        truncateForError(pattern)
+      )}`
+    );
+  }
+  const doubleStarCount = (pattern.match(/\*\*/g) ?? []).length;
+  if (doubleStarCount > GLOB_MAX_DOUBLE_STAR_SEGMENTS) {
+    throw new Error(
+      `--exclude pattern has ${doubleStarCount} '**' segments, over the ${GLOB_MAX_DOUBLE_STAR_SEGMENTS}-segment cap: ${JSON.stringify(
+        truncateForError(pattern)
+      )}`
+    );
+  }
   let out = '';
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
     if (ch === '*') {
       if (pattern[i + 1] === '*') {
-        out += '.*';
         i++;
-        if (pattern[i + 1] === '/') i++;
+        if (pattern[i + 1] === '/') {
+          // `**/` means "zero or more whole directories". Emitting a bare `.*`
+          // and swallowing the slash loses the boundary, so `**/test` compiled
+          // to `^.*test$` and matched `mytest` — a silent false exclusion.
+          out += '(?:.*/)?';
+          i++;
+        } else {
+          out += '.*';
+        }
       } else {
         out += '[^/]*';
       }
