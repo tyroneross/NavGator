@@ -1,67 +1,60 @@
-# Goal + acceptance criteria — portfolio / remote / git-aware scanning
+# Goal — deep-map: tiered escalation mapping
 
-> Supersedes the 0.9.1 release-gate goal (that run closed; see docs/HANDOFF-0.9.1.md).
+<!-- run_id: bl-navgator-20260805-deep-map -->
 
-## Goal
+> Supersedes the gator-memory goal (archived at
+> `.build-loop/plans/2026-08-03-gator-memory-CLOSED.md`).
 
-Ship six work items into NavGator 0.9.1 locally, preserving every 0.9.1 contract
-and the green 567-test / 0-error-typecheck baseline.
+Add a tiered repo-mapping pipeline on top of NavGator's deterministic scan:
+wide cheap pass over isolated component groups → selective deep pass over
+escalated components → one frontier-tier synthesis that hunts inefficiencies.
+NavGator owns the deterministic harness (partitioning, prompt construction,
+schema validation, attribution, cost accounting); the calling agent owns every
+LLM call.
 
-## Acceptance criteria (scored at Review-G)
+## Success criteria
 
-1. **Portfolio scanning works end to end.** `navgator portfolio scan <dir>`
-   discovers git repos under `<dir>`, scans each through the existing `scan()`
-   pipeline under its own lease, registers each in `~/.navgator/projects.json`
-   via `registerProject()`, and emits a cross-repo map with shared dependencies,
-   candidate cross-repo service calls, and portfolio-level status.
-   *Falsifier:* a second project registry file appears, or a repo is scanned
-   without acquiring its lease.
+1. **G1 — Deterministic tier 0 stays the only source of truth for what exists.**
+   No LLM SDK enters `dependencies`. No ingested finding can create, rename, or
+   connect a component. Every finding referencing an unknown `component_id` is
+   rejected and counted. Verified by: a hallucination probe test that feeds a
+   fabricated component id and asserts rejection, shown failing with the guard
+   disabled.
 
-2. **Remote scanning works end to end.** `navgator scan-remote <github-url>`
-   shallow-clones to a cache dir, runs the existing pipeline, reports, and
-   registers. URL parsing rejects non-GitHub and shell-metacharacter input; git
-   is invoked with argv arrays, never a shell string.
-   *Falsifier:* any code path passes a URL into a shell, or the clone runs
-   without validation.
+2. **G2 — The graph is valid with the LLM layer absent.** Deleting
+   `.navgator/deep-map/` leaves every existing command working, and
+   `deep-map report` returns `NO_DATA` (exit 2) rather than an error. Findings
+   are never merged into `components.full.jsonl`, `connections.full.jsonl`, or
+   `graph.json`. Verified by: a test that asserts byte-identical canonical
+   records before and after a full plan → ingest → report cycle.
 
-3. **Git-aware storage + pre-merge diff.** A canonical main-branch graph and a
-   branch/worktree delta coexist without either clobbering the other, and a
-   pre-merge architecture diff reports component/connection deltas between the
-   current branch and canonical main.
-   *Falsifier:* scanning on a feature branch overwrites the canonical main graph.
+3. **G3 — Partitioning and escalation are deterministic and explainable.** The
+   same graph produces the same packets and the same escalation set on repeat
+   runs, and every escalated component carries the raw signal values that
+   escalated it. Verified by: a repeat-run equality test over packet ids and a
+   test asserting each escalation reason cites its numeric input.
 
-4. **Coverage API reads current storage.** `web/app/api/coverage/route.ts` reads
-   `.navgator/architecture/{components.full.jsonl, connections.full.jsonl,
-   file_map.json}` (wrapped shape) through the shared web loader and returns a
-   `CoverageApiResponse` whose numbers match `src/coverage.ts` semantics on the
-   same input.
-   *Falsifier:* any remaining reference to `.claude/architecture`.
+4. **G4 — Cost is capped and reported, and nothing escalates silently.** Tier 1
+   is capped at `--max-packets` (default 12), tier 2 at `--max-deep` (default 4),
+   tier 2 and 3 require an explicit `--tier` flag, and the manifest reports
+   estimated input tokens per packet and in total. Verified by: a cap-enforcement
+   test on a graph that exceeds both caps, shown failing with the cap removed.
 
-5. **FoundationModels use cases detected.** A Swift file with
-   `import FoundationModels` + a `@Generable` type, a `LanguageModelSession(...)`
-   construction, or a `.respond(...)` call registers an LLM use case tagged
-   `provider: apple-on-device`, `kind: foundation-models`, surfacing the
-   `@Generable` schema name as the structured-output contract.
-   *Falsifier:* a fixture with those shapes yields zero LLM use cases.
+5. **G5 — Ingested LLM output is treated as data, never as instruction.**
+   Strict schema validation, bounded string lengths, control-character
+   stripping, no path escape from the run directory, and a remote-origin
+   provenance warning carried into packets and report output. Verified by:
+   malformed/oversized/path-escaping ingest tests.
 
-6. **remaining-gaps triage is evidence-based.** Every gap in
-   `docs/specs/remaining-gaps.md` carries a verified verdict against 0.9.1 code
-   (already-fixed | still-open | superseded), and the still-valid high-priority
-   items (trace `FILE:` pass-through, component naming aliases) are either
-   implemented or shown already-satisfied by a test.
-   *Falsifier:* a gap is marked fixed with no test or code citation.
+6. **G6 — The surface is wired end to end.** `navgator deep-map
+   plan|ingest|report|status` follows the existing `--json`/`--agent` envelope
+   and exit-code contract; a `/navgator:deep-map` command tells the host agent
+   how to fan out. Verified by: CLI exit-code tests plus a real demo run on this
+   repo with measured cost.
 
-## Global gates (all must hold)
+## Non-goals
 
-- `npx vitest run` — 567 baseline tests still pass, plus new tests.
-- `npm run typecheck` — exit 0 across root, tests, and web.
-- Dual-host manifests and the counts quoted in README.md / CLAUDE.md are updated
-  together if any command or MCP tool is added.
-- No push, no tag, no publish. Local commits on `main` only.
-
-## Synthesis dimensions
-
-scan-lease concurrency · storage layout (canonical vs delta) · cross-repo
-identity inference · CLI + MCP + dual-host manifest surface · Swift scanner
-heuristics · web dashboard data contract · git worktree/branch semantics
-= **7 → thinking-tier routing for plan synthesis and verification verdicts.**
+- Adding Python (or any other language) code-structure scanning. Assessed and
+  deferred — see the plan's "multiple python scripts" section.
+- Embedding, bundling, or shelling out to any LLM runtime.
+- Re-wiring MCP. Re-pinning plugin manifest versions. Tagging or publishing.
