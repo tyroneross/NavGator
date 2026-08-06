@@ -28,7 +28,7 @@ export async function buildReviewReport(opts = {}) {
     if (components.length === 0) {
         return { error: "No architecture data. Run the scan tool first." };
     }
-    const violations = checkRules(components, connections);
+    const violations = checkRules(components, connections, undefined, projectRoot);
     let focus;
     if (opts.component) {
         const component = resolveComponent(opts.component, components);

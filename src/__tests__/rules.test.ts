@@ -434,6 +434,24 @@ describe('Architecture Rules', () => {
       ]);
     });
 
+    it('forwards the project root through checkRules, not just the rule closure', () => {
+      // The fix is worthless on any surface that knows the project root but
+      // does not pass it — `review`, the MCP rules tool, and the agent
+      // executive summary all scan a project that need not be the process cwd.
+      // This pins the parameter, so wiring one of them back to cwd fails here.
+      const { components, connections } = cliGraph();
+
+      const withRoot = checkRules(components, connections, undefined, root)
+        .filter(v => v.rule_id === 'transitively-dead')
+        .map(v => v.component);
+      const withoutRoot = checkRules(components, connections, undefined, noManifest)
+        .filter(v => v.rule_id === 'transitively-dead')
+        .map(v => v.component);
+
+      expect(withRoot).toEqual(['abandoned']);
+      expect(withoutRoot.length).toBeGreaterThan(withRoot.length);
+    });
+
     it('does not report a declared dependency as dead code', () => {
       // `next` is detected out of a package.json, so it is a dependency record,
       // not source anybody can delete. It is also a graph sink, so reachability

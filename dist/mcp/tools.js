@@ -664,7 +664,7 @@ async function handleRules() {
     if (components.length === 0) {
         return textResponse("No architecture data. Run the scan tool first.");
     }
-    const violations = checkRules(components, connections);
+    const violations = checkRules(components, connections, undefined, projectRoot);
     if (violations.length === 0) {
         return textResponse("All architecture rules passed. No violations detected.");
     }

@@ -62,7 +62,7 @@ export async function buildReviewReport(
     return { error: "No architecture data. Run the scan tool first." };
   }
 
-  const violations = checkRules(components, connections);
+  const violations = checkRules(components, connections, undefined, projectRoot);
 
   let focus: ReviewFocusSummary | undefined;
   if (opts.component) {

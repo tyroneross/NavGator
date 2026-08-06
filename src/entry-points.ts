@@ -136,6 +136,9 @@ const SCRIPT_PATH_TOKEN = /^[A-Za-z0-9_.@][A-Za-z0-9_.@/-]*\.[cm]?[jt]sx?$/;
 /** Cap on manifests read, so a repo full of packages cannot turn this into a walk. */
 const MAX_MANIFESTS = 32;
 
+/** Nesting cap on the `exports` condition map. */
+const EXPORTS_MAX_DEPTH = 8;
+
 /** Every file path a component claims, normalised to project-relative POSIX form. */
 export function entryCandidatePaths(
   component: ArchitectureComponent,
@@ -199,17 +202,21 @@ export function declaredEntryPaths(manifest: unknown, dir = ''): DeclaredPath[] 
       add(value, 'package-entry');
     }
   }
-  const walkExports = (node: unknown): void => {
+  // Depth-capped: `exports` is arbitrary nested JSON from a file this code did
+  // not write, and an unbounded walk over it is a stack-overflow surface for no
+  // benefit — real condition maps are two or three levels deep.
+  const walkExports = (node: unknown, depth: number): void => {
+    if (depth > EXPORTS_MAX_DEPTH) return;
     if (typeof node === 'string') add(node, 'package-entry');
     else if (node && typeof node === 'object') {
       for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
         // `types` points at a .d.ts; it declares no runtime entry.
         if (key === 'types') continue;
-        walkExports(value);
+        walkExports(value, depth + 1);
       }
     }
   };
-  walkExports(pkg['exports']);
+  walkExports(pkg['exports'], 0);
 
   // Every file the project's own tooling runs. `npm run mcp` -> `node
   // dist/mcp/server.js` is the only declaration that `src/mcp/server.ts` is an

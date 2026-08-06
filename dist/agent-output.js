@@ -56,7 +56,10 @@ export function wrapInEnvelope(command, data, metadata) {
  * Uses compact component/connection forms for token efficiency.
  */
 export function buildExecutiveSummary(components, connections, projectPath, git) {
-    const violations = sortRuleViolations(checkRules(components, connections));
+    // `projectPath` is passed so reachability resolves entry points against the
+    // scanned project's manifests rather than whatever directory the process
+    // happens to be in.
+    const violations = sortRuleViolations(checkRules(components, connections, undefined, projectPath));
     const architectureRisks = violations
         .filter((violation) => violation.severity === 'error' && violation.rule_id !== 'vulnerable-dependency')
         .map((violation) => ({
