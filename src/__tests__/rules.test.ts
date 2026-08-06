@@ -6,12 +6,14 @@ import {
   getBuiltinRules,
   checkRules,
   countComponentsPerRule,
+  describeReachability,
   detectRuleDegeneracy,
   formatRulesOutput,
   RULE_DEGENERACY_MIN_POPULATION,
   ArchitectureRule,
   RuleViolation,
 } from '../rules.js';
+import { formatReachabilityWarnings } from '../cli/commands/rules.js';
 import { createComponent, createConnection } from './helpers.js';
 
 describe('Architecture Rules', () => {
@@ -494,6 +496,84 @@ describe('Architecture Rules', () => {
     });
   });
 
+  describe('reachability diagnostics', () => {
+    let root: string;
+
+    beforeAll(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-diag-'));
+      fs.writeFileSync(
+        path.join(root, 'package.json'),
+        JSON.stringify({ name: 'fixture', bin: { fixture: 'dist/cli/index.js' } })
+      );
+    });
+
+    afterAll(() => {
+      fs.rmSync(root, { recursive: true, force: true });
+    });
+
+    it('reports which manifests were read and where the roots came from', () => {
+      const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+      const svc = createComponent({ name: 'svc', type: 'component', file: 'src/svc.ts' });
+      const d = describeReachability(
+        [cli, svc],
+        [createConnection(cli, svc, { connection_type: 'imports' })],
+        root
+      );
+
+      expect(d.manifests).toEqual(['package.json']);
+      expect(d.entry_points['package-entry']).toBe(1);
+      expect(d.reachable).toBe(2);
+      expect(d.considered).toBe(0);
+    });
+
+    it('says so when no manifest was found, which is what a wrong root looks like', () => {
+      // The failure this exists to make visible: the fix silently reverts to
+      // pre-fix noise when analysis runs against the wrong directory, and the
+      // violation list alone cannot distinguish that from a real result.
+      const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-diag-bare-'));
+      try {
+        const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+        const svc = createComponent({ name: 'svc', type: 'component', file: 'src/svc.ts' });
+        const sdk = createComponent({ name: 'openai', type: 'service', layer: 'external', file: 'package.json' });
+        const d = describeReachability(
+          [cli, svc, sdk],
+          [
+            createConnection(cli, svc, { connection_type: 'imports' }),
+            createConnection(svc, sdk, { connection_type: 'uses-package' }),
+          ],
+          bare
+        );
+
+        expect(d.manifests).toEqual([]);
+        expect(d.considered).toBeGreaterThan(0);
+        expect(formatReachabilityWarnings(d).join(' ')).toContain('NO PACKAGE MANIFEST FOUND');
+      } finally {
+        fs.rmSync(bare, { recursive: true, force: true });
+      }
+    });
+
+    it('counts the vendored components it skipped instead of dropping them silently', () => {
+      // `underPackageContainer` also skips a first-party `packages/<name>/`
+      // workspace whose name collides with a dependency. That trade is
+      // acceptable; making it invisible is not.
+      const cli = createComponent({ name: 'cli', type: 'component', file: 'src/cli/index.ts' });
+      const dep = createComponent({ name: 'debug', type: 'npm' });
+      const workspace = createComponent({
+        name: 'packages/debug/src/index',
+        type: 'component',
+        file: 'packages/debug/src/index.ts',
+      });
+      const d = describeReachability(
+        [cli, dep, workspace],
+        [createConnection(workspace, dep, { connection_type: 'uses-package' })],
+        root
+      );
+
+      expect(d.suppressed.vendored).toBe(1);
+      expect(formatReachabilityWarnings(d).join(' ')).toContain('skipped as vendored');
+    });
+  });
+
   describe('detectRuleDegeneracy', () => {
     it('flags a rule that fires on most of the codebase', () => {
       // The measured shape of the defect: 425 of 451 components, one rule.
@@ -519,10 +599,18 @@ describe('Architecture Rules', () => {
       expect(report.warnings).toEqual([]);
     });
 
-    it('refuses to call a tiny population degenerate', () => {
-      const population = RULE_DEGENERACY_MIN_POPULATION - 1;
-      const report = detectRuleDegeneracy({ 'some-rule': population }, population);
-      expect(report.degenerate).toEqual([]);
+    it('refuses to call a tiny population degenerate, with the boundary pinned', () => {
+      // Literals, not `RULE_DEGENERACY_MIN_POPULATION - 1`. An audit mutated the
+      // constant from 20 to 0 — a real behaviour change, since a 3-of-4
+      // population then withholds its rule from escalation — and the entire
+      // suite's pass/fail tally was byte-identical, because the only test of the
+      // guard defined its own population from the constant it was pinning.
+      expect(detectRuleDegeneracy({ 'some-rule': 19 }, 19).degenerate).toEqual([]);
+      expect(detectRuleDegeneracy({ 'some-rule': 3 }, 4).degenerate).toEqual([]);
+      expect(
+        detectRuleDegeneracy({ 'some-rule': 20 }, 20).degenerate.map(d => d.rule_id)
+      ).toEqual(['some-rule']);
+      expect(RULE_DEGENERACY_MIN_POPULATION).toBe(20);
     });
 
     it('counts distinct components, so one noisy component is not prevalence', () => {

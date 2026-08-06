@@ -182,9 +182,11 @@ export interface EscalationResult {
    *
    * Without this the `violations` signal can quietly collapse to a single rule
    * and nobody sees it. That is not hypothetical: `transitively-dead` fired on
-   * 425 of NavGator's own 451 project components (~94%) because its entry-point
-   * detection had no notion of an npm package's `bin`/`main`/`exports`, so
-   * almost everything read as unreachable. A signal that is nearly constant is
+   * 425 violations across 423 of NavGator's own 451 project components (~94%)
+   * because its entry-point detection had no notion of an npm package's
+   * `bin`/`main`/`exports`, so almost everything read as unreachable. The share
+   * this gate divides by is the distinct-component count, 423, not the violation
+   * count. A signal that is nearly constant is
    * not measuring anything, and the histogram is what makes that visible in the
    * manifest instead of buried.
    *

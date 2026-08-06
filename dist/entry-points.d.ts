@@ -20,11 +20,27 @@
  * (Next.js `app/` and `pages/` routes) are entry points by definition. Tests and
  * config files are roots for the same structural reason: nothing imports them.
  *
- * **The bias is deliberate and one-directional.** A missed entry point poisons
- * an entire subtree — every transitive dependency of the real front door is
- * reported dead, which is exactly the failure above. A spurious entry point
- * costs at most one missed dead component. So when a signal is ambiguous this
- * module admits it as a root.
+ * **Both kinds of error are unbounded, and they are not symmetric.** A root
+ * seeds a BFS, so getting one wrong moves a whole transitive closure, in either
+ * direction:
+ *
+ *   - A MISSED root reports its entire subtree as dead. That is the failure
+ *     above: 425 findings, all noise, and the rule reads as broken.
+ *   - A SPURIOUS root silently suppresses its entire subtree. Measured on a
+ *     constructed graph: one stale migration script moved from `src/` into
+ *     `bin/` took 7 findings to 0.
+ *
+ * An earlier version of this comment claimed a spurious root "costs at most one
+ * missed dead component" and used that to justify admitting broad conventions.
+ * That was wrong, and the conventions have since been narrowed on the corrected
+ * basis — `hooks/` and `tools/` were dropped for colliding with library
+ * directories, and the Next.js router patterns were anchored to an app root.
+ *
+ * The remaining tie-break still favours admitting a root, because a missed root
+ * produces visible noise a reader will investigate while a spurious one produces
+ * silence nobody notices. That is a reason to keep the root set AUDITABLE, which
+ * is what `EntryPointResult.counts` and `.manifests` are for, not a licence to
+ * admit anything ambiguous.
  *
  * Detection is pure with respect to the graph, except for reading `package.json`
  * files under the project root. No network, no child processes.
@@ -41,6 +57,12 @@ export interface EntryPointResult {
     counts: Partial<Record<EntryPointSource, number>>;
     /** package.json files actually read. */
     manifests: string[];
+    /**
+     * Manifests that existed but could not be read or parsed. Reported because an
+     * unreadable manifest shrinks the root set back toward the pre-fix failure,
+     * and a shrunken root set is otherwise invisible.
+     */
+    manifest_errors: string[];
     /** Declared paths pulled out of those manifests, before resolution. */
     declared: string[];
 }

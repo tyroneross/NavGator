@@ -20,11 +20,27 @@
  * (Next.js `app/` and `pages/` routes) are entry points by definition. Tests and
  * config files are roots for the same structural reason: nothing imports them.
  *
- * **The bias is deliberate and one-directional.** A missed entry point poisons
- * an entire subtree — every transitive dependency of the real front door is
- * reported dead, which is exactly the failure above. A spurious entry point
- * costs at most one missed dead component. So when a signal is ambiguous this
- * module admits it as a root.
+ * **Both kinds of error are unbounded, and they are not symmetric.** A root
+ * seeds a BFS, so getting one wrong moves a whole transitive closure, in either
+ * direction:
+ *
+ *   - A MISSED root reports its entire subtree as dead. That is the failure
+ *     above: 425 findings, all noise, and the rule reads as broken.
+ *   - A SPURIOUS root silently suppresses its entire subtree. Measured on a
+ *     constructed graph: one stale migration script moved from `src/` into
+ *     `bin/` took 7 findings to 0.
+ *
+ * An earlier version of this comment claimed a spurious root "costs at most one
+ * missed dead component" and used that to justify admitting broad conventions.
+ * That was wrong, and the conventions have since been narrowed on the corrected
+ * basis — `hooks/` and `tools/` were dropped for colliding with library
+ * directories, and the Next.js router patterns were anchored to an app root.
+ *
+ * The remaining tie-break still favours admitting a root, because a missed root
+ * produces visible noise a reader will investigate while a spurious one produces
+ * silence nobody notices. That is a reason to keep the root set AUDITABLE, which
+ * is what `EntryPointResult.counts` and `.manifests` are for, not a licence to
+ * admit anything ambiguous.
  *
  * Detection is pure with respect to the graph, except for reading `package.json`
  * files under the project root. No network, no child processes.
@@ -57,6 +73,12 @@ export interface EntryPointResult {
   counts: Partial<Record<EntryPointSource, number>>;
   /** package.json files actually read. */
   manifests: string[];
+  /**
+   * Manifests that existed but could not be read or parsed. Reported because an
+   * unreadable manifest shrinks the root set back toward the pre-fix failure,
+   * and a shrunken root set is otherwise invisible.
+   */
+  manifest_errors: string[];
   /** Declared paths pulled out of those manifests, before resolution. */
   declared: string[];
 }
@@ -303,16 +325,43 @@ function manifestDirs(components: ArchitectureComponent[], projectRoot: string):
   return [...dirs];
 }
 
-function readManifest(projectRoot: string, dir: string): unknown {
+/**
+ * Read one manifest, refusing to leave the project root.
+ *
+ * Containment is checked against REAL paths, not lexical ones. A lexical prefix
+ * compare passes a symlink inside the root that points outside it, so the
+ * "anything that escapes is dropped" guarantee above would have been false for
+ * exactly the case a repo is most likely to contain — a convenience link to a
+ * sibling checkout.
+ *
+ * `absent` and `unreadable` are distinct results. An absent manifest is the
+ * normal case for most directories; an unreadable or malformed one silently
+ * shrinks the root set back toward the pre-fix failure, so it is counted and
+ * reported rather than swallowed.
+ */
+function readManifest(
+  projectRoot: string,
+  dir: string
+): { status: 'ok'; manifest: unknown } | { status: 'absent' } | { status: 'unreadable' } {
   const manifestPath = path.resolve(projectRoot, dir, 'package.json');
-  const rootResolved = path.resolve(projectRoot);
-  if (manifestPath !== rootResolved && !manifestPath.startsWith(`${rootResolved}${path.sep}`)) {
-    return null;
-  }
+  if (!fs.existsSync(manifestPath)) return { status: 'absent' };
+
+  let realManifest: string;
+  let realRoot: string;
   try {
-    return JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    realManifest = fs.realpathSync(manifestPath);
+    realRoot = fs.realpathSync(path.resolve(projectRoot));
   } catch {
-    return null;
+    return { status: 'unreadable' };
+  }
+  if (realManifest !== realRoot && !realManifest.startsWith(`${realRoot}${path.sep}`)) {
+    return { status: 'absent' };
+  }
+
+  try {
+    return { status: 'ok', manifest: JSON.parse(fs.readFileSync(realManifest, 'utf-8')) };
+  } catch {
+    return { status: 'unreadable' };
   }
 }
 
@@ -328,6 +377,7 @@ export function detectEntryPoints(
   const reasons = new Map<string, EntryPointSource>();
   const declared: string[] = [];
   const manifests: string[] = [];
+  const manifestErrors: string[] = [];
 
   const idsByPath = new Map<string, string[]>();
   for (const component of components) {
@@ -340,10 +390,15 @@ export function detectEntryPoints(
 
   if (!options.skipManifests) {
     for (const dir of manifestDirs(components, projectRoot)) {
-      const manifest = readManifest(projectRoot, dir);
-      if (!manifest) continue;
-      manifests.push(dir ? `${dir}/package.json` : 'package.json');
-      for (const { target, source } of declaredEntryPaths(manifest, dir)) {
+      const read = readManifest(projectRoot, dir);
+      if (read.status === 'absent') continue;
+      const label = dir ? `${dir}/package.json` : 'package.json';
+      if (read.status === 'unreadable') {
+        manifestErrors.push(label);
+        continue;
+      }
+      manifests.push(label);
+      for (const { target, source } of declaredEntryPaths(read.manifest, dir)) {
         declared.push(target);
         for (const candidate of resolveDeclaredTarget(target)) {
           for (const id of idsByPath.get(candidate) ?? []) {
@@ -393,5 +448,12 @@ export function detectEntryPoints(
     counts[source] = (counts[source] ?? 0) + 1;
   }
 
-  return { ids: new Set(reasons.keys()), reasons, counts, manifests, declared };
+  return {
+    ids: new Set(reasons.keys()),
+    reasons,
+    counts,
+    manifests,
+    manifest_errors: manifestErrors,
+    declared,
+  };
 }

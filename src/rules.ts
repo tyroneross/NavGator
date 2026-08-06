@@ -7,7 +7,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ArchitectureComponent, ArchitectureConnection } from './types.js';
 import { detectImportCycles, detectLayerViolations, detectShallowModules, getTopFanOut, getTopHotspots } from './architecture-insights.js';
-import { detectEntryPoints, entryCandidatePaths } from './entry-points.js';
+import {
+  detectEntryPoints,
+  entryCandidatePaths,
+  type EntryPointSource,
+} from './entry-points.js';
 import {
   EXTERNAL_PACKAGE_TYPES,
   hasVendorSegment,
@@ -415,12 +419,73 @@ const DEPENDENCY_MANIFESTS: ReadonlySet<string> = new Set([
  *     unreachable whenever the copy is loaded by a mechanism the import graph
  *     does not carry, and reporting it tells the author nothing they can act on.
  */
+export interface ReachabilityDiagnostics {
+  /** How many roots each entry-point source contributed. */
+  entry_points: Partial<Record<EntryPointSource, number>>;
+  /** Manifests read. Empty here means every declared entry point was missed. */
+  manifests: string[];
+  /** Manifests that existed but could not be parsed. */
+  manifest_errors: string[];
+  /** Components reachable from the roots. */
+  reachable: number;
+  /** Components the rule could have judged. */
+  considered: number;
+  /**
+   * Candidates dropped before judgement, by reason. `vendored` is the one worth
+   * watching: `underPackageContainer` matches a `packages/<name>/` directory
+   * against scanned external package names, so a first-party monorepo workspace
+   * whose name collides with a dependency (`debug`, `chalk`, `semver`) is
+   * excluded. That is a deliberate trade — the alternative reports every
+   * vendored tree as dead — but it must be a visible one.
+   */
+  suppressed: { vendored: number; dependency_manifest: number };
+}
+
+/**
+ * Reachability diagnostics for the current graph, for surfaces that want to know
+ * whether the rule's answer can be trusted.
+ *
+ * Every silent-degradation mode of this rule is a shrunken root set: the wrong
+ * project root, no manifest found, a manifest that would not parse. Each one
+ * reproduces the original 94% failure exactly, and each was invisible until this
+ * existed — which is how a version of the fix that resolved manifests against
+ * the wrong directory shipped and had to be caught by an audit.
+ */
+export function describeReachability(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  projectRoot?: string
+): ReachabilityDiagnostics {
+  return analyzeTransitiveDeadCode(components, connections, projectRoot).diagnostics;
+}
+
 function checkTransitivelyDead(
   components: ArchitectureComponent[],
   connections: ArchitectureConnection[],
   projectRoot?: string
 ): RuleViolation[] {
-  if (components.length === 0) return [];
+  return analyzeTransitiveDeadCode(components, connections, projectRoot).violations;
+}
+
+function emptyDiagnostics(): ReachabilityDiagnostics {
+  return {
+    entry_points: {},
+    manifests: [],
+    manifest_errors: [],
+    reachable: 0,
+    considered: 0,
+    suppressed: { vendored: 0, dependency_manifest: 0 },
+  };
+}
+
+function analyzeTransitiveDeadCode(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  projectRoot?: string
+): { violations: RuleViolation[]; diagnostics: ReachabilityDiagnostics } {
+  if (components.length === 0) {
+    return { violations: [], diagnostics: emptyDiagnostics() };
+  }
 
   // Build directed adjacency in dependency direction. A connection from A to B
   // means A can reach/use B; the inverse does not make A reachable from B.
@@ -437,10 +502,19 @@ function checkTransitivelyDead(
   // so leaving this undefined would silently give the two halves different views
   // of an absolute `config_files` entry.
   const root = projectRoot ?? process.cwd();
-  const entryPoints = detectEntryPoints(components, { projectRoot: root }).ids;
+  const entries = detectEntryPoints(components, { projectRoot: root });
+  const entryPoints = entries.ids;
+  const diagnostics: ReachabilityDiagnostics = {
+    entry_points: entries.counts,
+    manifests: entries.manifests,
+    manifest_errors: entries.manifest_errors,
+    reachable: 0,
+    considered: 0,
+    suppressed: { vendored: 0, dependency_manifest: 0 },
+  };
 
   // If no entry points found, skip (can't determine reachability without roots)
-  if (entryPoints.size === 0) return [];
+  if (entryPoints.size === 0) return { violations: [], diagnostics };
 
   // BFS from all entry points
   const reachable = new Set<string>();
@@ -479,11 +553,14 @@ function checkTransitivelyDead(
     // Skip components that already have no connections (caught by orphan-component)
     if (!connectedIds.has(c.component_id)) continue;
 
+    diagnostics.considered++;
     const paths = entryCandidatePaths(c, root);
     if (paths.length > 0 && paths.every(p => DEPENDENCY_MANIFESTS.has(path.posix.basename(p)))) {
+      diagnostics.suppressed.dependency_manifest++;
       continue;
     }
     if (paths.some(p => hasVendorSegment(p) || underPackageContainer(p, externalNames))) {
+      diagnostics.suppressed.vendored++;
       continue;
     }
 
@@ -496,7 +573,8 @@ function checkTransitivelyDead(
     });
   }
 
-  return violations;
+  diagnostics.reachable = reachable.size;
+  return { violations, diagnostics };
 }
 
 // =============================================================================

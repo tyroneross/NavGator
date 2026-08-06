@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { detectImportCycles, detectLayerViolations, detectShallowModules, getTopFanOut, getTopHotspots } from './architecture-insights.js';
-import { detectEntryPoints, entryCandidatePaths } from './entry-points.js';
+import { detectEntryPoints, entryCandidatePaths, } from './entry-points.js';
 import { EXTERNAL_PACKAGE_TYPES, hasVendorSegment, underPackageContainer, } from './vendor-paths.js';
 /**
  * Get all built-in architecture rules.
@@ -342,26 +342,35 @@ const DEPENDENCY_MANIFESTS = new Set([
     'pom.xml',
 ]);
 /**
- * BFS from entry points through the connection graph. Components unreachable
- * from any entry point are transitively dead.
+ * Reachability diagnostics for the current graph, for surfaces that want to know
+ * whether the rule's answer can be trusted.
  *
- * Roots come from `detectEntryPoints`, which reads the package manifest instead
- * of pattern-matching component names — see that module for why the previous
- * root set reported 94% of NavGator's own project-authored components as dead.
- *
- * Two classes are excluded from candidacy rather than from the traversal, so a
- * finding always names something the author could actually delete:
- *
- *   - **Declared dependencies.** A component detected only from a manifest is a
- *     dependency record. It is also a graph sink, so it is unreachable by
- *     construction.
- *   - **Vendored code.** A checked-in copy of someone else's package is
- *     unreachable whenever the copy is loaded by a mechanism the import graph
- *     does not carry, and reporting it tells the author nothing they can act on.
+ * Every silent-degradation mode of this rule is a shrunken root set: the wrong
+ * project root, no manifest found, a manifest that would not parse. Each one
+ * reproduces the original 94% failure exactly, and each was invisible until this
+ * existed — which is how a version of the fix that resolved manifests against
+ * the wrong directory shipped and had to be caught by an audit.
  */
+export function describeReachability(components, connections, projectRoot) {
+    return analyzeTransitiveDeadCode(components, connections, projectRoot).diagnostics;
+}
 function checkTransitivelyDead(components, connections, projectRoot) {
-    if (components.length === 0)
-        return [];
+    return analyzeTransitiveDeadCode(components, connections, projectRoot).violations;
+}
+function emptyDiagnostics() {
+    return {
+        entry_points: {},
+        manifests: [],
+        manifest_errors: [],
+        reachable: 0,
+        considered: 0,
+        suppressed: { vendored: 0, dependency_manifest: 0 },
+    };
+}
+function analyzeTransitiveDeadCode(components, connections, projectRoot) {
+    if (components.length === 0) {
+        return { violations: [], diagnostics: emptyDiagnostics() };
+    }
     // Build directed adjacency in dependency direction. A connection from A to B
     // means A can reach/use B; the inverse does not make A reachable from B.
     const adj = new Map();
@@ -376,10 +385,19 @@ function checkTransitivelyDead(components, connections, projectRoot) {
     // so leaving this undefined would silently give the two halves different views
     // of an absolute `config_files` entry.
     const root = projectRoot ?? process.cwd();
-    const entryPoints = detectEntryPoints(components, { projectRoot: root }).ids;
+    const entries = detectEntryPoints(components, { projectRoot: root });
+    const entryPoints = entries.ids;
+    const diagnostics = {
+        entry_points: entries.counts,
+        manifests: entries.manifests,
+        manifest_errors: entries.manifest_errors,
+        reachable: 0,
+        considered: 0,
+        suppressed: { vendored: 0, dependency_manifest: 0 },
+    };
     // If no entry points found, skip (can't determine reachability without roots)
     if (entryPoints.size === 0)
-        return [];
+        return { violations: [], diagnostics };
     // BFS from all entry points
     const reachable = new Set();
     const queue = [...entryPoints];
@@ -414,11 +432,14 @@ function checkTransitivelyDead(components, connections, projectRoot) {
         // Skip components that already have no connections (caught by orphan-component)
         if (!connectedIds.has(c.component_id))
             continue;
+        diagnostics.considered++;
         const paths = entryCandidatePaths(c, root);
         if (paths.length > 0 && paths.every(p => DEPENDENCY_MANIFESTS.has(path.posix.basename(p)))) {
+            diagnostics.suppressed.dependency_manifest++;
             continue;
         }
         if (paths.some(p => hasVendorSegment(p) || underPackageContainer(p, externalNames))) {
+            diagnostics.suppressed.vendored++;
             continue;
         }
         violations.push({
@@ -429,7 +450,8 @@ function checkTransitivelyDead(components, connections, projectRoot) {
             suggestion: 'Verify this component is used in an active code path, or remove if obsolete',
         });
     }
-    return violations;
+    diagnostics.reachable = reachable.size;
+    return { violations, diagnostics };
 }
 // =============================================================================
 // RULE DEGENERACY

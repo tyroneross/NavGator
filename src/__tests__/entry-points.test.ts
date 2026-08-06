@@ -288,6 +288,46 @@ describe('detectEntryPoints', () => {
     expect(result.manifests).toEqual(['package.json']);
   });
 
+  it('refuses to follow a symlink out of the project root', () => {
+    // The containment check used to be lexical, so `path.resolve` produced a
+    // path that passed a prefix compare while the real file sat outside the
+    // root. `origin_root` comes from scan data, so this is reachable input.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-outside-'));
+    const inside = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-inside-'));
+    try {
+      fs.writeFileSync(
+        path.join(outside, 'package.json'),
+        JSON.stringify({ main: 'pwned.js' })
+      );
+      fs.writeFileSync(path.join(inside, 'package.json'), JSON.stringify({ main: 'ok.js' }));
+      fs.symlinkSync(outside, path.join(inside, 'escape'));
+
+      const c = comp('thing', 'src/thing.ts');
+      c.metadata = { origin_root: 'escape' };
+      const result = detectEntryPoints([c], { projectRoot: inside });
+
+      expect(result.manifests).toEqual(['package.json']);
+      expect(result.declared).not.toContain('escape/pwned.js');
+      expect(result.declared.some(d => d.includes('pwned'))).toBe(false);
+    } finally {
+      fs.rmSync(inside, { recursive: true, force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an unparseable manifest instead of silently narrowing the root set', () => {
+    const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-broken-'));
+    try {
+      fs.writeFileSync(path.join(broken, 'package.json'), '{ this is not json');
+      const result = detectEntryPoints([comp('thing', 'src/thing.ts')], { projectRoot: broken });
+
+      expect(result.manifest_errors).toEqual(['package.json']);
+      expect(result.manifests).toEqual([]);
+    } finally {
+      fs.rmSync(broken, { recursive: true, force: true });
+    }
+  });
+
   it('survives a project root with no manifest at all', () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-entry-empty-'));
     try {
