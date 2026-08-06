@@ -432,7 +432,12 @@ function checkTransitivelyDead(
     adj.get(conn.from.component_id)?.add(conn.to.component_id);
   }
 
-  const entryPoints = detectEntryPoints(components, { projectRoot }).ids;
+  // Resolved once so root detection and the candidacy filter below normalise
+  // paths against the same base. `detectEntryPoints` defaults to cwd on its own,
+  // so leaving this undefined would silently give the two halves different views
+  // of an absolute `config_files` entry.
+  const root = projectRoot ?? process.cwd();
+  const entryPoints = detectEntryPoints(components, { projectRoot: root }).ids;
 
   // If no entry points found, skip (can't determine reachability without roots)
   if (entryPoints.size === 0) return [];
@@ -474,7 +479,7 @@ function checkTransitivelyDead(
     // Skip components that already have no connections (caught by orphan-component)
     if (!connectedIds.has(c.component_id)) continue;
 
-    const paths = entryCandidatePaths(c, projectRoot);
+    const paths = entryCandidatePaths(c, root);
     if (paths.length > 0 && paths.every(p => DEPENDENCY_MANIFESTS.has(path.posix.basename(p)))) {
       continue;
     }
