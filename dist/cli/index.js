@@ -31,6 +31,7 @@ import { registerPortfolioCommand } from './commands/portfolio.js';
 import { registerScanRemoteCommand } from './commands/remote.js';
 import { registerArchDiffCommand } from './commands/arch-diff.js';
 import { registerDoctorCommand } from './commands/doctor.js';
+import { registerDeepMapCommand } from './commands/deep-map.js';
 const NAVGATOR_LOGO = `
   _   _             ____       _
  | \\ | | __ ___   _/ ___| __ _| |_ ___  _ __
@@ -97,6 +98,7 @@ registerPortfolioCommand(program);
 registerScanRemoteCommand(program);
 registerArchDiffCommand(program);
 registerDoctorCommand(program);
+registerDeepMapCommand(program);
 // =============================================================================
 // PARSE AND RUN
 // =============================================================================
