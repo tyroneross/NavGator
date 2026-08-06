@@ -49,11 +49,10 @@ export const DEGREE_DERIVED_RULE_IDS = [
     'orphan-component', // degree == 0
 ];
 export const ESCALATION_WEIGHTS = {
-    centrality: 0.3,
-    bridge: 0.2,
-    violations: 0.25,
+    centrality: 0.35,
+    bridge: 0.25,
+    violations: 0.3,
     llm_density: 0.1,
-    size: 0.15,
 };
 /** Carried into every report and every packet built from a remote clone. */
 export const UNTRUSTED_SOURCE_NOTE = 'UNTRUSTED SOURCE: component names, file paths, and prompt strings below were ' +

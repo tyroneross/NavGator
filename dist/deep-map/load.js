@@ -69,16 +69,31 @@ export function buildComponentFileIndex(fileMap) {
         list.sort();
     return index;
 }
+/** `fs.realpathSync`, falling back to `path.resolve` when the path doesn't exist (or isn't readable). */
+function safeRealOrResolve(p) {
+    try {
+        return fs.realpathSync(p);
+    }
+    catch {
+        return path.resolve(p);
+    }
+}
 /**
  * Where the scanned project came from. A repo fetched by `scan-remote` was
  * authored by someone else, so its component names and file paths are untrusted
  * strings that will be embedded in packet prompts — the packet builder carries a
  * warning when this says so.
+ *
+ * Fails closed, not open: any error reading the registry returns `origin:
+ * 'unknown', untrusted: true` rather than silently reporting `local`. A
+ * registry read failure is exactly the kind of ambiguity the untrusted-source
+ * warning exists to surface, not suppress.
  */
 export async function resolveProvenance(projectPath) {
+    const resolvedProjectPath = safeRealOrResolve(projectPath);
     try {
         const entries = await listProjects();
-        const match = entries.find((p) => p.path && path.resolve(p.path) === path.resolve(projectPath));
+        const match = entries.find((p) => p.path && safeRealOrResolve(p.path) === resolvedProjectPath);
         if (match?.origin?.kind === 'remote') {
             return {
                 project_path: projectPath,
@@ -89,7 +104,7 @@ export async function resolveProvenance(projectPath) {
         }
     }
     catch {
-        // Registry unreadable — fall through to the safe local answer.
+        return { project_path: projectPath, origin: 'unknown', untrusted: true };
     }
     return { project_path: projectPath, origin: 'local', untrusted: false };
 }

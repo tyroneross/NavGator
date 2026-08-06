@@ -34,6 +34,11 @@ export declare function buildComponentFileIndex(fileMap: Record<string, string>)
  * authored by someone else, so its component names and file paths are untrusted
  * strings that will be embedded in packet prompts — the packet builder carries a
  * warning when this says so.
+ *
+ * Fails closed, not open: any error reading the registry returns `origin:
+ * 'unknown', untrusted: true` rather than silently reporting `local`. A
+ * registry read failure is exactly the kind of ambiguity the untrusted-source
+ * warning exists to surface, not suppress.
  */
 export declare function resolveProvenance(projectPath: string): Promise<DeepMapProvenance>;
 //# sourceMappingURL=load.d.ts.map

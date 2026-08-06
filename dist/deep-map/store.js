@@ -134,6 +134,45 @@ export function readIngestReport(runId, config, projectRoot) {
         return null;
     return readJson(path.join(getRunPath(runId, config, projectRoot), 'ingest.json'));
 }
+/**
+ * Mirrors `DeepMapFindingKind` in `./types.ts`. Kept as a local runtime array
+ * rather than imported from `./ingest.ts` (which owns the canonical copy) to
+ * avoid a store<->ingest import cycle — this module is the lower layer.
+ */
+const VALID_FINDING_KINDS = [
+    'purpose',
+    'responsibility',
+    'concern',
+    'inefficiency',
+    'risk',
+    'cross-cutting',
+];
+/**
+ * True when `value` has every field `DeepMapFinding` requires, with the
+ * correct runtime type. `findings.jsonl` may have been written by an older
+ * schema version, a concurrent process, or a hand edit — it is re-emitted
+ * into a tier-3 prompt and into `report --agent` output, so it is validated
+ * the same as any other untrusted input, not trusted because it is our own
+ * store.
+ */
+function isValidFindingShape(value) {
+    if (value === null || typeof value !== 'object')
+        return false;
+    const f = value;
+    if (typeof f['component_id'] !== 'string' || f['component_id'].length === 0)
+        return false;
+    if (typeof f['component_name'] !== 'string' || f['component_name'].length === 0)
+        return false;
+    if (typeof f['kind'] !== 'string' || !VALID_FINDING_KINDS.includes(f['kind']))
+        return false;
+    if (typeof f['text'] !== 'string' || f['text'].length === 0)
+        return false;
+    if (!Array.isArray(f['evidence']) || !f['evidence'].every((e) => typeof e === 'string'))
+        return false;
+    if (typeof f['confidence'] !== 'number' || !Number.isFinite(f['confidence']))
+        return false;
+    return true;
+}
 export function readFindings(runId, config, projectRoot) {
     if (!isValidRunId(runId))
         return [];
@@ -149,12 +188,19 @@ export function readFindings(runId, config, projectRoot) {
     for (const line of raw.split('\n')) {
         if (!line.trim())
             continue;
+        let parsed;
         try {
-            out.push(JSON.parse(line));
+            parsed = JSON.parse(line);
         }
         catch {
             // A truncated tail line is recoverable — keep what parsed.
+            continue;
         }
+        if (isValidFindingShape(parsed))
+            out.push(parsed);
+        // Malformed shape (wrong types, missing required fields) is dropped
+        // silently, same tolerance as a truncated tail line — this store already
+        // treats every line as recoverable-or-skippable, never fatal.
     }
     return out;
 }

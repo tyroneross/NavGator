@@ -40,8 +40,12 @@ function truncate(input, max) {
     return input.length > max ? input.slice(0, max) : input;
 }
 /**
- * True when `evidence` is grounded in a real repo path: an exact match, a
- * `path:symbol` prefix match, or any known path as a literal string prefix.
+ * True when `evidence` is grounded in a real repo path: an exact match, or a
+ * known path immediately followed by `:` or `#` (the `path:symbol` /
+ * `path#symbol` form). Deliberately NOT an open-ended string-prefix match —
+ * that would let any known path (e.g. a short root file like `a` or
+ * `README.md`) ground arbitrary trailing text, defeating the
+ * anti-hallucination guarantee this function exists to enforce.
  */
 function isGroundedEvidence(evidence, knownFilePaths) {
     if (knownFilePaths.has(evidence))
@@ -49,10 +53,9 @@ function isGroundedEvidence(evidence, knownFilePaths) {
     const colonIdx = evidence.indexOf(':');
     if (colonIdx > 0 && knownFilePaths.has(evidence.slice(0, colonIdx)))
         return true;
-    for (const knownPath of knownFilePaths) {
-        if (knownPath.length > 0 && evidence.startsWith(knownPath))
-            return true;
-    }
+    const hashIdx = evidence.indexOf('#');
+    if (hashIdx > 0 && knownFilePaths.has(evidence.slice(0, hashIdx)))
+        return true;
     return false;
 }
 function rejectFinding(packetId, index, reason, detail) {
@@ -223,39 +226,78 @@ export function ingestRun(options) {
             });
             continue;
         }
-        let stat;
+        // lstat first, never statSync: statSync follows symlinks, and a
+        // `<packet_id>.result.json` symlinked outside the run tree must be
+        // rejected, not silently read through.
+        let lstat;
         try {
-            stat = fs.statSync(resolvedPath);
+            lstat = fs.lstatSync(resolvedPath);
         }
         catch {
             // Vanished between the directory listing and the stat — not countable, not an error.
             continue;
         }
-        packetsWithResults++;
-        outputBytes += stat.size;
-        if (stat.size > DEEP_MAP_LIMITS.resultBytes) {
+        if (lstat.isSymbolicLink()) {
             rejections.push({
                 packet_id: candidateId,
-                reason: 'oversized_result',
-                detail: `${stat.size} bytes exceeds the ${DEEP_MAP_LIMITS.resultBytes}-byte cap`,
+                reason: 'path_escape',
+                detail: 'result path is a symlink; refusing to follow it',
             });
             continue;
         }
-        let raw;
+        // O_NOFOLLOW closes the TOCTOU window between the lstat above and this
+        // open: if a symlink was substituted in between, the open itself fails
+        // (ELOOP) rather than silently following it.
+        let fd;
         try {
-            raw = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8'));
+            fd = fs.openSync(resolvedPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
         }
         catch {
             rejections.push({
                 packet_id: candidateId,
-                reason: 'malformed_json',
-                detail: 'result file is not valid JSON',
+                reason: 'path_escape',
+                detail: 'result path is a symlink; refusing to follow it',
             });
             continue;
         }
-        const validated = validateResultPayload(raw, { packet_id: packet.packet_id, tier: packet.tier, run_id: packet.run_id, component_ids: packet.component_ids }, { knownComponentIds: options.knownComponentIds, knownFilePaths: options.knownFilePaths });
-        findings.push(...validated.findings);
-        rejections.push(...validated.rejections);
+        try {
+            // Every byte from here on is read from the descriptor we just opened —
+            // never a re-resolution of the path — so the size cap and the parsed
+            // content are guaranteed to describe the same file.
+            const stat = fs.fstatSync(fd);
+            packetsWithResults++;
+            outputBytes += stat.size;
+            if (stat.size > DEEP_MAP_LIMITS.resultBytes) {
+                rejections.push({
+                    packet_id: candidateId,
+                    reason: 'oversized_result',
+                    detail: `${stat.size} bytes exceeds the ${DEEP_MAP_LIMITS.resultBytes}-byte cap`,
+                });
+                continue;
+            }
+            const buffer = Buffer.alloc(Math.min(stat.size, DEEP_MAP_LIMITS.resultBytes));
+            if (buffer.length > 0) {
+                fs.readSync(fd, buffer, 0, buffer.length, 0);
+            }
+            let raw;
+            try {
+                raw = JSON.parse(buffer.toString('utf-8'));
+            }
+            catch {
+                rejections.push({
+                    packet_id: candidateId,
+                    reason: 'malformed_json',
+                    detail: 'result file is not valid JSON',
+                });
+                continue;
+            }
+            const validated = validateResultPayload(raw, { packet_id: packet.packet_id, tier: packet.tier, run_id: packet.run_id, component_ids: packet.component_ids }, { knownComponentIds: options.knownComponentIds, knownFilePaths: options.knownFilePaths });
+            findings.push(...validated.findings);
+            rejections.push(...validated.rejections);
+        }
+        finally {
+            fs.closeSync(fd);
+        }
     }
     const report = {
         schema_version: DEEP_MAP_SCHEMA_VERSION,

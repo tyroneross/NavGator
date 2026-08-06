@@ -9,8 +9,8 @@
  *   - **Directory prefix.** Stable across scans and needs no metrics, but it
  *     encodes the layout the author already chose. A mapping pass that mirrors
  *     the folder tree cannot tell you the folder tree is wrong.
- *   - **`role.layer`.** Seven coarse buckets; on this repo two of them hold 493
- *     of 507 components, so it partitions almost nothing. Kept as the fallback
+ *   - **`role.layer`.** Seven coarse buckets, two of which hold all but a
+ *     handful of this repo's components, so it partitions almost nothing. Kept as the fallback
  *     for graphs where Louvain is suppressed.
  *   - **Import-closure BFS from every node** (`extractSubgraph`). Produces
  *     overlapping neighbourhoods, so components get described repeatedly and
@@ -18,14 +18,19 @@
  *   - **Strongly-connected components.** On a healthy import graph almost every
  *     SCC is a single node; it finds cycles, not clusters.
  *
- * Two measured properties of real graphs force the rest of this module, both
- * from NavGator itself (507 components, modularity 0.657):
+ * Two measured properties of real graphs force the rest of this module. The
+ * figures below are a point-in-time measurement of NavGator's own graph
+ * (~507 components, modularity ~0.66) taken from `.navgator/`, which is
+ * gitignored and shifts as the repo changes — they illustrate the shape of the
+ * problem, they are not repository constants:
  *
- *   - Communities are heavily skewed: 48 of them, ~35 singletons, six holding
- *     442 nodes. A packet per community would emit mostly-empty work, so
- *     communities under `minGroup` are bundled into one residual packet.
- *   - 72 of the 437 `type: 'component'` nodes are vendored third-party source.
- *     `selectMappableComponents` handles that; see `filter.ts`.
+ *   - Communities are heavily skewed: ~50 of them, most holding a single node,
+ *     while six hold roughly 440. A packet per community would emit
+ *     mostly-empty work, so communities under `minGroup` are bundled into one
+ *     residual packet.
+ *   - Around 70 of the internal `type: 'component'` nodes are vendored
+ *     third-party source. `selectMappableComponents` handles that; see
+ *     `filter.ts`.
  *
  * Known limitation, stated because it bounds what the partition means:
  * `computeAndStoreMetrics` runs Louvain over the *full* graph including external

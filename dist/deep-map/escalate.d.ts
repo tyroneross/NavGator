@@ -13,8 +13,10 @@
  * signal, and `DEGREE_DERIVED_RULE_IDS` is subtracted from the violation count.
  *
  * What remains measures four different things: magnitude (`centrality`), shape
- * (`bridge`), direction/reachability faults (`violations`), semantic surface
- * (`llm_density`), and mass (`size`).
+ * (`bridge`), direction/reachability faults (`violations`), and semantic
+ * surface (`llm_density`). A fifth, `size`, was designed and then removed —
+ * measurement showed a component always maps to exactly one file, so its
+ * percentile was constant and its weight could never fire.
  */
 import type { ArchitectureComponent, ArchitectureConnection } from '../types.js';
 import type { MetricsReport } from '../metrics/pagerank-louvain.js';
@@ -32,8 +34,8 @@ export interface EscalationOptions extends ComponentFilterOptions {
  * from escalating anything.
  *
  * An absolute threshold alone does not survive contact with real graphs. At the
- * 0.60 it started as, NavGator's own 437-component graph escalated nothing: the
- * top score was 0.534, because percentile-based signals compress as node count
+ * 0.60 it started as, NavGator's own graph escalated nothing — the top score
+ * sits around 0.54 — because percentile-based signals compress as node count
  * grows. A cutoff that never fires is a dead feature, and one tuned to this repo
  * would fire wrongly on the next.
  */
