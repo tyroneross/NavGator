@@ -354,6 +354,42 @@ setup, no dependency, no network. Only meaningful events are recorded
 
 ---
 
+## Tiered mapping (`deep-map`) — invariants
+
+`src/deep-map/` adds a semantic layer on top of the scan without putting a model
+inside NavGator. Four invariants hold it up; breaking any of them breaks the
+feature's reason to exist.
+
+1. **No model runs here.** No LLM SDK, no network call, no subprocess to a
+   runtime. `plan` emits packets, `ingest` validates results the calling agent
+   wrote. If you find yourself wanting to call a model from this directory, the
+   design has gone wrong.
+2. **Tier 0 is the only authority on what exists.** Ingest rejects any finding
+   whose `component_id` is absent from the scan, and any whose evidence resolves
+   to no path in `file_map.json`. Rejections are counted, never coerced.
+3. **Findings never enter `.navgator/architecture/`.** They live under
+   `.navgator/deep-map/runs/<run_id>/` and join to components at read time only.
+   `rm -rf .navgator/deep-map` must leave every other command working.
+4. **Degree is scored once.** PageRank is a degree-family centrality, and
+   `hotspot-module`, `high-fan-out`, `shallow-module`, and
+   `single-point-of-failure` are thresholded degree. `DEGREE_DERIVED_RULE_IDS`
+   subtracts them from the violations signal, and raw fan-in/fan-out is not a
+   signal at all. Adding one back would make the published weights a fiction.
+
+Two implementation notes that are easy to get wrong:
+
+- **Build a group's edges by filtering connections, not by traversal.**
+  `extractSubgraph` at depth 1 collects one-hop neighbours outside the group and
+  then truncates in component-array order, which can drop genuine members before
+  any filter runs — on a four-member group ordered after its neighbours that
+  returned zero of four internal edges.
+- **Split an oversized community by breadth-first search, not by rank.** Rank
+  slicing puts a community's top-N nodes in one part and the rest in another,
+  sharing most of their edges, which destroys the isolation the split exists to
+  create.
+
+---
+
 ## What NavGator Detects
 
 The scanner (`src/scanner.ts` + `src/scanners/`) detects:

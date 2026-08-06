@@ -156,6 +156,7 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `/navgator:review` | Architectural integrity review (connections, drift, lessons) |
 | `/navgator:review learn "..."` | Record a manual architectural lesson |
 | `/navgator:llm-map` | Map all LLM use cases by purpose (search, summarization, extraction, etc.) |
+| `/navgator:deep-map` | Tiered mapping — isolate component groups, fan out parallel agents to describe them, then hunt inefficiencies with evidence |
 | `/navgator:schema [model]` | Show readers vs writers per database model |
 | `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
 | `/navgator:lessons` | Manage project and global architecture lessons |
@@ -187,6 +188,7 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 | `navgator arch-diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `--base` ref) |
 | `navgator registry-log` | Show recent reads and writes of the project registry |
 | `navgator doctor` | Registry + gator-memory hygiene report; `--fix` prunes accumulated temp fixtures behind a backup and confirmation |
+| `navgator deep-map plan\|ingest\|report\|status` | Tiered mapping — emits work packets for the calling agent to fan out over, then validates and attributes what comes back |
 
 ## Agent/Machine Output
 
@@ -233,6 +235,55 @@ The `navgator status` command shows a RUNTIME TOPOLOGY section with all detected
 NavGator tracks distinct LLM use cases, not raw import counts. Instead of "154 service calls," it shows "8 use cases across 3 providers." Deduplication uses a priority cascade: prompt-based grouping (strongest), function name grouping, callType+model grouping, file-based (fallback). Test and dev-only connections are filtered automatically.
 
 The `navgator status` command shows an AI/LLM section with use case count, providers, and a table of distinct use cases.
+
+### Tiered Mapping (`deep-map`)
+
+The scanner answers *what exists*. It cannot answer what a component is for,
+whether a design is inefficient, or where the risky coupling is — those are
+semantic questions no AST pass reaches. `deep-map` adds those answers without
+putting a model inside NavGator.
+
+**NavGator emits work packets; the calling agent runs the models.** There is no
+LLM SDK in the dependency tree and there never will be. Each packet carries one
+isolated group of components, its induced subgraph, a ready-to-send prompt, and
+a response schema. The host fans out subagents over them; NavGator ingests,
+validates, attributes, and reports.
+
+| Tier | What it is | Cost |
+|---|---|---|
+| 0 | The existing scan. Components, connections, file map, PageRank, Louvain communities, rule checks. **Sole authority on what exists.** | Free, offline, reproducible |
+| 1 | Wide, shallow pass. One cheap agent per component group — purpose, responsibilities, concerns. | Capped at `--max-packets` (default 12) |
+| 2 | Deep pass on escalated components only. Specific inefficiencies and coupling risks with `file:symbol` evidence. | Capped at `--max-deep` (default 4), opt-in via `--tier 2` |
+| 3 | One synthesis pass over everything ingested. Cross-component issues. | One packet, opt-in via `--tier 3` |
+
+Groups come from Louvain communities restricted to project-authored components;
+oversized communities split by breadth-first search so each part stays connected.
+Escalation is a weighted score over centrality, cross-cluster bridging,
+direction and reachability faults, LLM-call surface, and size — degree is
+represented once, by PageRank, and the degree-derived rules are excluded from
+the violation count so one property cannot wear three weights. Every escalated
+component prints the numbers that escalated it.
+
+**Findings never enter the graph.** They live in `.navgator/deep-map/`, carry
+`tier`, `packet_id`, `source: 'llm'`, and are joined to components only at read
+time. A finding naming a component tier 0 did not find is rejected and counted;
+so is one whose evidence resolves to no real file. Delete
+`.navgator/deep-map/` and every other command still works.
+
+```
+.navgator/deep-map/
+├── latest.json                          { run_id }
+└── runs/<run_id>/
+    ├── manifest.json                    partition, escalation, caps, cost
+    ├── packets/<id>.json                written by NavGator
+    ├── packets/<id>.result.json         written by the calling agent
+    ├── findings.jsonl                   validated, attributed
+    └── ingest.json                       accept/reject accounting
+```
+
+Because the host runs the models, NavGator cannot prove a fan-out happened.
+`navgator deep-map status` reports which packets have results, which is what
+makes a skipped fan-out visible rather than silent.
 
 ### Lessons System
 

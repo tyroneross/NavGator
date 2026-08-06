@@ -634,6 +634,78 @@ The project registry (`~/.navgator/projects.json`) has readers and writers livin
 | `--json` | Output as JSON |
 | `--agent` | Output wrapped in agent envelope (implies `--json`) |
 
+### `navgator deep-map`
+
+Maps a repository in tiers, escalating only where the graph says it is worth it.
+
+The scanner answers *what exists*. It cannot tell you what a component is for,
+whether a design is inefficient, or where the risky coupling sits — those need a
+model. NavGator does not ship one, and does not want one: there is no LLM SDK in
+the dependency tree, and the engine stays offline and reproducible.
+
+So `deep-map` splits the work. **NavGator emits work packets; your coding agent
+runs the models.** Each packet carries one isolated group of components, its
+induced subgraph, a ready-to-send prompt, and a response schema. Your agent fans
+out subagents over them in parallel; NavGator validates, attributes, and reports
+what comes back.
+
+```bash
+navgator scan --agent                       # tier 0 — the source of truth
+navgator deep-map plan --tier 1 --agent     # emit packets
+#   ... your agent dispatches one subagent per packet, in parallel,
+#   ... writing each result to packets/<packet_id>.result.json
+navgator deep-map ingest --agent            # validate + attribute
+navgator deep-map plan --tier 2 --agent     # deep pass on escalated components
+navgator deep-map plan --tier 3 --agent     # one synthesis pass
+navgator deep-map report --agent            # findings + what the run cost
+navgator deep-map status --agent            # which packets came back
+```
+
+| Tier | Pass | Cap |
+|---|---|---|
+| 0 | The existing scan | free, offline |
+| 1 | Wide and shallow — one cheap agent per component group | `--max-packets`, default 12 |
+| 2 | Deep — only components the graph escalates | `--max-deep`, default 4, opt-in |
+| 3 | One synthesis pass over everything ingested | one packet, opt-in |
+
+**Findings can never change what the scan found.** They live in
+`.navgator/deep-map/`, carry their tier and packet, and join to components only
+at read time. A finding naming a component that does not exist is rejected and
+counted; so is one whose evidence resolves to no real file. Delete
+`.navgator/deep-map/` and everything else still works exactly as before.
+
+**Escalation is computed, not guessed.** Centrality, how much a component
+bridges across clusters, direction and reachability faults, LLM-call surface,
+and size. Degree is deliberately represented once — by PageRank — and the
+degree-derived rules are excluded from the violation count, so one property
+cannot quietly supply most of the score. Every escalated component prints the
+numbers that escalated it, so you can disagree on evidence.
+
+**Cost is capped and reported.** Tier 1 only by default; tiers 2 and 3 must be
+asked for. The manifest carries estimated input tokens per packet, and the
+report carries measured output bytes and rejection counts.
+
+| Option | Description |
+|--------|-------------|
+| `--tier <n>` | `1`, `2`, or `3` (repeatable or comma-separated). Default `1` |
+| `--max-packets <n>` | Tier-1 packet cap (default 12) |
+| `--max-deep <n>` | Tier-2 packet cap (default 4) |
+| `--min-group <n>` | Smallest community that earns its own packet (default 3) |
+| `--max-nodes <n>` | Components per packet before splitting (default 60) |
+| `--escalate-threshold <n>` | Score floor for tier 2 (default 0.4) |
+| `--exclude <glob>` | Exclude paths from mapping (repeatable) |
+| `--include-vendored` | Keep `node_modules`-style directories in scope |
+| `--run <id>` | Target a specific run instead of the latest |
+| `--json` / `--agent` | Machine-readable output |
+
+**On vendored code.** Each packet reports the longest common path prefix of its
+components. NavGator excludes the unambiguous vendor directories by default, but
+no path heuristic separates a copied package from hand-written code reliably —
+a monorepo's own `packages/` looks identical from the outside. So it reports the
+evidence and leaves the call to you. If a packet's prefix reads
+`web/runtime/packages/semver`, re-plan with `--exclude 'web/runtime/**'` rather
+than paying an agent to describe someone else's package.
+
 ### `navgator doctor`
 
 Reports the health of your registry and gator-memory store, and offers a
