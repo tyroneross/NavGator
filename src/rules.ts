@@ -564,10 +564,12 @@ export function detectRuleDegeneracy(
     total_violations: total,
     threshold,
     degenerate,
+    // Percentages are floored, never rounded: a message about a rule that
+    // overstates its evidence would be the same defect it is reporting.
     warnings: degenerate.map(
       d =>
         `Rule '${d.rule_id}' fires on ${d.components} of ${population} components ` +
-        `(${(d.share_of_components * 100).toFixed(0)}%, ${(d.share_of_violations * 100).toFixed(0)}% of all violations). ` +
+        `(${Math.floor(d.share_of_components * 100)}%, ${Math.floor(d.share_of_violations * 100)}% of all violations). ` +
         `A rule that flags most of the codebase cannot discriminate — treat it as unconfigured, not as ${d.components} findings.`
     ),
   };
