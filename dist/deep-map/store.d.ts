@@ -15,6 +15,7 @@
  * removable: `rm -rf .navgator/deep-map` restores a pure tier-0 install, and no
  * scanner code reads anything under here.
  */
+import { isContainedPath } from '../config.js';
 import type { NavGatorConfig } from '../types.js';
 import type { DeepMapFinding, DeepMapIngestReport, DeepMapManifest, DeepMapPacket } from './types.js';
 /** Root of the deep-map tree: sibling of the architecture store. */
@@ -25,11 +26,12 @@ export declare function getPacketsPath(runId: string, config?: NavGatorConfig, p
 /**
  * True when `candidate` is `root` itself or lies beneath it.
  *
- * Deliberately not `resolved.startsWith(root)`: that accepts `/base-other` for
- * a root of `/base`, which `path.resolve(root, '../base-other')` produces from
- * a hostile relative input. The separator check is what closes it.
+ * Re-exported from `config.ts` rather than reimplemented: two containment
+ * checks in one codebase is how one of them ends up wrong, which is exactly
+ * what had happened — `sanitizePath` used a bare `startsWith` that accepts
+ * `/base-other` for a root of `/base`.
  */
-export declare function isContained(root: string, candidate: string): boolean;
+export declare const isContained: typeof isContainedPath;
 export declare function isValidRunId(runId: string): boolean;
 /** `DM_<utc compact timestamp>_<8 hex>` — sortable, collision-resistant. */
 export declare function generateRunId(now?: Date): string;

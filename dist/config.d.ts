@@ -88,7 +88,18 @@ export declare function isValidComponentId(id: string): boolean;
  */
 export declare function isValidConnectionId(id: string): boolean;
 /**
- * Sanitize a path to prevent directory traversal
+ * True when `candidate` is `root` itself or lies beneath it.
+ *
+ * The separator check is the whole point. A bare
+ * `resolved.startsWith(root)` accepts `/tmp/base-other` for a root of
+ * `/tmp/base`, and `path.resolve('/tmp/base', '../base-other')` is exactly how
+ * a hostile relative input produces that string. This is the single containment
+ * primitive — anything that needs one should call it rather than write another.
+ */
+export declare function isContainedPath(root: string, candidate: string): boolean;
+/**
+ * Resolve `inputPath` against `basePath`, refusing anything that escapes it.
+ * Returns null on a traversal attempt.
  */
 export declare function sanitizePath(inputPath: string, basePath: string): string | null;
 /**

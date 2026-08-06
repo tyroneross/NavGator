@@ -22,6 +22,7 @@ import type {
 } from '../types.js';
 import type { MetricsReport } from '../metrics/pagerank-louvain.js';
 import type { RuleViolation } from '../rules.js';
+import { sanitizePath } from '../config.js';
 import { globToRegExp, selectMappableComponents } from '../deep-map/filter.js';
 import {
   commonPathPrefix,
@@ -455,5 +456,27 @@ describe('deep-map run store guards', () => {
     const runId = generateRunId();
     expect(resultPathFor(runId, '../../etc/passwd')).toBeNull();
     expect(resultPathFor(runId, makePacketId(2, 1))).toContain('DMP_t2_001.result.json');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `sanitizePath` shares the containment primitive.
+//
+// It had its own `resolved.startsWith(basePath)` check, which accepts
+// `/tmp/base-other` for a base of `/tmp/base`. It has no callers today, so this
+// was a latent trap rather than a live hole — but a wrong guard sitting in a
+// config module is worse than no guard, because the next caller will reach for
+// it. Both now route through `isContainedPath`.
+// ---------------------------------------------------------------------------
+
+describe('sanitizePath containment', () => {
+  it('refuses a sibling directory whose name starts with the base', () => {
+    expect(sanitizePath('../base-other/secret', '/tmp/base')).toBeNull();
+    expect(sanitizePath('../../etc/passwd', '/tmp/base')).toBeNull();
+  });
+
+  it('still resolves a legitimate path beneath the base', () => {
+    expect(sanitizePath('child/file.json', '/tmp/base')).toBe(path.resolve('/tmp/base/child/file.json'));
+    expect(sanitizePath('.', '/tmp/base')).toBe(path.resolve('/tmp/base'));
   });
 });

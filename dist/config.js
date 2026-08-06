@@ -318,14 +318,28 @@ export function isValidConnectionId(id) {
     return /^CONN_[a-z0-9-]+_[a-z0-9]{4,8}$/i.test(id);
 }
 /**
- * Sanitize a path to prevent directory traversal
+ * True when `candidate` is `root` itself or lies beneath it.
+ *
+ * The separator check is the whole point. A bare
+ * `resolved.startsWith(root)` accepts `/tmp/base-other` for a root of
+ * `/tmp/base`, and `path.resolve('/tmp/base', '../base-other')` is exactly how
+ * a hostile relative input produces that string. This is the single containment
+ * primitive — anything that needs one should call it rather than write another.
+ */
+export function isContainedPath(root, candidate) {
+    const normRoot = path.resolve(root);
+    const normCandidate = path.resolve(candidate);
+    if (normCandidate === normRoot)
+        return true;
+    return normCandidate.startsWith(normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep);
+}
+/**
+ * Resolve `inputPath` against `basePath`, refusing anything that escapes it.
+ * Returns null on a traversal attempt.
  */
 export function sanitizePath(inputPath, basePath) {
     const resolved = path.resolve(basePath, inputPath);
-    if (!resolved.startsWith(basePath)) {
-        return null; // Path traversal attempt
-    }
-    return resolved;
+    return isContainedPath(basePath, resolved) ? resolved : null;
 }
 // =============================================================================
 // EXPORT CONFIG SINGLETON

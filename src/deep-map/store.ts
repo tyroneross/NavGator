@@ -20,7 +20,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
-import { getConfig, getStoragePath } from '../config.js';
+import { getConfig, getStoragePath, isContainedPath } from '../config.js';
 import type { NavGatorConfig } from '../types.js';
 import type {
   DeepMapFinding,
@@ -50,16 +50,12 @@ export function getPacketsPath(runId: string, config?: NavGatorConfig, projectRo
 /**
  * True when `candidate` is `root` itself or lies beneath it.
  *
- * Deliberately not `resolved.startsWith(root)`: that accepts `/base-other` for
- * a root of `/base`, which `path.resolve(root, '../base-other')` produces from
- * a hostile relative input. The separator check is what closes it.
+ * Re-exported from `config.ts` rather than reimplemented: two containment
+ * checks in one codebase is how one of them ends up wrong, which is exactly
+ * what had happened — `sanitizePath` used a bare `startsWith` that accepts
+ * `/base-other` for a root of `/base`.
  */
-export function isContained(root: string, candidate: string): boolean {
-  const normRoot = path.resolve(root);
-  const normCandidate = path.resolve(candidate);
-  if (normCandidate === normRoot) return true;
-  return normCandidate.startsWith(normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep);
-}
+export const isContained = isContainedPath;
 
 /**
  * Run ids are generated here and only ever read back from our own tree, but
