@@ -403,7 +403,7 @@ const DEPENDENCY_MANIFESTS: ReadonlySet<string> = new Set([
  *
  * Roots come from `detectEntryPoints`, which reads the package manifest instead
  * of pattern-matching component names — see that module for why the previous
- * root set reported 94% of NavGator's own components as dead.
+ * root set reported 94% of NavGator's own project-authored components as dead.
  *
  * Two classes are excluded from candidacy rather than from the traversal, so a
  * finding always names something the author could actually delete:

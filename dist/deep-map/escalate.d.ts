@@ -23,7 +23,8 @@
  * on more than half the components scored cannot rank them, so it is withheld
  * from the `violations` signal and named in the manifest. That case is not
  * hypothetical — `transitively-dead` fired on 425 of NavGator's own 451
- * components while carrying 0.30 of the weight vector, and the constant term it
+ * project-authored components (of 521 total; the rest are external packages)
+ * while carrying 0.30 of the weight vector, and the near-constant term it
  * contributed was indistinguishable from signal in the output.
  */
 import type { ArchitectureComponent, ArchitectureConnection } from '../types.js';
