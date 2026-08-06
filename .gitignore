@@ -74,6 +74,7 @@ __tests__/fixtures/**/.navgator/
 .navgator/architecture/NAVSUMMARY_FULL.md
 .navgator/architecture/SUMMARY.md
 .navgator/architecture/SUMMARY_FULL.md
+.navgator/deep-map/
 .navgator/dirty.json
 .navgator/dirty.d/
 .navgator/dirty.lock*

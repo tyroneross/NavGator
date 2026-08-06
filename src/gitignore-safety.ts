@@ -50,6 +50,11 @@ const GUARDED_PATTERNS = [
   // Legacy filenames from pre-rename NavGator versions — harmless if not written.
   '.navgator/architecture/SUMMARY.md',
   '.navgator/architecture/SUMMARY_FULL.md',
+  // deep-map runs hold packet prompts and model-authored findings. Prompts
+  // inline component names and file paths — the same env-derived identity the
+  // rules above guard — and a run for a `scan-remote` clone carries strings
+  // authored by that remote repo. Neither belongs in someone's commit history.
+  '.navgator/deep-map/',
   // Freshness and writer-coordination state is always local and may contain
   // project-relative paths. Ignore both durable files and crash leftovers.
   '.navgator/dirty.json',
