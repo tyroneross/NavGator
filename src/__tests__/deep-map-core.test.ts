@@ -516,7 +516,7 @@ describe('deep-map escalation scoring', () => {
   });
 
   it('keeps feeding a rule that fires on a minority of components', () => {
-    // The post-fix measurement: 89 of 451 is a finding, not a misconfiguration,
+    // The post-fix measurement: 92 of 451 is a finding, not a misconfiguration,
     // so the gate must not swallow it.
     const components = Array.from({ length: 24 }, (_, i) => comp(`n${i}`, [`src/n${i}.ts`]));
     const metrics = metricsFor(components, () => 0, () => 0.1);

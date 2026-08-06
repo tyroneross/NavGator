@@ -178,7 +178,17 @@ describe('classifyPathConvention', () => {
     expect(classifyPathConvention('vitest.config.ts')).toBe('tooling-config');
     expect(classifyPathConvention('web/next.config.mjs')).toBe('tooling-config');
     expect(classifyPathConvention('scripts/verify-release.mjs')).toBe('executable-dir');
-    expect(classifyPathConvention('hooks/session-start.js')).toBe('executable-dir');
+    expect(classifyPathConvention('packages/api/bin/serve.js')).toBe('executable-dir');
+  });
+
+  it('does not mistake React custom-hook directories for executables', () => {
+    // `hooks/` was in the executable list until measurement showed it admitting
+    // 16 library modules in this repo. An over-broad entry-point source makes
+    // dead code in that directory permanently unreportable.
+    expect(classifyPathConvention('web/hooks/use-toast.ts')).toBeNull();
+    expect(classifyPathConvention('web/lib/hooks/use-status.ts')).toBeNull();
+    expect(classifyPathConvention('hooks/session-start.ts')).toBeNull();
+    expect(classifyPathConvention('src/tools/registry.ts')).toBeNull();
   });
 
   it('does not admit ordinary source as a root', () => {

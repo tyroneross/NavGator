@@ -65,8 +65,18 @@ const PATH_CONVENTIONS = [
     ['framework-route', /(^|\/)(middleware|instrumentation)\.[cm]?[jt]s$/],
     // Loaded by a tool (vitest, next, tailwind, postcss, eslint), not imported.
     ['tooling-config', /(^|\/)[\w.-]*\.config\.[cm]?[jt]sx?$/],
-    // Run directly by a human, a hook host, or CI.
-    ['executable-dir', /(^|\/)(scripts|bin|tools|hooks)\//],
+    // Run directly by a human or by CI.
+    //
+    // `scripts/` and `bin/` only. `hooks/` and `tools/` were here and were removed
+    // after measurement: `hooks/` is the near-universal React custom-hook
+    // convention and was admitting 16 library modules in this repo alone
+    // (`web/hooks/`, `web/lib/hooks/`), and `tools/` is just as often a library
+    // directory. Depth-anchoring does not separate them — `web/hooks/` sits one
+    // segment deep exactly like a workspace's `packages/api/scripts/`. An
+    // entry-point source that admits ordinary library code makes dead code in that
+    // directory permanently invisible, which is the failure this module exists to
+    // fix, pointed the other way.
+    ['executable-dir', /(^|\/)(scripts|bin)\//],
 ];
 /** Extensions a declared `.js` path may actually be authored in. */
 const SOURCE_EXTENSIONS = [

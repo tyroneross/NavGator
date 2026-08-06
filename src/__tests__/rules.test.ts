@@ -512,7 +512,7 @@ describe('Architecture Rules', () => {
     it('stays silent on a rule that discriminates', () => {
       // The post-fix measurement on the same repo.
       const report = detectRuleDegeneracy(
-        { 'transitively-dead': 89, 'layer-violation': 1, 'circular-dependency': 5 },
+        { 'transitively-dead': 92, 'layer-violation': 1, 'circular-dependency': 5 },
         451
       );
       expect(report.degenerate).toEqual([]);

@@ -17,7 +17,7 @@ Track issues with known repro and clear remediation paths. Closed issues move to
 of its files became components** — a Next.js standalone bundle plus vendored
 copies of `react`, `react-dom`, `styled-jsx`, and `semver`.
 
-Measured impact on the `transitively-dead` rule after its entry-point fix: 89
+Measured impact on the `transitively-dead` rule after its entry-point fix: 92
 components flagged, of which **46 are this tree** — and all 46 are the vendored
 `semver` copy. The other vendored packages are already dropped by
 `underPackageContainer` (`src/rules.ts`), which requires the directory name under
