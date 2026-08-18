@@ -11,7 +11,7 @@ import { TOOLS, handleToolCall } from "./tools.js";
 import { NAVGATOR_VERSION } from "../version.js";
 
 // --- Lifecycle contract (mcp-lifecycle v1) ---
-// See /Users/tyroneross/dev/docs/standards/mcp-lifecycle/SPEC.md.
+// See the mcp-lifecycle v1 SPEC (docs/standards/mcp-lifecycle/SPEC.md in the standards repo).
 // A stdio server that exits only on stdin EOF leaks unboundedly under a host that keeps
 // the pipe write-end open (parent alive, no traffic, no signal — indistinguishable from a
 // quiet-but-live session). Four independent exit paths close that gap:
