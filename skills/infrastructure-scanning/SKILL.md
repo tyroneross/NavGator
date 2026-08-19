@@ -1,6 +1,6 @@
 ---
 name: infrastructure-scanning
-description: Detect and analyze infrastructure components — Prisma models, env vars, queues, crons, deploy configs, field usage, and type validation
+description: Detects and analyzes infrastructure components — Prisma models, env vars, queues, crons, deploy configs, field usage, type validation. Use when user asks about database schema/models, environment variables, queue or cron setup, deploy config, or whether Prisma types match TypeScript. Not for general package/dependency health; use `architecture-scan` instead.
 version: 0.9.1
 user-invocable: false
 ---
