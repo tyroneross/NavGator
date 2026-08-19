@@ -2,7 +2,8 @@
   "name": "navgator",
   "description": "Map dependencies and analyze blast radius before changing code",
   "author": {
-    "name": "Tyrone Ross"
+    "name": "Tyrone Ross",
+    "url": "https://github.com/tyroneross"
   },
   "homepage": "https://github.com/tyroneross/NavGator",
   "repository": "https://github.com/tyroneross/NavGator",

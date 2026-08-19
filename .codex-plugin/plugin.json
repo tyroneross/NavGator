@@ -1,8 +1,9 @@
 {
   "name": "navgator",
-  "description": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
+  "description": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
   "author": {
-    "name": "Tyrone Ross"
+    "name": "Tyrone Ross",
+    "url": "https://github.com/tyroneross"
   },
   "homepage": "https://github.com/tyroneross/NavGator",
   "repository": "https://github.com/tyroneross/NavGator",
@@ -17,8 +18,8 @@
   "skills": "./skills",
   "interface": {
     "displayName": "NavGator",
-    "shortDescription": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
-    "longDescription": "Architecture tracking — map dependencies, analyze impact, and visualize your stack before making changes",
+    "shortDescription": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
+    "longDescription": "Architecture tracking \u2014 map dependencies, analyze impact, and visualize your stack before making changes",
     "developerName": "Ross Labs",
     "category": "Coding",
     "capabilities": [
