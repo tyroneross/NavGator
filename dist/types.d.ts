@@ -222,6 +222,7 @@ export interface ProjectMetadata {
 export type ScanType = 'full' | 'incremental' | 'incremental→full' | 'noop';
 export interface ArchitectureIndex {
     schema_version?: string;
+    stable_id_scheme?: number;
     version: string;
     last_scan: number;
     /**

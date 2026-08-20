@@ -20,7 +20,7 @@ export declare function componentBaseName(name: string): string;
  * Build the merge/identity key for a component: base name + type.
  * Components of different types never share an identity, even with the same base name.
  */
-export declare function identityKey(c: Pick<ArchitectureComponent, 'name' | 'type'>): string;
+export declare function identityKey(c: Pick<ArchitectureComponent, 'name' | 'type' | 'stable_id'>): string;
 /**
  * Merge components that share an identity key (same base name + type), keeping
  * the one with more connections (connects_to + connected_from), matching the

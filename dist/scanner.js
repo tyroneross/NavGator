@@ -97,7 +97,7 @@ import { scanRustCode } from './scanners/rust/code-scanner.js';
 import { scanImports } from './scanners/connections/import-scanner.js';
 import { scanMarkdownContent } from './scanners/content/markdown-scanner.js';
 import { storeComponents, storeConnections, migratePerEntityFiles, buildIndex, buildGraph, buildFileMap, buildSummary, savePromptScan, clearStorage, clearForFiles, loadIndex, loadAllComponents, loadAllConnections, loadReverseDeps, runIntegrityCheck, mergeByStableId, normalizeTrackedPath, partitionPriorStateForFiles, atomicWriteJSON, ensureStableIdPublic, buildReverseDepsIndex, buildDerivedManifest, createSnapshot, computeFileHashes, saveHashes, detectFileChanges, formatFileChangeSummary, } from './storage.js';
-import { getConfig, ensureStorageDirectories, getIndexPath, SCHEMA_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
+import { getConfig, ensureStorageDirectories, getIndexPath, SCHEMA_VERSION, STABLE_ID_SCHEME_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
 import { acquireScanLease } from './scan-lock.js';
 import { scanLockPath } from './freshness/paths.js';
 import { computeArchitectureDiff, classifySignificance, loadLatestSnapshot, buildSnapshotFromRecords, saveTimelineEntry, generateTimelineId, } from './diff.js';
@@ -281,6 +281,12 @@ export function selectScanMode(fileChanges, index, options, now = Date.now()) {
     const mode = options.mode ?? (options.clearFirst ? 'full' : options.incremental ? 'incremental' : 'auto');
     if (mode === 'full') {
         return { mode: 'full', reason: 'flag-full' };
+    }
+    // Stable-id generations cannot be mixed in one incremental store. Force a
+    // rebuild even when the caller explicitly requested incremental; otherwise
+    // old survivors and fresh records coexist under incompatible join keys.
+    if (index && index.stable_id_scheme !== STABLE_ID_SCHEME_VERSION) {
+        return { mode: 'full', reason: 'stable-id-scheme-mismatch' };
     }
     if (mode === 'incremental') {
         if (!index) {
@@ -1387,6 +1393,20 @@ export async function scan(projectRoot, options = {}) {
         if (options.verbose) {
             console.log('Phase 4: Storing results...');
         }
+        // Normalize in-repo ownership paths before they participate in identity.
+        // Absolute paths make stable ids machine-specific and break integrity checks
+        // that expect project-relative source files.
+        for (const component of allComponents) {
+            component.source.config_files = component.source.config_files.map(file => {
+                if (!path.isAbsolute(file))
+                    return file.replace(/\\/g, '/');
+                const relative = path.relative(root, file);
+                if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+                    return file.replace(/\\/g, '/');
+                }
+                return relative.replace(/\\/g, '/');
+            });
+        }
         // Deduplicate components by (type, name, primary-source-file) within current scan.
         //
         // Run 1.7 — Problem B: the prior key was `component.name` alone. That
@@ -1844,6 +1864,7 @@ export async function scan(projectRoot, options = {}) {
                 }
                 // Always set schema_version to current build's version.
                 freshIndex.schema_version = SCHEMA_VERSION;
+                freshIndex.stable_id_scheme = STABLE_ID_SCHEME_VERSION;
                 freshIndex.setup_phase = options._setupPhase ?? priorIndex?.setup_phase;
                 // Run 2 — D5: persist EWMA + audit history bookkeeping.
                 if (auditReport) {

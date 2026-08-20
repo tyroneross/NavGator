@@ -5,6 +5,8 @@
 import { NavGatorConfig, StorageMode } from './types.js';
 export { NavGatorConfig, StorageMode };
 export declare const SCHEMA_VERSION = "1.1.0";
+/** Increment when stable-id derivation changes require a full graph rebuild. */
+export declare const STABLE_ID_SCHEME_VERSION = 2;
 /**
  * Load configuration from environment and defaults
  */

@@ -36,6 +36,21 @@ describe('identityKey', () => {
 });
 
 describe('mergeComponentAliases', () => {
+  it('preserves manifest-scoped observations with the same display name', () => {
+    const root = createMockComponent({
+      name: 'next',
+      type: 'framework',
+      stable_id: 'STABLE_framework_package.json__next',
+    });
+    const web = createMockComponent({
+      name: 'next',
+      type: 'framework',
+      stable_id: 'STABLE_framework_web-package.json__next',
+    });
+
+    expect(mergeComponentAliases([root, web])).toHaveLength(2);
+  });
+
   it('collapses "Railway" / "Railway Config" / "Railway (infra)" into one component', () => {
     const components = [
       createMockComponent({ name: 'Railway', type: 'infra' }),

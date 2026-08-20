@@ -102,7 +102,7 @@ export declare function discoverStackRoots(root: string, verbose: boolean): Arra
 }>;
 export interface ScanModeDecision {
     mode: 'full' | 'incremental';
-    reason: 'flag-full' | 'flag-incremental' | 'no-prior-state' | 'schema-mismatch' | 'manifest-changed' | 'new-files' | 'stale-full' | 'incremental-cap' | 'no-changes' | 'fast-path' | 'audit-drift-breach';
+    reason: 'flag-full' | 'flag-incremental' | 'no-prior-state' | 'schema-mismatch' | 'stable-id-scheme-mismatch' | 'manifest-changed' | 'new-files' | 'stale-full' | 'incremental-cap' | 'no-changes' | 'fast-path' | 'audit-drift-breach';
 }
 /**
  * Decide whether to run a full or incremental scan based on the requested

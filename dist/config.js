@@ -8,6 +8,8 @@ import * as path from 'path';
 // DEFAULT CONFIGURATION
 // =============================================================================
 export const SCHEMA_VERSION = '1.1.0';
+/** Increment when stable-id derivation changes require a full graph rebuild. */
+export const STABLE_ID_SCHEME_VERSION = 2;
 const DEFAULT_CONFIG = {
     storageMode: 'local',
     storagePath: '.navgator/architecture',

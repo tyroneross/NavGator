@@ -36,11 +36,10 @@ function pickCanonicalPath(c) {
 /**
  * Backfill stable_id on a component if missing.
  * Idempotent — returns the same component reference (mutated in place).
- * Path-disambiguation is opt-in per-type: types where (type,name) is
- * naturally unique (npm/pip packages, frameworks, services, llm providers,
- * databases, infra, queues, configs) use name-only. Types that can repeat
- * the same name across different files (api-endpoint, db-table, prompt,
- * worker, component, cron) include canonical_path.
+ * Path-disambiguation is opt-in per-type. Types that can repeat the same name
+ * across files or owning manifests include canonical_path. Manifest-scoped
+ * ids keep two workspaces with different versions of the same dependency from
+ * collapsing during an incremental merge.
  */
 /**
  * Public re-export of ensureStableId. Callers (e.g. the scanner during
@@ -60,12 +59,23 @@ function ensureStableId(c) {
         'worker',
         'component',
         'cron',
+        'npm',
+        'pip',
+        'cargo',
+        'spm',
+        'go',
+        'gem',
+        'composer',
+        'framework',
+        'database',
+        'queue',
+        'infra',
     ]);
     const canonical = PATH_DISAMBIGUATED.has(c.type) ? pickCanonicalPath(c) : undefined;
     c.stable_id = generateStableId(c.type, c.name, canonical);
     return c;
 }
-import { getConfig, getComponentsPath, getConnectionsPath, getIndexPath, getGraphPath, getSnapshotsPath, getHashesPath, getStoragePath, getSummaryPath, getSummaryFullPath, getFileMapPath, getPromptsPath, ensureStorageDirectories, isValidComponentId, isValidConnectionId, SCHEMA_VERSION, } from './config.js';
+import { getConfig, getComponentsPath, getConnectionsPath, getIndexPath, getGraphPath, getSnapshotsPath, getHashesPath, getStoragePath, getSummaryPath, getSummaryFullPath, getFileMapPath, getPromptsPath, ensureStorageDirectories, isValidComponentId, isValidConnectionId, SCHEMA_VERSION, STABLE_ID_SCHEME_VERSION, } from './config.js';
 import { detectImportCycles, detectLayerViolations, getTopFanOut, getTopHotspots, } from './architecture-insights.js';
 // =============================================================================
 // COMPONENT STORAGE
@@ -300,6 +310,7 @@ export async function buildIndex(config, projectRoot, projectMetadata, data) {
     const connections = data?.connections ?? (await loadAllConnections(cfg, projectRoot));
     const index = {
         schema_version: SCHEMA_VERSION,
+        stable_id_scheme: STABLE_ID_SCHEME_VERSION,
         version: '1.0.0',
         last_scan: Date.now(),
         project_path: projectRoot || process.cwd(),

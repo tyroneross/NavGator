@@ -6,11 +6,10 @@ import { ArchitectureComponent, ArchitectureConnection, ArchitectureIndex, Conne
 /**
  * Backfill stable_id on a component if missing.
  * Idempotent — returns the same component reference (mutated in place).
- * Path-disambiguation is opt-in per-type: types where (type,name) is
- * naturally unique (npm/pip packages, frameworks, services, llm providers,
- * databases, infra, queues, configs) use name-only. Types that can repeat
- * the same name across different files (api-endpoint, db-table, prompt,
- * worker, component, cron) include canonical_path.
+ * Path-disambiguation is opt-in per-type. Types that can repeat the same name
+ * across files or owning manifests include canonical_path. Manifest-scoped
+ * ids keep two workspaces with different versions of the same dependency from
+ * collapsing during an incremental merge.
  */
 /**
  * Public re-export of ensureStableId. Callers (e.g. the scanner during

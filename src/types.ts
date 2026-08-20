@@ -353,6 +353,7 @@ export type ScanType = 'full' | 'incremental' | 'incremental→full' | 'noop';
 
 export interface ArchitectureIndex {
   schema_version?: string;      // NavGator schema version (e.g., '1.1.0')
+  stable_id_scheme?: number;    // Stable-id derivation generation; mismatch forces full scan
   version: string;              // Index format version
   last_scan: number;            // Unix timestamp of last scan
   /**

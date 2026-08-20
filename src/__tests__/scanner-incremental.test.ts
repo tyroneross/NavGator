@@ -16,8 +16,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 import { quickScan, scan, selectScanMode } from '../scanner.js';
-import { loadAllConnections, loadIndex, loadReverseDeps } from '../storage.js';
-import { getConfig, getStoragePath, SCHEMA_VERSION } from '../config.js';
+import { loadAllComponents, loadAllConnections, loadIndex, loadReverseDeps } from '../storage.js';
+import { getConfig, getStoragePath, SCHEMA_VERSION, STABLE_ID_SCHEME_VERSION } from '../config.js';
 import { acquireScanLease, readScanLease } from '../scan-lock.js';
 import { scanLockPath } from '../freshness/paths.js';
 import { drain } from '../freshness/drainer.js';
@@ -107,6 +107,7 @@ function readJsonl<T>(filePath: string): T[] {
 function indexWith(overrides: Partial<ArchitectureIndex> = {}): ArchitectureIndex {
   return {
     schema_version: SCHEMA_VERSION,
+    stable_id_scheme: STABLE_ID_SCHEME_VERSION,
     version: '1.0',
     last_scan: Date.now(),
     last_full_scan: Date.now(),
@@ -144,6 +145,22 @@ function indexWith(overrides: Partial<ArchitectureIndex> = {}): ArchitectureInde
 // =============================================================================
 
 describe('selectScanMode (Run 1 — D2)', () => {
+  it('forces a full rebuild when the stable-id scheme is missing or stale', () => {
+    const missing = selectScanMode(
+      emptyChanges(),
+      indexWith({ stable_id_scheme: undefined }),
+      { mode: 'auto' },
+    );
+    const staleExplicit = selectScanMode(
+      emptyChanges(),
+      indexWith({ stable_id_scheme: 1 }),
+      { mode: 'incremental' },
+    );
+
+    expect(missing).toEqual({ mode: 'full', reason: 'stable-id-scheme-mismatch' });
+    expect(staleExplicit).toEqual({ mode: 'full', reason: 'stable-id-scheme-mismatch' });
+  });
+
   it('mode=full flag → full / flag-full', () => {
     const decision = selectScanMode(emptyChanges(), indexWith(), { mode: 'full' });
     expect(decision.mode).toBe('full');
@@ -337,6 +354,53 @@ describe('incremental scan e2e (Run 1 — D4)', () => {
     const idx = await loadIndex(undefined, projectRoot);
     expect(idx?.incrementals_since_full).toBe(1);
     expect(idx?.last_full_scan).toBeGreaterThan(0);
+  });
+
+  it('keeps manifest-scoped package stable ids equivalent across full, incremental, full', async () => {
+    fs.mkdirSync(path.join(projectRoot, 'web'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'package.json'),
+      JSON.stringify({ name: 'root', dependencies: { typescript: '5.3.0' } }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(projectRoot, 'web', 'package.json'),
+      JSON.stringify({ name: 'web', dependencies: { typescript: '5.9.0', next: '16.2.12' } }, null, 2),
+    );
+    fs.writeFileSync(path.join(projectRoot, 'web', 'page.ts'), 'export const page = true\n');
+
+    await scan(projectRoot, { mode: 'full', noAudit: true });
+    const first = await loadAllComponents(undefined, projectRoot);
+    const firstPackages = first.filter(component =>
+      component.name === 'typescript' || component.name === 'next'
+    );
+
+    expect(firstPackages).toHaveLength(3);
+    expect(new Set(firstPackages.map(component => component.stable_id)).size).toBe(3);
+    expect(firstPackages.every(component =>
+      component.source.config_files.every(file => !path.isAbsolute(file))
+    )).toBe(true);
+
+    fs.appendFileSync(path.join(projectRoot, 'src', 'b.ts'), '\n// incremental\n');
+    const incremental = await scan(projectRoot, { mode: 'auto', noAudit: true });
+    expect(incremental.timelineEntry?.scan_type).toBe('incremental');
+    const afterIncremental = await loadAllComponents(undefined, projectRoot);
+
+    await scan(projectRoot, { mode: 'full', noAudit: true });
+    const afterFull = await loadAllComponents(undefined, projectRoot);
+
+    const packageProjection = (components: ArchitectureComponent[]) => components
+      .filter(component => component.name === 'typescript' || component.name === 'next')
+      .map(component => [
+        component.type,
+        component.name,
+        component.version,
+        component.stable_id,
+        component.source.config_files[0],
+      ].join('|'))
+      .sort();
+
+    expect(packageProjection(afterIncremental)).toEqual(packageProjection(first));
+    expect(packageProjection(afterFull)).toEqual(packageProjection(first));
   });
 
   it('scenario 2: lockfile-trigger → edit package.json → mode=full', async () => {

@@ -27,6 +27,11 @@ export function componentBaseName(name) {
  * Components of different types never share an identity, even with the same base name.
  */
 export function identityKey(c) {
+    // A path-scoped stable id carries owning-manifest/source identity that a
+    // display-name alias must not erase. Name-only ids keep legacy aliasing for
+    // labels such as "Railway Config" and "Railway".
+    if (c.stable_id?.includes('__'))
+        return c.stable_id;
     return `${componentBaseName(c.name)}|${c.type}`;
 }
 /**
