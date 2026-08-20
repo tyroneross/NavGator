@@ -22,8 +22,9 @@ interface UseStatusOptions {
 
 export function useStatus(options: UseStatusOptions = {}): UseStatusResult {
   const { autoFetch = true, projectPath: explicitPath } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [status, setStatus] = useState<ProjectStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -66,14 +67,14 @@ export function useStatus(options: UseStatusOptions = {}): UseStatusResult {
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
   return {
     status,
-    isLoading,
+    isLoading: isLoading || (autoFetch && !canFetch),
     error,
     source,
     refresh,

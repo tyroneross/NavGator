@@ -24,6 +24,8 @@ import { useStatus, useComponents, usePrompts } from "@/lib/hooks"
 import type { View } from "@/app/page"
 import type { RulesApiResponse } from "@/lib/types"
 import { apiFetch } from "@/lib/api-client"
+import { useActiveProject } from "@/lib/project-context"
+import { projectApiUrl, projectHealth } from "@/lib/project-data"
 
 interface StatusOverviewProps {
   onSelectComponent: (name: string) => void
@@ -62,6 +64,7 @@ const quickActions = [
 ]
 
 export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType }: StatusOverviewProps) {
+  const { activeProjectPath, isHydrated } = useActiveProject()
   const { status, isLoading: statusLoading, error: statusError } = useStatus({ autoFetch: true })
   const { components, summary: componentsSummary, isLoading: componentsLoading } = useComponents({ autoFetch: true })
   const { calls, prompts, isLoading: promptsLoading } = usePrompts({ autoFetch: true })
@@ -69,7 +72,9 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
   // Fetch rules data
   const [rulesSummary, setRulesSummary] = useState<{ total: number; errors: number; warnings: number; info: number } | null>(null)
   useEffect(() => {
-    apiFetch("/api/rules")
+    if (!isHydrated) return
+    setRulesSummary(null)
+    apiFetch(projectApiUrl("/api/rules", activeProjectPath))
       .then((r) => r.json())
       .then((json: RulesApiResponse) => {
         if (json.success && json.data) {
@@ -77,7 +82,7 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
         }
       })
       .catch(() => {})
-  }, [])
+  }, [activeProjectPath, isHydrated])
 
   const isLoading = statusLoading || componentsLoading || promptsLoading
 
@@ -95,6 +100,7 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
   })()
 
   // Build stats from real data
+  const health = projectHealth(status, rulesSummary)
   const stats = [
     {
       label: "Components",
@@ -125,9 +131,9 @@ export function StatusOverview({ onSelectComponent, onNavigate, onNavigateToType
     },
     {
       label: "Health",
-      value: status?.stats.vulnerable_count === 0 ? "Good" : "Issues",
+      value: health.label,
       icon: CheckCircle2,
-      status: status?.stats.vulnerable_count === 0 ? "success" : "warning",
+      status: health.status,
       view: "settings" as View,
     },
   ]

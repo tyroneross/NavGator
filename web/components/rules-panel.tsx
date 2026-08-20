@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
   AlertTriangle,
   AlertCircle,
@@ -13,6 +13,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { RuleViolation, RulesApiResponse } from "@/lib/types"
 import { apiFetch } from "@/lib/api-client"
+import { useActiveProject } from "@/lib/project-context"
+import { projectApiUrl } from "@/lib/project-data"
 
 const severityConfig = {
   error: { icon: AlertCircle, color: "text-red-600", label: "ERROR" },
@@ -23,16 +25,17 @@ const severityConfig = {
 const severityOrder: Array<"error" | "warning" | "info"> = ["error", "warning", "info"]
 
 export function RulesPanel() {
+  const { activeProjectPath, isHydrated } = useActiveProject()
   const [violations, setViolations] = useState<RuleViolation[]>([])
   const [summary, setSummary] = useState<{ total: number; errors: number; warnings: number; info: number }>({ total: 0, errors: 0, warnings: 0, info: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchRules = async () => {
+  const fetchRules = useCallback(async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const res = await apiFetch("/api/rules")
+      const res = await apiFetch(projectApiUrl("/api/rules", activeProjectPath))
       const json: RulesApiResponse = await res.json()
       if (json.success && json.data) {
         setViolations(json.data.violations)
@@ -45,11 +48,14 @@ export function RulesPanel() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [activeProjectPath])
 
   useEffect(() => {
+    if (!isHydrated) return
+    setViolations([])
+    setSummary({ total: 0, errors: 0, warnings: 0, info: 0 })
     fetchRules()
-  }, [])
+  }, [fetchRules, isHydrated])
 
   // Group violations by severity
   const grouped = severityOrder.reduce<Record<string, RuleViolation[]>>((acc, sev) => {

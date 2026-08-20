@@ -24,8 +24,9 @@ interface UseComponentsOptions {
 
 export function useComponents(options: UseComponentsOptions = {}): UseComponentsResult {
   const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [components, setComponents] = useState<Component[]>([]);
   const [summary, setSummary] = useState<ComponentsSummary | null>(null);
@@ -68,15 +69,15 @@ export function useComponents(options: UseComponentsOptions = {}): UseComponents
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
   return {
     components,
     summary,
-    isLoading,
+    isLoading: isLoading || (autoFetch && !canFetch),
     error,
     source,
     refresh,

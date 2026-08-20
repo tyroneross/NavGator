@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import {
   Target,
   ArrowDownToLine,
@@ -17,7 +17,8 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { Component, Connection } from "@/lib/types"
-import { apiFetch } from "@/lib/api-client"
+import { useComponents, useConnections } from "@/lib/hooks"
+import { componentName as resolveComponentName, connectionsForComponent } from "@/lib/project-data"
 
 interface ImpactAnalysisProps {
   componentName: string | null
@@ -32,63 +33,17 @@ interface ComponentWithConnections {
 
 export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnalysisProps) {
   const [search, setSearch] = useState("")
-  const [components, setComponents] = useState<Component[]>([])
-  const [connections, setConnections] = useState<Connection[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  // Fetch components and connections from API
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true)
-      setError(null)
-      try {
-        const [compRes, connRes] = await Promise.all([
-          apiFetch("/api/components?refresh=true"),
-          apiFetch("/api/connections?refresh=true"),
-        ])
-
-        const compData = await compRes.json()
-        const connData = await connRes.json()
-
-        if (compData.success && compData.data?.components) {
-          setComponents(compData.data.components)
-        }
-        if (connData.success && connData.data?.connections) {
-          setConnections(connData.data.connections)
-        }
-
-        if (compData.error) {
-          setError(compData.error)
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load data")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [])
+  const { components, isLoading: componentsLoading, error: componentsError } = useComponents({ autoFetch: true })
+  const { connections, isLoading: connectionsLoading, error: connectionsError } = useConnections({ autoFetch: true })
+  const loading = componentsLoading || connectionsLoading
+  const error = componentsError || connectionsError
 
   // Build component data with connections
   const getComponentData = (name: string): ComponentWithConnections | null => {
     const component = components.find(c => c.name === name)
     if (!component) return null
 
-    // Find connections TO this component (incoming)
-    const incoming = connections.filter(conn =>
-      conn.toComponent === name ||
-      conn.to?.includes(component.id) ||
-      conn.to === name
-    )
-
-    // Find connections FROM this component (outgoing)
-    const outgoing = connections.filter(conn =>
-      conn.fromComponent === name ||
-      conn.from?.includes(component.id) ||
-      conn.from === name
-    )
+    const { incoming, outgoing } = connectionsForComponent(component.id, connections)
 
     return { component, incoming, outgoing }
   }
@@ -282,7 +237,9 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
                 >
                   <div className="flex items-center gap-2">
                     <FileCode className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-mono text-sm text-foreground">{conn.from}</span>
+                    <span className="text-sm font-medium text-foreground">
+                      {resolveComponentName(conn.fromComponent, components, conn.from)}
+                    </span>
                     <span className="text-xs text-muted-foreground">:{conn.line}</span>
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
@@ -321,12 +278,12 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
               {data.outgoing.map((conn, idx) => (
                 <button
                   key={idx}
-                  onClick={() => conn.toComponent && onSelectComponent(conn.toComponent)}
+                  onClick={() => conn.toComponent && onSelectComponent(resolveComponentName(conn.toComponent, components, conn.to))}
                   className="w-full rounded-lg border border-border bg-secondary/30 p-3 text-left transition-colors hover:bg-secondary/50"
                 >
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className="bg-primary/10 text-primary">
-                      {conn.toComponent || conn.to}
+                      {resolveComponentName(conn.toComponent, components, conn.to)}
                     </Badge>
                     <span className="text-xs text-muted-foreground">:{conn.line}</span>
                   </div>

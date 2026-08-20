@@ -24,8 +24,9 @@ interface UseConnectionsOptions {
 
 export function useConnections(options: UseConnectionsOptions = {}): UseConnectionsResult {
   const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [summary, setSummary] = useState<ConnectionsSummary | null>(null);
@@ -68,15 +69,15 @@ export function useConnections(options: UseConnectionsOptions = {}): UseConnecti
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
   return {
     connections,
     summary,
-    isLoading,
+    isLoading: isLoading || (autoFetch && !canFetch),
     error,
     source,
     refresh,

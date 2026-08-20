@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { RulesApiResponse } from "@/lib/types";
 import { resolveProjectPath } from "@/lib/server/project-path";
 import { runNavGatorCli } from "@/lib/server/navgator-cli";
-import { parseRulesCliOutput } from "../../../lib/server/rules-output.js";
+import { parseRulesCliOutput } from "../../../lib/server/rules-output";
 
 export async function GET(request: NextRequest) {
   const resolved = resolveProjectPath(request.nextUrl.searchParams);

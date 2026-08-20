@@ -29,8 +29,9 @@ interface UsePromptsOptions {
 
 export function usePrompts(options: UsePromptsOptions = {}): UsePromptsResult {
   const { demoMode = false, autoFetch = true, projectPath: explicitPath } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [calls, setCalls] = useState<LLMCall[]>([]);
   const [prompts, setPrompts] = useState<Prompt[]>([]);
@@ -105,16 +106,16 @@ export function usePrompts(options: UsePromptsOptions = {}): UsePromptsResult {
   );
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
   return {
     calls,
     prompts,
     summary,
-    isLoading,
+    isLoading: isLoading || (autoFetch && !canFetch),
     error,
     source,
     refresh,

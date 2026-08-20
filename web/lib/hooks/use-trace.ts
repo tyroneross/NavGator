@@ -32,8 +32,9 @@ export function useTrace(options: UseTraceOptions = {}): UseTraceResult {
     autoFetch = false,
     projectPath: explicitPath,
   } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [trace, setTrace] = useState<TraceResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,10 +77,10 @@ export function useTrace(options: UseTraceOptions = {}): UseTraceResult {
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch && component) {
+    if (autoFetch && component && canFetch) {
       fetchData();
     }
-  }, [autoFetch, component, fetchData]);
+  }, [autoFetch, component, canFetch, fetchData]);
 
-  return { trace, isLoading, error, refresh };
+  return { trace, isLoading: isLoading || (autoFetch && !canFetch), error, refresh };
 }

@@ -4,11 +4,13 @@ import { createContext, useContext, useState, useEffect, type ReactNode } from "
 
 interface ProjectContextValue {
   activeProjectPath: string | null
+  isHydrated: boolean
   setActiveProjectPath: (path: string | null) => void
 }
 
 const ProjectContext = createContext<ProjectContextValue>({
   activeProjectPath: null,
+  isHydrated: false,
   setActiveProjectPath: () => {},
 })
 
@@ -16,6 +18,7 @@ const ACTIVE_PROJECT_KEY = "navgator-active-project"
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [activeProjectPath, setActiveProjectPathState] = useState<string | null>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -23,6 +26,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (stored) {
       setActiveProjectPathState(stored)
     }
+    setIsHydrated(true)
   }, [])
 
   const setActiveProjectPath = (path: string | null) => {
@@ -35,7 +39,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <ProjectContext.Provider value={{ activeProjectPath, setActiveProjectPath }}>
+    <ProjectContext.Provider value={{ activeProjectPath, isHydrated, setActiveProjectPath }}>
       {children}
     </ProjectContext.Provider>
   )

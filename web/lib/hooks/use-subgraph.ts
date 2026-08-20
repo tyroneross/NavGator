@@ -34,8 +34,9 @@ export function useSubgraph(options: UseSubgraphOptions = {}): UseSubgraphResult
     autoFetch = false,
     projectPath: explicitPath,
   } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [subgraph, setSubgraph] = useState<SubgraphResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -77,10 +78,10 @@ export function useSubgraph(options: UseSubgraphOptions = {}): UseSubgraphResult
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
-  return { subgraph, isLoading, error, refresh };
+  return { subgraph, isLoading: isLoading || (autoFetch && !canFetch), error, refresh };
 }

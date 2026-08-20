@@ -21,8 +21,9 @@ interface UseCoverageOptions {
 
 export function useCoverage(options: UseCoverageOptions = {}): UseCoverageResult {
   const { autoFetch = true, projectPath: explicitPath } = options;
-  const { activeProjectPath } = useActiveProject();
+  const { activeProjectPath, isHydrated } = useActiveProject();
   const projectPath = explicitPath || activeProjectPath || undefined;
+  const canFetch = explicitPath !== undefined || isHydrated;
 
   const [coverage, setCoverage] = useState<CoverageReport | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,10 +61,10 @@ export function useCoverage(options: UseCoverageOptions = {}): UseCoverageResult
   }, [fetchData]);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && canFetch) {
       fetchData();
     }
-  }, [autoFetch, fetchData]);
+  }, [autoFetch, canFetch, fetchData]);
 
-  return { coverage, isLoading, error, refresh };
+  return { coverage, isLoading: isLoading || (autoFetch && !canFetch), error, refresh };
 }
