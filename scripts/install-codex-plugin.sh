@@ -66,6 +66,47 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
+# Replace exactly one validated package directory. npm preserves extraneous
+# files when the same local package version is installed again, so deleting the
+# old materialization is required for a truthful source refresh.
+remove_guarded_package_dir() {
+  local root_path="$1"
+  local relative_path="$2"
+
+  node - "$root_path" "$relative_path" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [rootInput, relativeInput] = process.argv.slice(2)
+const root = fs.realpathSync(rootInput)
+if (path.isAbsolute(relativeInput)) throw new Error(`Package path must be relative to ${root}`)
+const normalized = path.normalize(relativeInput)
+if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+  throw new Error(`Unsafe package path: ${relativeInput}`)
+}
+
+const target = path.resolve(root, normalized)
+const relative = path.relative(root, target)
+if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+  throw new Error(`Package path escapes ${root}: ${relativeInput}`)
+}
+
+let current = root
+for (const segment of relative.split(path.sep).filter(Boolean)) {
+  current = path.join(current, segment)
+  try {
+    if (fs.lstatSync(current).isSymbolicLink()) {
+      throw new Error(`Refusing symlinked package component: ${current}`)
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+}
+
+if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true })
+NODE
+}
+
 # Copy a file into the package tree without ever writing through a symlink.
 #
 # `cp` follows a destination symlink and writes to its target, so the refusal
@@ -525,6 +566,7 @@ SOURCE_PATH="./.codex/plugins/navgator-runtime/node_modules/@tyroneross/navgator
 
 info "Materializing the NavGator Codex runtime ($SCOPE_LABEL scope)..."
 mkdir -p "$RUNTIME_ROOT"
+remove_guarded_package_dir "$MARKETPLACE_ROOT" ".codex/plugins/navgator-runtime/node_modules/@tyroneross/navgator"
 npm install \
   --prefix "$RUNTIME_ROOT" \
   --ignore-scripts \
@@ -612,13 +654,20 @@ else
   # invariant the opt-out exists to hold. Discovering beats predicting on a
   # removal path; it also reaches caches left behind under the old
   # version-named scheme. Symlinked entries are refused, not followed.
-  for cached_dir in "$CODEX_HOME_ROOT/plugins/cache/navgator/navgator"/*; do
+  for cached_dir in \
+    "$CODEX_HOME_ROOT/plugins/cache/navgator/navgator"/* \
+    "$CODEX_HOME_ROOT/plugins/cache"/*/navgator/*; do
     [ -e "$cached_dir" ] || continue
     if [ -L "$cached_dir" ]; then
       warn "Refusing to touch a symlinked Codex plugin cache: $cached_dir"
       continue
     fi
     [ -d "$cached_dir" ] || continue
+    cache_relative="${cached_dir#"$CODEX_HOME_ROOT"/}"
+    if ! assert_safe_tree "$CODEX_HOME_ROOT" "$cache_relative" >/dev/null; then
+      warn "Refusing an unsafe Codex plugin cache path: $cached_dir"
+      continue
+    fi
     revoke_cached_mcp_registration "$cached_dir"
   done
 fi

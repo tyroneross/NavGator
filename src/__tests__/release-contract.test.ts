@@ -377,11 +377,14 @@ describe('release contract', () => {
       expect(hostInstaller).toContain('Refusing symlinked destination component');
     }
     expect(installer).toContain('npm install');
+    expect(installer).toContain('remove_guarded_package_dir "$MARKETPLACE_ROOT"');
+    expect(installer).toContain('fs.rmSync(target, { recursive: true, force: true })');
     expect(installer).toContain('navgator-runtime/node_modules/@tyroneross/navgator');
     expect(installer).toContain("path.join(packageDir, 'dist', 'mcp', 'server.js')");
     // The cache segment is the host's reference for the source, not a version
     // we pick — see 'never derives a host cache path from a version'.
     expect(installer).toContain('plugins/cache/navgator/navgator/$CODEX_CACHE_REF');
+    expect(installer).toContain('"$CODEX_HOME_ROOT/plugins/cache"/*/navgator/*');
     expect(installer).toContain('--prefix "$PACKAGE_DIR"');
     expect(installer).toContain("fs.openSync(candidate, 'wx', 0o600)");
     expect(installer).toContain('delete server.cwd');

@@ -4,7 +4,7 @@
 
 - **Source release target:** 0.9.1 (not published yet)
 - **Published npm version:** 0.9.0 (last verified 2026-06-08)
-- **Source of truth:** Checked-in `package.json`; host manifests must match it
+- **Source of truth:** Checked-in `package.json`; host manifests omit `version` so git/local host identity cannot drift from the installed runtime
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/NavGator
   - npm: `@tyroneross/navgator` 0.9.0
@@ -22,7 +22,7 @@
 
 | Source | Location | Notes |
 |---|---|---|
-| **Authoritative** | `package.json` | Checked-in release version; host manifests must match |
+| **Authoritative** | `package.json` | Checked-in npm/runtime version; host manifests intentionally omit semver |
 | GitHub | github.com/tyroneross/NavGator | Public mirror |
 | npm | `@tyroneross/navgator` | Published CLI and package artifact used by the materializing installers |
 | External marketplace manifest | RossLabs-AI-Toolkit catalog entry | Update only after the package is published |
@@ -46,7 +46,7 @@ When "latest" is ambiguous, distinguish the **local release target** from the **
 ## Release discipline (enforce before committing a version bump)
 
 1. Bump `version` in `package.json` and `package-lock.json`
-2. Synchronize `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and `.claude-plugin/marketplace.json`
+2. Keep `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, and the marketplace plugin entry free of `version`; only marketplace catalog metadata tracks the release
 3. Update the version stamp in `CLAUDE.md` if present
 4. Update this file's `Current` section + add an entry to `Version history` below
 5. Verify npm release readiness with the packed-artifact release verifier
