@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { request as nodeHttpRequest } from 'node:http'
 import { readFileSync, realpathSync } from 'node:fs'
-import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -464,7 +464,7 @@ async function probeDirectDashboardLoopback(packageDir, projectPath) {
       PORT: String(port),
       HOSTNAME: '0.0.0.0',
       NAVGATOR_PROJECT_PATH: projectPath,
-      NAVGATOR_CLI_ENTRY: path.join(packageDir, 'dist', 'cli', 'index.js'),
+      NAVGATOR_DASHBOARD_INSECURE: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -489,6 +489,13 @@ async function probeDirectDashboardLoopback(packageDir, projectPath) {
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
     assert.equal(healthy, true, `direct packed dashboard launcher becomes healthy: ${output}`)
+
+    const rulesUrl = new URL(`http://127.0.0.1:${port}/api/rules`)
+    rulesUrl.searchParams.set('path', projectPath)
+    const rulesResponse = await fetch(rulesUrl, { signal: AbortSignal.timeout(3_000) })
+    const rulesBody = await rulesResponse.json()
+    assert.equal(rulesResponse.status, 200, `direct packed dashboard rules route responds: ${output}`)
+    assert.equal(rulesBody.success, true, 'packed dashboard resolves its packaged CLI without injected paths')
 
     const external = Object.values(os.networkInterfaces())
       .flatMap((entries) => entries ?? [])
@@ -1410,7 +1417,6 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     env: userEnv,
   }
   run('bash', [installer, '--user'], userInstallOptions)
-  run('bash', [installer, '--user'], userInstallOptions)
   const userMarketplacePath = path.join(userHome, '.agents', 'plugins', 'marketplace.json')
   await access(userMarketplacePath)
   const userMarketplace = await readJson(userMarketplacePath)
@@ -1422,6 +1428,12 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   const userEntry = userMarketplace.plugins.find((plugin) => plugin.name === 'navgator')
   assert.ok(userEntry?.source?.path, 'Codex user marketplace has a concrete local source')
   const userPackageDir = path.resolve(userHome, userEntry.source.path)
+  const interruptedBackup = path.resolve(userPackageDir, '..', '..', '..', '.navgator-package-backup')
+  await rename(userPackageDir, interruptedBackup)
+  await mkdir(userPackageDir, { recursive: true })
+  await writeFile(path.join(userPackageDir, 'interrupted-install.txt'), 'incomplete\n')
+  run('bash', [installer, '--user'], userInstallOptions)
+  await assert.rejects(access(interruptedBackup), 'Codex refresh clears an interrupted-install backup')
   await assertNoDefaultMcp(userPackageDir, 'Codex default user registration')
 
   const userParams = { cwds: [realpathSync(workspace)] }
@@ -1702,12 +1714,10 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   )
 
   // Closure for the one-way-door defect: opting in must be reversible. A third
-  // run WITHOUT the flag has to undo both writes --with-mcp made. Reinstalling
-  // the same version restores no mutated manifest and prunes no extraneous
-  // file, and the versioned cache above still carries the registration Codex
-  // installed from the opt-in source — so only the installer's default branch
-  // can revoke it. The cache assertion is the one that fails on the unfixed
-  // installer, which did nothing at all without the flag.
+  // run WITHOUT the flag has to undo both writes --with-mcp made. The source
+  // replacement clears mutated package files, but the host-owned cache still
+  // carries the opt-in registration until the default branch revokes it. The
+  // cache assertion is the one that fails when that branch silently no-ops.
   run('bash', [installer, '--workspace'], { ...workspaceInstallOptions, timeout: 300_000 })
   await assertNoDefaultMcp(workspacePackageDir, 'Codex workspace registration after opt-out')
   await assertNoDefaultMcp(workspaceCacheDir, 'Codex installed workspace cache after opt-out')
