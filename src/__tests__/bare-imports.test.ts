@@ -56,6 +56,25 @@ describe('bare-import edges (uses-package)', () => {
     for (const cleanup of tmps) cleanup();
   });
 
+  it('marks prefix type-only relative imports without misclassifying inline type specifiers', async () => {
+    const { connections, cleanup } = await runScan(
+      {
+        'src/a.ts': `import type { A } from "./types";\nexport type { B } from "./other";\nimport { type C, runtime } from "./mixed";\n`,
+        'src/types.ts': `export type A = string;\n`,
+        'src/other.ts': `export type B = number;\n`,
+        'src/mixed.ts': `export type C = boolean; export const runtime = true;\n`,
+      },
+      [],
+    );
+    tmps.push(cleanup);
+
+    const imports = connections.filter(connection => connection.connection_type === 'imports');
+    const bySymbol = new Map(imports.map(connection => [connection.code_reference.symbol, connection]));
+    expect(bySymbol.get('./types')?.runtime_relevance).toBe('type-only');
+    expect(bySymbol.get('./other')?.runtime_relevance).toBe('type-only');
+    expect(bySymbol.get('./mixed')?.runtime_relevance).toBe('runtime');
+  });
+
   it('plain `import X from "react"` emits uses-package edge', async () => {
     const { connections, cleanup } = await runScan(
       {

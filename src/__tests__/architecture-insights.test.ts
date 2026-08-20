@@ -76,6 +76,21 @@ describe('architecture insights', () => {
     expect(cycles[0]).toEqual(['core/a', 'core/b', 'core/c', 'core/a']);
   });
 
+  it('excludes erased type-only back edges from runtime cycles only', () => {
+    const a = createComponent({ name: 'core/a', type: 'component', file: 'src/core/a.ts' });
+    const b = createComponent({ name: 'core/b', type: 'component', file: 'src/core/b.ts' });
+    const runtime = createConnection(a, b, { connection_type: 'imports' });
+    const typeOnly = createConnection(b, a, {
+      connection_type: 'imports',
+      runtime_relevance: 'type-only',
+    });
+
+    expect(detectImportCycles([a, b], [runtime, typeOnly])).toEqual([]);
+    // Degree analysis still counts source coupling from erased imports.
+    expect(getTopFanOut([a, b], [runtime, typeOnly], 5).map(entry => entry.count))
+      .toEqual([1, 1]);
+  });
+
   it('does NOT flag a deep module (high fan-in, low fan-out) as shallow', () => {
     // core/types is imported by 5 modules and imports nothing → deep.
     const core = createComponent({ name: 'core/types', type: 'component', file: 'src/core/types.ts' });

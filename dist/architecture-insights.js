@@ -88,6 +88,7 @@ export function detectShallowModules(components, connections, opts) {
 }
 export function detectImportCycles(components, connections, limit = 5) {
     const importEdges = getImportConnections(components, connections)
+        .filter(({ connection }) => connection.runtime_relevance !== 'type-only')
         .filter(({ from, to }) => isInternalCodeComponent(from) && isInternalCodeComponent(to));
     const graph = new Map();
     const names = new Map();

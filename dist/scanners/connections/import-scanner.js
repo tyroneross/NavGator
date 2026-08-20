@@ -12,7 +12,7 @@ const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 // Module specifier patterns. Candidates are filtered to relative paths or
 // aliases configured by the nearest owning tsconfig/jsconfig.
 const ES_IMPORT_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"])/g;
-const ES_REEXPORT_RE = /export\s+(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+['"]([^'"]+)['"]/g;
+const ES_REEXPORT_RE = /export\s+(?:type\s+)?(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+['"]([^'"]+)['"]/g;
 const REQUIRE_RE = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const DYNAMIC_IMPORT_RE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 // Bare specifier patterns — npm package imports (NOT relative, NOT alias).
@@ -196,13 +196,8 @@ function loadPathAliasesForImporter(importerFile, projectRoot, cache) {
         cache.set(dir, fallback);
     return fallback;
 }
-/**
- * Extract import specifiers from file content.
- * Captures relative imports and aliases from the owning project config while
- * skipping package imports.
- */
 function extractImports(content, pathAliases) {
-    const specifiers = [];
+    const specifiers = new Map();
     const patterns = [
         ES_IMPORT_RE, ES_REEXPORT_RE, REQUIRE_RE, DYNAMIC_IMPORT_RE,
     ];
@@ -212,11 +207,14 @@ function extractImports(content, pathAliases) {
         while ((match = pattern.exec(content)) !== null) {
             const specifier = match[1];
             if (specifier && (specifier.startsWith('.') || isConfiguredAlias(specifier, pathAliases))) {
-                specifiers.push(specifier);
+                const typeOnly = (pattern === ES_IMPORT_RE && /^\s*import\s+type\b/.test(match[0])) ||
+                    (pattern === ES_REEXPORT_RE && /^\s*export\s+type\b/.test(match[0]));
+                // Runtime use wins if the same specifier appears in both forms.
+                specifiers.set(specifier, (specifiers.get(specifier) ?? true) && typeOnly);
             }
         }
     }
-    return [...new Set(specifiers)];
+    return [...specifiers].map(([specifier, typeOnly]) => ({ specifier, typeOnly }));
 }
 /**
  * Extract bare package specifiers from file content.
@@ -401,10 +399,10 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
             const pathAliases = loadPathAliasesForImporter(file, projectRoot, pathAliasCache);
             const specifiers = extractImports(content, pathAliases);
             for (const spec of specifiers) {
-                const resolved = resolveImport(spec, importerDir, projectRoot, knownFiles, pathAliases);
+                const resolved = resolveImport(spec.specifier, importerDir, projectRoot, knownFiles, pathAliases);
                 if (!resolved)
                     continue;
-                const line = findImportLine(content, spec);
+                const line = findImportLine(content, spec.specifier);
                 connections.push({
                     connection_id: generateConnectionId('imports'),
                     from: {
@@ -418,11 +416,12 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
                     connection_type: 'imports',
                     code_reference: {
                         file,
-                        symbol: spec,
+                        symbol: spec.specifier,
                         symbol_type: 'import',
                         line_start: line,
                     },
                     detected_from: 'import-scanner',
+                    runtime_relevance: spec.typeOnly ? 'type-only' : 'runtime',
                     confidence: 1.0,
                     timestamp: now,
                     last_verified: now,

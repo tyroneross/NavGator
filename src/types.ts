@@ -278,6 +278,10 @@ export interface ArchitectureConnection {
     confidence: number;         // 0-1
   };
 
+  // Import erasure is orthogonal to semantic environment classification.
+  // `type-only` edges are real source coupling but do not execute at runtime.
+  runtime_relevance?: 'runtime' | 'type-only';
+
   // Metadata
   description?: string;         // "Creates user in database"
   detected_from: string;        // Detection method/pattern that found this
