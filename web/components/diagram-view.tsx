@@ -126,7 +126,8 @@ function layoutGraph(graphNodes: GraphNode[], direction: "TB" | "LR") {
     const group = byLayer.get(layerId) || []
     // Cap at 12 nodes per layer to keep diagram readable
     const visible = group.slice(0, 12)
-    const rowWidth = visible.length * (NODE_W + H_GAP) - H_GAP
+    const displayCount = visible.length + (group.length > 12 ? 1 : 0)
+    const rowWidth = displayCount * (NODE_W + H_GAP) - H_GAP
     const layerWidth = Math.max(rowWidth + LAYER_PAD * 2, 200)
 
     layers.push({
@@ -337,7 +338,7 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
   const [showFlowArrows, setShowFlowArrows] = useState(true)
   const [selectedNode, setSelectedNode] = useState<{ node: GraphNode; x: number; y: number } | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const { activeProjectPath } = useActiveProject()
+  const { activeProjectPath, isHydrated } = useActiveProject()
 
   useEffect(() => {
     async function fetchGraph() {
@@ -360,8 +361,8 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
       }
       setIsLoading(false)
     }
-    fetchGraph()
-  }, [activeProjectPath])
+    if (isHydrated) fetchGraph()
+  }, [activeProjectPath, isHydrated])
 
   const currentNodes = graphData?.nodes || DEMO_NODES
   const currentEdges = graphData?.edges || DEMO_EDGES
@@ -369,6 +370,10 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
   const layout = useMemo(
     () => layoutGraph(currentNodes, direction),
     [currentNodes, direction]
+  )
+  const visibleNodes = useMemo(
+    () => layout.nodes.filter((node) => node.type !== "overflow").map((node) => node.node),
+    [layout.nodes]
   )
 
   // Filter edges to those where both endpoints are positioned in the layout
@@ -398,7 +403,7 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
   const handleCopy = useCallback(() => {
     let code = `flowchart ${direction}\n`
     const byLayer = new Map<string, GraphNode[]>()
-    for (const n of currentNodes) {
+    for (const n of visibleNodes) {
       const l = n.layer || "backend"
       if (!byLayer.has(l)) byLayer.set(l, [])
       byLayer.get(l)!.push(n)
@@ -420,7 +425,7 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
     navigator.clipboard.writeText(code)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }, [currentNodes, flowEdges, direction])
+  }, [visibleNodes, flowEdges, direction])
 
   const getNodePos = (nodeId: string) => {
     const n = layout.nodes.find((n) => n.id === nodeId)
@@ -445,7 +450,9 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Architecture Diagram</h1>
           <p className="text-sm text-muted-foreground">
-            {isDemo ? "Demo data — run a scan to see your real architecture" : `${currentNodes.length} components, ${flowEdges.length} connections`}
+            {isDemo
+              ? "Demo data — run a scan to see your real architecture"
+              : `Showing ${visibleNodes.length} of ${currentNodes.length} components and ${flowEdges.length} of ${currentEdges.length} connections`}
           </p>
         </div>
       </div>
@@ -514,9 +521,18 @@ export function DiagramView({ selectedComponent }: DiagramViewProps) {
 
         <Button variant="outline" size="sm" className="gap-2 bg-transparent" onClick={handleCopy}>
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          {copied ? "Copied" : "Copy Mermaid"}
+          {copied ? "Copied" : "Copy visible Mermaid"}
         </Button>
       </div>
+
+      {!isDemo && visibleNodes.length < currentNodes.length && (
+        <div className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 p-3">
+          <Info className="h-4 w-4 shrink-0 text-info" />
+          <p className="text-sm text-info">
+            The interactive view limits each layer to 12 components for readability. Clipboard export matches the visible subset.
+          </p>
+        </div>
+      )}
 
       {/* Diagram */}
       <Card className="bg-card overflow-hidden">

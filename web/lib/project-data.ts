@@ -26,6 +26,11 @@ export function componentName(componentId: string | undefined, components: Compo
   return components.find((component) => component.id === componentId)?.name || fallback
 }
 
+export function pageSlice<T>(items: T[], page: number, pageSize: number): T[] {
+  const safePage = Math.max(1, page)
+  return items.slice((safePage - 1) * pageSize, safePage * pageSize)
+}
+
 export function projectHealth(status: ProjectStatus | null, rules: RulesSummary | null) {
   if (!status || status.stats.total_components === 0) return { label: "No data", status: "warning" as const }
   if (!rules) return { label: "Checking", status: "checking" as const }

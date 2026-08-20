@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   ArrowRight,
   ArrowLeft,
@@ -17,7 +17,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-import { useConnections } from "@/lib/hooks"
+import { useComponents, useConnections } from "@/lib/hooks"
+import { componentName, pageSlice } from "@/lib/project-data"
 
 interface ConnectionsPanelProps {
   selectedComponent: string | null
@@ -74,20 +75,34 @@ const connectionTypeLabels: Record<string, string> = {
   "other": "Other",
 }
 
+const PAGE_SIZE = 100
+
 export function ConnectionsPanel({ selectedComponent, onSelectComponent }: ConnectionsPanelProps) {
   const { connections, isLoading, source, refresh } = useConnections({ autoFetch: true })
+  const { components } = useComponents({ autoFetch: true })
   const [search, setSearch] = useState("")
   const [activeTab, setActiveTab] = useState("all")
+  const [page, setPage] = useState(1)
 
   const filtered = connections.filter((c) => {
     const matchesSearch =
-      c.from.toLowerCase().includes(search.toLowerCase()) ||
-      c.to.toLowerCase().includes(search.toLowerCase()) ||
+      componentName(c.fromComponent, components, c.from).toLowerCase().includes(search.toLowerCase()) ||
+      componentName(c.toComponent, components, c.to).toLowerCase().includes(search.toLowerCase()) ||
       c.symbol.toLowerCase().includes(search.toLowerCase())
 
     if (activeTab === "all") return matchesSearch
     return matchesSearch && c.type === activeTab
   })
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const visibleConnections = pageSlice(filtered, page, PAGE_SIZE)
+
+  useEffect(() => {
+    setPage(1)
+  }, [activeTab, search])
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount))
+  }, [pageCount])
 
   // Dynamically group by connection type (only types that exist in the data)
   const typeCounts = connections.reduce<Record<string, number>>((acc, c) => {
@@ -151,7 +166,7 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
           <TabsTrigger value="all">
             All
             <Badge variant="secondary" className="ml-2 h-5 px-1.5 bg-muted">
-              {filtered.length}
+              {connections.length}
             </Badge>
           </TabsTrigger>
           {activeTypes.map((type) => (
@@ -166,7 +181,7 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
 
         <TabsContent value={activeTab} className="mt-4">
           <div className="space-y-3">
-            {filtered.map((connection, idx) => (
+            {visibleConnections.map((connection, idx) => (
               <Card
                 key={`${connection.id}-${idx}`}
                 className="bg-card transition-colors hover:bg-card/80"
@@ -176,20 +191,19 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
                     <div className="flex items-center gap-2 text-sm">
                       <button
                         onClick={() => {
-                          const name = connection.from.split("/").pop()?.replace(/\.(ts|tsx|js|jsx)$/, "") || connection.from
-                          onSelectComponent(name)
+                          onSelectComponent(componentName(connection.fromComponent, components, connection.from))
                         }}
                         className="flex items-center gap-1.5 rounded bg-secondary px-2 py-1 font-mono text-xs text-foreground hover:bg-secondary/80"
                       >
                         <FileCode className="h-3.5 w-3.5 text-muted-foreground" />
-                        {connection.from}
+                        {componentName(connection.fromComponent, components, connection.from)}
                       </button>
                       <ArrowRight className="h-4 w-4 text-muted-foreground" />
                       <button
-                        onClick={() => onSelectComponent(connection.to)}
+                        onClick={() => onSelectComponent(componentName(connection.toComponent, components, connection.to))}
                         className="flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 font-mono text-xs text-primary hover:bg-primary/20"
                       >
-                        {connection.to}
+                        {componentName(connection.toComponent, components, connection.to)}
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
@@ -227,6 +241,23 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
                   <ArrowLeft className="h-6 w-6 text-muted-foreground" />
                 </div>
                 <p className="mt-4 text-sm text-muted-foreground">No connections found</p>
+              </div>
+            )}
+
+            {filtered.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between border-t border-border pt-4">
+                <p className="text-xs text-muted-foreground">
+                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page === 1}>
+                    Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground">Page {page} of {pageCount}</span>
+                  <Button variant="outline" size="sm" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page === pageCount}>
+                    Next
+                  </Button>
+                </div>
               </div>
             )}
           </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { componentName, connectionsForComponent, projectApiUrl, projectHealth } from "../../web/lib/project-data.js"
+import { componentName, connectionsForComponent, pageSlice, projectApiUrl, projectHealth } from "../../web/lib/project-data.js"
 
 describe("project dashboard data helpers", () => {
   it("scopes requests to the selected project", () => {
@@ -26,5 +26,10 @@ describe("project dashboard data helpers", () => {
     const status = { stats: { total_components: 1, vulnerable_count: 0 } } as never
     expect(projectHealth(status, null)).toEqual({ label: "Checking", status: "checking" })
     expect(projectHealth(status, { total: 1, errors: 1, warnings: 0, info: 0 }).label).toBe("Issues")
+  })
+
+  it("bounds large connection lists", () => {
+    expect(pageSlice(Array.from({ length: 205 }, (_, index) => index), 2, 100))
+      .toEqual(Array.from({ length: 100 }, (_, index) => index + 100))
   })
 })
