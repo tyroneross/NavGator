@@ -1237,10 +1237,8 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
   )
   assert.equal(installedCliVersion, expectedVersion, 'installed Claude CLI version matches package')
 
-  // Opt-in write path. `.mcp.json` is a LEAF the package-dir component
-  // assertions never covered, and `cp` follows a destination symlink, so the
-  // refusal has to happen before the write. The default installs above removed
-  // any `.mcp.json`, which leaves the destination free to plant.
+  // Same-version refresh replaces the guard-validated package directory. A
+  // planted MCP leaf symlink is removed as an entry and never followed.
   const claudePackageDir = path.join(
     claudeConfig,
     'navgator-runtime',
@@ -1249,17 +1247,16 @@ async function probeClaude(packageDir, tempRoot, expectedVersion) {
     'navgator',
   )
   const claudeMcpLink = path.join(claudePackageDir, '.mcp.json')
-  await assertInstallerSymlinkRejected({
-    label: 'Claude opt-in MCP config guard',
-    installer,
-    args: ['--global', '--with-mcp'],
+  const claudeMcpVictim = path.join(tempRoot, 'victim-claude-mcp.json')
+  await writeFile(claudeMcpVictim, 'Claude MCP victim: unchanged\n')
+  await symlink(claudeMcpVictim, claudeMcpLink, 'file')
+  run('bash', [installer, '--global', '--with-mcp'], {
     cwd: packageDir,
     env,
-    linkPath: claudeMcpLink,
-    victimPath: path.join(tempRoot, 'victim-claude-mcp.json'),
-    victimKind: 'file',
     timeout: 300_000,
   })
+  assert.equal(await readFile(claudeMcpVictim, 'utf8'), 'Claude MCP victim: unchanged\n')
+  assert.equal((await lstat(claudeMcpLink)).isSymbolicLink(), false, 'fresh Claude MCP config replaces the stale symlink entry')
   await rm(claudeMcpLink, { force: true })
 }
 
