@@ -105,13 +105,7 @@ const target = resolveSafe(targetInput)
 const backup = resolveSafe(backupInput)
 const absent = resolveSafe(`${backupInput}.absent`)
 if (action === 'stage') {
-  // Recover an interrupted prior refresh before staging this one. This keeps a
-  // SIGKILL from turning the next installer run into a rollback-only failure.
-  if (fs.existsSync(backup) || fs.existsSync(absent)) {
-    fs.rmSync(target, { recursive: true, force: true })
-    if (fs.existsSync(backup)) fs.renameSync(backup, target)
-    fs.rmSync(absent, { force: true })
-  }
+  if (fs.existsSync(backup) || fs.existsSync(absent)) throw new Error(`Package backup already exists: ${backup}`)
   if (fs.existsSync(target)) fs.renameSync(target, backup)
   else fs.writeFileSync(absent, '')
 } else if (action === 'rollback') {

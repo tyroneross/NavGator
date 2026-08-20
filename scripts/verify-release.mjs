@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { request as nodeHttpRequest } from 'node:http'
 import { readFileSync, realpathSync } from 'node:fs'
-import { access, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -457,10 +457,11 @@ async function rawHttpRequest(url, options = {}) {
 
 async function probeDirectDashboardLoopback(packageDir, projectPath) {
   const port = await freePort()
+  const { NAVGATOR_CLI_ENTRY: _ambientCliEntry, ...dashboardEnv } = process.env
   const child = spawn(process.execPath, [path.join(packageDir, 'web', 'server.cjs')], {
     cwd: packageDir,
     env: {
-      ...process.env,
+      ...dashboardEnv,
       PORT: String(port),
       HOSTNAME: '0.0.0.0',
       NAVGATOR_PROJECT_PATH: projectPath,
@@ -1417,6 +1418,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     env: userEnv,
   }
   run('bash', [installer, '--user'], userInstallOptions)
+  run('bash', [installer, '--user'], userInstallOptions)
   const userMarketplacePath = path.join(userHome, '.agents', 'plugins', 'marketplace.json')
   await access(userMarketplacePath)
   const userMarketplace = await readJson(userMarketplacePath)
@@ -1428,12 +1430,6 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   const userEntry = userMarketplace.plugins.find((plugin) => plugin.name === 'navgator')
   assert.ok(userEntry?.source?.path, 'Codex user marketplace has a concrete local source')
   const userPackageDir = path.resolve(userHome, userEntry.source.path)
-  const interruptedBackup = path.resolve(userPackageDir, '..', '..', '..', '.navgator-package-backup')
-  await rename(userPackageDir, interruptedBackup)
-  await mkdir(userPackageDir, { recursive: true })
-  await writeFile(path.join(userPackageDir, 'interrupted-install.txt'), 'incomplete\n')
-  run('bash', [installer, '--user'], userInstallOptions)
-  await assert.rejects(access(interruptedBackup), 'Codex refresh clears an interrupted-install backup')
   await assertNoDefaultMcp(userPackageDir, 'Codex default user registration')
 
   const userParams = { cwds: [realpathSync(workspace)] }

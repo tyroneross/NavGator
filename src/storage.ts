@@ -35,8 +35,8 @@ import {
  * RENAME BEHAVIOR (Run 1.6 — item #6):
  * For path-disambiguated types (source-defined components plus manifest-owned
  * packages, frameworks, databases, queues, and infrastructure) the resulting
- * stable_id includes the canonical path. This
- * prevents collisions when two components share a name in different files
+ * stable_id includes the canonical path. This prevents collisions when two
+ * components share a name in different files
  * (e.g. `src/utils/index.ts` vs `src/lib/index.ts` — both named `index` for
  * the `component` type). The tradeoff: when a file is RENAMED or MOVED its
  * stable_id changes, so the merge step treats the renamed file as a brand-new
