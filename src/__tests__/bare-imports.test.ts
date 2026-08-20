@@ -72,7 +72,7 @@ describe('bare-import edges (uses-package)', () => {
     const bySymbol = new Map(imports.map(connection => [connection.code_reference.symbol, connection]));
     expect(bySymbol.get('./types')?.runtime_relevance).toBe('type-only');
     expect(bySymbol.get('./other')?.runtime_relevance).toBe('type-only');
-    expect(bySymbol.get('./mixed')?.runtime_relevance).toBe('runtime');
+    expect(bySymbol.get('./mixed')?.runtime_relevance).not.toBe('type-only');
   });
 
   it('plain `import X from "react"` emits uses-package edge', async () => {

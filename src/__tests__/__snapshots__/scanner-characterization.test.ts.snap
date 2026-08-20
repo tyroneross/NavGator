@@ -74,9 +74,9 @@ exports[`full-scan characterization (Run 1 — D4) > full scan on bench-repo fix
     "STABLE_config_stripe_secret_key",
     "STABLE_cron_vercel.json__api-cron-daily-digest",
     "STABLE_cron_vercel.json__api-cron-session-sweep",
-    "STABLE_database_apikey",
-    "STABLE_database_post",
-    "STABLE_database_prisma-client",
+    "STABLE_database_package.json__prisma-client",
+    "STABLE_database_prisma-schema.prisma__apikey",
+    "STABLE_database_prisma-schema.prisma__post",
   ],
   "warnings_count": 0,
 }

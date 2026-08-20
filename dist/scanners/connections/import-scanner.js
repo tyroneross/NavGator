@@ -421,7 +421,7 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
                         line_start: line,
                     },
                     detected_from: 'import-scanner',
-                    runtime_relevance: spec.typeOnly ? 'type-only' : 'runtime',
+                    ...(spec.typeOnly ? { runtime_relevance: 'type-only' } : {}),
                     confidence: 1.0,
                     timestamp: now,
                     last_verified: now,
