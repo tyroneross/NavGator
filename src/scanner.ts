@@ -5,7 +5,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { spawnSync } from 'node:child_process';
+import { glob, globSync } from 'glob';
 
 const DEFAULT_IGNORE_PATTERNS = [
   '**/node_modules/**',
@@ -48,6 +49,30 @@ function getIgnorePatterns(root: string): string[] {
   } catch {
     return DEFAULT_IGNORE_PATTERNS;
   }
+}
+
+/**
+ * Remove files ignored by the owning Git repository. `.gitignore` is the
+ * broadest source-grounded signal that a generated tree is not project source
+ * (for example the packaged `web/runtime/` dashboard). Tracked files are never
+ * removed by `git check-ignore`, even when a later pattern would match them.
+ * Non-Git directories and unavailable Git binaries fail open to the explicit
+ * NavGator ignore list above.
+ */
+export function excludeGitIgnoredFiles(root: string, files: string[]): string[] {
+  if (files.length === 0) return files;
+  const input = `${files.join('\0')}\0`;
+  const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
+    cwd: root,
+    input,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  if (result.status !== 0 && result.status !== 1) return files;
+  const ignored = new Set(
+    (result.stdout || '').split('\0').filter(Boolean).map(file => file.replace(/\\/g, '/'))
+  );
+  return files.filter(file => !ignored.has(file.replace(/\\/g, '/')));
 }
 import {
   ArchitectureComponent,
@@ -257,76 +282,45 @@ export function discoverStackRoots(
   root: string,
   verbose: boolean
 ): Array<{ path: string; origin: string }> {
-  // Uses the module-level `fs`/`path` namespace imports at the top of
-  // the file. ESM-only — no `require()` here.
+  // Use the same repo-root ignore contract as source discovery. `globSync`
+  // handles arbitrary `.navgatorignore` patterns; the prior hand-written
+  // directory list could not. maxDepth=5 means a manifest can sit under four
+  // wrapper directories, matching the previous bounded walk.
+  const fixedManifestPatterns = STACK_MANIFESTS.map(manifest => `**/${manifest}`);
+  const variableManifestPatterns = ['**/*.csproj', '**/*.xcodeproj', '**/*.xcworkspace'];
+  const matches = globSync([...fixedManifestPatterns, ...variableManifestPatterns], {
+    cwd: root,
+    ignore: getIgnorePatterns(root),
+    dot: false,
+    follow: false,
+    maxDepth: 5,
+  });
 
-  const hasManifest = (dir: string): boolean => {
-    for (const m of STACK_MANIFESTS) {
-      if (fs.existsSync(path.join(dir, m))) return true;
-    }
-    // Project containers without a fixed manifest filename.
-    try {
-      const entries = fs.readdirSync(dir);
-      if (entries.some(e =>
-        e.endsWith('.csproj') ||
-        e.endsWith('.xcodeproj') ||
-        e.endsWith('.xcworkspace')
-      )) return true;
-    } catch {
-      // unreadable dir → not a stack root
-    }
-    return false;
-  };
-
-  const skipDirs = new Set([
-    'node_modules', 'dist', 'build', '.git', '.next', '.cache',
-    '__pycache__', '.venv', 'venv', '.tox', 'target', 'vendor',
-    'coverage', '.pytest_cache', '.navgator', '.ibr', '.bookmark',
-    '.claude',
-  ]);
-
-  const maxDepth = 4;
-  const found: Array<{ path: string; origin: string }> = hasManifest(root)
-    ? [{ path: root, origin: '.' }]
-    : [];
-  const pending: Array<{ dir: string; origin: string; depth: number }> = [
-    { dir: root, origin: '', depth: 0 },
-  ];
-  let cursor = 0;
-
-  while (cursor < pending.length) {
-    const current = pending[cursor++];
-    if (current.depth >= maxDepth) continue;
-
-    let entries: string[];
-    try {
-      entries = fs.readdirSync(current.dir).sort();
-    } catch {
-      continue;
-    }
-
-    for (const name of entries) {
-      if (name.startsWith('.') || skipDirs.has(name)) continue;
-      const child = path.join(current.dir, name);
-      try {
-        // Do not follow directory symlinks; this keeps discovery bounded and
-        // avoids cycles through workspace or package-manager links.
-        if (!fs.lstatSync(child).isDirectory()) continue;
-      } catch {
-        continue;
-      }
-
-      const origin = current.origin
-        ? `${current.origin}/${name}`
-        : name;
-      if (hasManifest(child)) {
-        found.push({ path: child, origin });
-        continue;
-      }
-
-      pending.push({ dir: child, origin, depth: current.depth + 1 });
-    }
+  const ignoredFiltered = excludeGitIgnoredFiles(root, matches);
+  const origins = new Set<string>();
+  for (const match of ignoredFiltered) {
+    const normalized = match.replace(/\\/g, '/');
+    const origin = path.posix.dirname(normalized);
+    origins.add(origin === '.' ? '.' : origin);
   }
+
+  // Preserve the established rule: the project root is allowed to have child
+  // stack roots, but a nested stack root prunes descendants below itself.
+  const sortedOrigins = [...origins].sort((a, b) => {
+    const depth = (value: string) => value === '.' ? 0 : value.split('/').length;
+    return depth(a) - depth(b) || a.localeCompare(b);
+  });
+  const retained: string[] = [];
+  for (const origin of sortedOrigins) {
+    if (origin !== '.' && retained.some(parent =>
+      parent !== '.' && (origin === parent || origin.startsWith(`${parent}/`))
+    )) continue;
+    retained.push(origin);
+  }
+  const found = retained.map(origin => ({
+    path: origin === '.' ? root : path.join(root, ...origin.split('/')),
+    origin,
+  }));
 
   if (found.length === 0) {
     // Nothing in the bounded nested search either — keep legacy behavior so older
@@ -715,14 +709,16 @@ export async function scan(
   // Phase 0: File Discovery & Change Detection
   // ==========================================================================
 
-  const sourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,rs,h,m}', {
+  const discoveredSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,rs,h,m}', {
     cwd: root,
     ignore: getIgnorePatterns(root),
   });
+  const sourceFiles = excludeGitIgnoredFiles(root, discoveredSourceFiles);
   const contentEnabled = options.content === true || process.env['NAVGATOR_CONTENT'] === '1';
-  const markdownFiles = contentEnabled
+  const discoveredMarkdownFiles = contentEnabled
     ? await glob('**/*.md', { cwd: root, ignore: getIgnorePatterns(root) })
     : [];
+  const markdownFiles = excludeGitIgnoredFiles(root, discoveredMarkdownFiles);
   const scannableFiles = [...sourceFiles, ...markdownFiles];
 
   // For change detection, also include manifest files at the project root
@@ -765,10 +761,10 @@ export async function scan(
     }
   }
 
-  const rustManifestFiles = await glob('**/{Cargo.toml,Cargo.lock}', {
+  const rustManifestFiles = excludeGitIgnoredFiles(root, await glob('**/{Cargo.toml,Cargo.lock}', {
     cwd: root,
     ignore: getIgnorePatterns(root),
-  });
+  }));
   for (const file of rustManifestFiles) {
     if (!manifestFiles.includes(file)) manifestFiles.push(file);
   }

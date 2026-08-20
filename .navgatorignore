@@ -1,0 +1,3 @@
+# Repo-root scoped NavGator scan exclusions.
+# Fixture roots remain fully scannable when invoked as the explicit project root.
+__tests__/fixtures/**

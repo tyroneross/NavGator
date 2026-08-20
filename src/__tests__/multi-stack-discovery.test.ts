@@ -12,7 +12,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { discoverStackRoots, scan } from '../scanner.js';
+import { execFileSync } from 'node:child_process';
+import { discoverStackRoots, excludeGitIgnoredFiles, scan } from '../scanner.js';
 
 let tmp: string;
 
@@ -81,6 +82,36 @@ describe('discoverStackRoots', () => {
     const out = discoverStackRoots(tmp, false);
     const origins = out.map(s => s.origin).sort();
     expect(origins).toEqual(['app']);
+  });
+
+  it('applies repo-root .navgatorignore patterns to nested stack discovery', () => {
+    fs.mkdirSync(path.join(tmp, '__tests__', 'fixtures', 'bench'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'web'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.navgatorignore'), '__tests__/fixtures/**\n');
+    fs.writeFileSync(path.join(tmp, '__tests__', 'fixtures', 'bench', 'package.json'), '{}');
+    fs.writeFileSync(path.join(tmp, 'web', 'package.json'), '{}');
+
+    expect(discoverStackRoots(tmp, false).map(root => root.origin)).toEqual(['web']);
+  });
+
+  it('keeps an explicit fixture root scannable', () => {
+    fs.writeFileSync(path.join(tmp, 'package.json'), '{}');
+    fs.writeFileSync(path.join(tmp, '.navgatorignore'), '__tests__/fixtures/**\n');
+
+    expect(discoverStackRoots(tmp, false)).toEqual([{ path: tmp, origin: '.' }]);
+  });
+
+  it('filters git-ignored generated files but fails open outside git', () => {
+    fs.writeFileSync(path.join(tmp, 'source.ts'), 'export const source = true');
+    expect(excludeGitIgnoredFiles(tmp, ['source.ts'])).toEqual(['source.ts']);
+
+    execFileSync('git', ['init', '--quiet'], { cwd: tmp });
+    fs.writeFileSync(path.join(tmp, '.gitignore'), 'generated/**\n');
+    fs.mkdirSync(path.join(tmp, 'generated'));
+    fs.writeFileSync(path.join(tmp, 'generated', 'bundle.js'), 'generated');
+
+    expect(excludeGitIgnoredFiles(tmp, ['source.ts', 'generated/bundle.js']))
+      .toEqual(['source.ts']);
   });
 
   it('detects .csproj as a .NET stack root', () => {

@@ -2,6 +2,15 @@
  * NavGator Main Scanner
  * Orchestrates all component and connection scanners
  */
+/**
+ * Remove files ignored by the owning Git repository. `.gitignore` is the
+ * broadest source-grounded signal that a generated tree is not project source
+ * (for example the packaged `web/runtime/` dashboard). Tracked files are never
+ * removed by `git check-ignore`, even when a later pattern would match them.
+ * Non-Git directories and unavailable Git binaries fail open to the explicit
+ * NavGator ignore list above.
+ */
+export declare function excludeGitIgnoredFiles(root: string, files: string[]): string[];
 import { FileChangeResult, ArchitectureScanOutcome } from './types.js';
 import { FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer.js';
 import { TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
