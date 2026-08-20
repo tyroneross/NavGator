@@ -66,44 +66,61 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
-# Replace exactly one validated package directory. npm preserves extraneous
-# files when the same local package version is installed again, so deleting the
-# old materialization is required for a truthful source refresh.
-remove_guarded_package_dir() {
+# Stage, restore, or discard exactly one validated package backup. The old
+# runtime remains recoverable until both npm materialization steps succeed.
+guarded_package_backup() {
   local root_path="$1"
-  local relative_path="$2"
+  local target_path="$2"
+  local backup_path="$3"
+  local action="$4"
 
-  node - "$root_path" "$relative_path" <<'NODE'
+  node - "$root_path" "$target_path" "$backup_path" "$action" <<'NODE'
 const fs = require('fs')
 const path = require('path')
 
-const [rootInput, relativeInput] = process.argv.slice(2)
+const [rootInput, targetInput, backupInput, action] = process.argv.slice(2)
 const root = fs.realpathSync(rootInput)
-if (path.isAbsolute(relativeInput)) throw new Error(`Package path must be relative to ${root}`)
-const normalized = path.normalize(relativeInput)
-if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
-  throw new Error(`Unsafe package path: ${relativeInput}`)
-}
-
-const target = path.resolve(root, normalized)
-const relative = path.relative(root, target)
-if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-  throw new Error(`Package path escapes ${root}: ${relativeInput}`)
-}
-
-let current = root
-for (const segment of relative.split(path.sep).filter(Boolean)) {
-  current = path.join(current, segment)
-  try {
-    if (fs.lstatSync(current).isSymbolicLink()) {
-      throw new Error(`Refusing symlinked package component: ${current}`)
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error
+function resolveSafe(relativeInput) {
+  if (path.isAbsolute(relativeInput)) throw new Error(`Package path must be relative to ${root}`)
+  const normalized = path.normalize(relativeInput)
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+    throw new Error(`Unsafe package path: ${relativeInput}`)
   }
+  const target = path.resolve(root, normalized)
+  const relative = path.relative(root, target)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Package path escapes ${root}: ${relativeInput}`)
+  }
+  let current = root
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment)
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Refusing symlinked package component: ${current}`)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  return target
 }
-
-if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true })
+const target = resolveSafe(targetInput)
+const backup = resolveSafe(backupInput)
+const absent = resolveSafe(`${backupInput}.absent`)
+if (action === 'stage') {
+  if (fs.existsSync(backup) || fs.existsSync(absent)) throw new Error(`Package backup already exists: ${backup}`)
+  if (fs.existsSync(target)) fs.renameSync(target, backup)
+  else fs.writeFileSync(absent, '')
+} else if (action === 'rollback') {
+  fs.rmSync(target, { recursive: true, force: true })
+  if (fs.existsSync(backup)) {
+    fs.renameSync(backup, target)
+  }
+  fs.rmSync(absent, { force: true })
+} else if (action === 'commit') {
+  fs.rmSync(backup, { recursive: true, force: true })
+  fs.rmSync(absent, { force: true })
+} else {
+  throw new Error(`Unknown package backup action: ${action}`)
+}
 NODE
 }
 
@@ -566,7 +583,16 @@ SOURCE_PATH="./.codex/plugins/navgator-runtime/node_modules/@tyroneross/navgator
 
 info "Materializing the NavGator Codex runtime ($SCOPE_LABEL scope)..."
 mkdir -p "$RUNTIME_ROOT"
-remove_guarded_package_dir "$MARKETPLACE_ROOT" ".codex/plugins/navgator-runtime/node_modules/@tyroneross/navgator"
+PACKAGE_RELATIVE=".codex/plugins/navgator-runtime/node_modules/@tyroneross/navgator"
+PACKAGE_BACKUP_RELATIVE=".codex/plugins/navgator-runtime/.navgator-package-backup"
+restore_previous_package() {
+  local status=$?
+  trap - ERR
+  guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" rollback || true
+  exit "$status"
+}
+trap restore_previous_package ERR
+guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" stage
 npm install \
   --prefix "$RUNTIME_ROOT" \
   --ignore-scripts \
@@ -634,6 +660,8 @@ npm install \
   --omit=dev \
   --no-audit \
   --no-fund
+guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" commit
+trap - ERR
 
 # Opt-in and opt-out are symmetric: --with-mcp writes the config and the
 # manifest key, and a re-run without it removes both. Reinstallation undoes
@@ -654,9 +682,7 @@ else
   # invariant the opt-out exists to hold. Discovering beats predicting on a
   # removal path; it also reaches caches left behind under the old
   # version-named scheme. Symlinked entries are refused, not followed.
-  for cached_dir in \
-    "$CODEX_HOME_ROOT/plugins/cache/navgator/navgator"/* \
-    "$CODEX_HOME_ROOT/plugins/cache"/*/navgator/*; do
+  for cached_dir in "$CODEX_HOME_ROOT/plugins/cache"/*/navgator/*; do
     [ -e "$cached_dir" ] || continue
     if [ -L "$cached_dir" ]; then
       warn "Refusing to touch a symlinked Codex plugin cache: $cached_dir"

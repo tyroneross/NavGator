@@ -59,12 +59,17 @@ function markActivity() {
 markActivity(); // start the clock at boot too, in case no frame ever arrives
 // --- JSON-RPC transport over stdio ---
 const rl = createInterface({ input: process.stdin, terminal: false });
-// Serialize frames so EOF cannot terminate the process while an async tool call
-// is still producing its response. This matters for one-shot clients that write
-// a request batch and immediately close stdin.
-let messageQueue = Promise.resolve();
+// Track concurrent frames so EOF drains responses without making a long scan
+// block lightweight protocol traffic such as tools/list. The bounded drain
+// preserves the lifecycle guarantee even if a tool never settles.
+const inflight = new Set();
+const EOF_DRAIN_TIMEOUT_MS = 30_000;
 rl.on("close", () => {
-    void messageQueue.finally(() => shutdown("stdin EOF"));
+    const drain = Promise.allSettled([...inflight]);
+    const timeout = new Promise(resolve => {
+        setTimeout(resolve, EOF_DRAIN_TIMEOUT_MS);
+    });
+    void Promise.race([drain, timeout]).then(() => shutdown("stdin EOF"));
 });
 rl.on("line", (line) => {
     markActivity(); // last inbound JSON-RPC frame, per L4
@@ -73,7 +78,9 @@ rl.on("line", (line) => {
         return;
     try {
         const msg = JSON.parse(trimmed);
-        messageQueue = messageQueue.then(() => handleMessage(msg));
+        let task;
+        task = handleMessage(msg).finally(() => inflight.delete(task));
+        inflight.add(task);
     }
     catch {
         // Each line should be one complete JSON-RPC message.

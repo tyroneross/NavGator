@@ -379,8 +379,12 @@ describe('release contract', () => {
       expect(hostInstaller).toContain('Refusing symlinked destination component');
     }
     expect(installer).toContain('npm install');
-    expect(installer).toContain('remove_guarded_package_dir "$MARKETPLACE_ROOT"');
-    expect(installer).toContain('fs.rmSync(target, { recursive: true, force: true })');
+    for (const hostInstaller of [claudeInstaller, installer]) {
+      expect(hostInstaller).toContain('guarded_package_backup');
+      expect(hostInstaller).toContain('restore_previous_package');
+      expect(hostInstaller).toContain('rollback || true');
+      expect(hostInstaller).toContain('trap restore_previous_package ERR');
+    }
     expect(installer).toContain('navgator-runtime/node_modules/@tyroneross/navgator');
     expect(installer).toContain("path.join(packageDir, 'dist', 'mcp', 'server.js')");
     // The cache segment is the host's reference for the source, not a version

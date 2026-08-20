@@ -67,6 +67,62 @@ process.stdout.write(canonicalRoot)
 NODE
 }
 
+guarded_package_backup() {
+  local root_path="$1"
+  local target_path="$2"
+  local backup_path="$3"
+  local action="$4"
+
+  node - "$root_path" "$target_path" "$backup_path" "$action" <<'NODE'
+const fs = require('fs')
+const path = require('path')
+
+const [rootInput, targetInput, backupInput, action] = process.argv.slice(2)
+const root = fs.realpathSync(rootInput)
+function resolveSafe(relativeInput) {
+  if (path.isAbsolute(relativeInput)) throw new Error(`Package path must be relative to ${root}`)
+  const normalized = path.normalize(relativeInput)
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith(`..${path.sep}`)) {
+    throw new Error(`Unsafe package path: ${relativeInput}`)
+  }
+  const target = path.resolve(root, normalized)
+  const relative = path.relative(root, target)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`Package path escapes ${root}: ${relativeInput}`)
+  }
+  let current = root
+  for (const segment of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment)
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) throw new Error(`Refusing symlinked package component: ${current}`)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  return target
+}
+const target = resolveSafe(targetInput)
+const backup = resolveSafe(backupInput)
+const absent = resolveSafe(`${backupInput}.absent`)
+if (action === 'stage') {
+  if (fs.existsSync(backup) || fs.existsSync(absent)) throw new Error(`Package backup already exists: ${backup}`)
+  if (fs.existsSync(target)) fs.renameSync(target, backup)
+  else fs.writeFileSync(absent, '')
+} else if (action === 'rollback') {
+  fs.rmSync(target, { recursive: true, force: true })
+  if (fs.existsSync(backup)) {
+    fs.renameSync(backup, target)
+  }
+  fs.rmSync(absent, { force: true })
+} else if (action === 'commit') {
+  fs.rmSync(backup, { recursive: true, force: true })
+  fs.rmSync(absent, { force: true })
+} else {
+  throw new Error(`Unknown package backup action: ${action}`)
+}
+NODE
+}
+
 # Copy a file into the package tree without ever writing through a symlink.
 #
 # `cp` follows a destination symlink and writes to its target. `assert_safe_tree`
@@ -207,6 +263,7 @@ CLAUDE_BOUNDARY="$(assert_safe_tree \
   "$CLAUDE_RELATIVE_ROOT/plugins/gator")"
 CLAUDE_ROOT="$CLAUDE_BOUNDARY/$CLAUDE_RELATIVE_ROOT"
 RUNTIME_ROOT="$CLAUDE_ROOT/navgator-runtime"
+PACKAGE_DIR="$RUNTIME_ROOT/node_modules/@tyroneross/navgator"
 LEGACY_PATH="$CLAUDE_ROOT/plugins/gator"
 
 command -v claude >/dev/null 2>&1 || {
@@ -247,6 +304,16 @@ ensure_no_legacy_registry
 
 info "Materializing NavGator for Claude Code ($SCOPE_LABEL)..."
 mkdir -p "$RUNTIME_ROOT"
+PACKAGE_RELATIVE="$CLAUDE_RELATIVE_ROOT/navgator-runtime/node_modules/@tyroneross/navgator"
+PACKAGE_BACKUP_RELATIVE="$CLAUDE_RELATIVE_ROOT/navgator-runtime/.navgator-package-backup"
+restore_previous_package() {
+  local status=$?
+  trap - ERR
+  guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" rollback || true
+  exit "$status"
+}
+trap restore_previous_package ERR
+guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" stage
 npm install \
   --prefix "$RUNTIME_ROOT" \
   --ignore-scripts \
@@ -269,7 +336,6 @@ assert_safe_tree \
   "$CLAUDE_RELATIVE_ROOT/plugins/installed_plugins.json" \
   "$CLAUDE_RELATIVE_ROOT/plugins/gator" >/dev/null
 
-PACKAGE_DIR="$RUNTIME_ROOT/node_modules/@tyroneross/navgator"
 MANIFEST="$PACKAGE_DIR/.claude-plugin/plugin.json"
 PACKAGE_JSON="$PACKAGE_DIR/package.json"
 if [ ! -f "$MANIFEST" ]; then
@@ -289,6 +355,8 @@ npm install \
   --omit=dev \
   --no-audit \
   --no-fund
+guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" commit
+trap - ERR
 
 # The manifest omits version by policy (see .claude-plugin/plugin.json), so the
 # only semver source of truth is package.json.
