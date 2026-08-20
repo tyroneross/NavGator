@@ -3,7 +3,7 @@
  * Base-name normalization and alias merging, extracted from cli/commands/list.ts
  * so resolveComponent() and other callers can share the same identity rules.
  */
-import type { ArchitectureComponent } from './types.js';
+import { type ArchitectureComponent } from './types.js';
 /**
  * Normalize a component name to its base identity string.
  * Applies the same three normalizations as list.ts:55-59:

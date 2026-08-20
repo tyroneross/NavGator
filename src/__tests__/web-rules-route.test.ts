@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { parseRulesCliOutput } from '../../web/lib/server/rules-output.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { EMPTY_RULES, hasProjectArchitecture, parseRulesCliOutput } from '../../web/lib/server/rules-output.js';
+const tempRoots: string[] = [];
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
 
 describe('web rules route CLI contract', () => {
   it('keeps the unbounded violation list while preserving authoritative summary counts', () => {
@@ -22,5 +30,18 @@ describe('web rules route CLI contract', () => {
     expect(() => parseRulesCliOutput(JSON.stringify({ summary: { total: 75 } }))).toThrow(
       'incompatible response',
     );
+  });
+
+  it('treats an unscanned child as empty even when its parent is scanned', () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-rules-parent-'));
+    tempRoots.push(parent);
+    fs.mkdirSync(path.join(parent, '.navgator', 'architecture'), { recursive: true });
+    fs.writeFileSync(path.join(parent, '.navgator', 'architecture', 'index.json'), '{}');
+    const child = path.join(parent, 'child');
+    fs.mkdirSync(child);
+
+    expect(hasProjectArchitecture(parent)).toBe(true);
+    expect(hasProjectArchitecture(child)).toBe(false);
+    expect(EMPTY_RULES.summary.total).toBe(0);
   });
 });

@@ -1,8 +1,19 @@
+import * as fs from "node:fs"
+import * as path from "node:path"
 import type { RuleViolation } from "@/lib/types";
 
 export interface RulesCliOutput {
   violations: RuleViolation[];
   summary: { total: number; errors: number; warnings: number; info: number };
+}
+
+export const EMPTY_RULES: RulesCliOutput = {
+  violations: [],
+  summary: { total: 0, errors: 0, warnings: 0, info: 0 },
+}
+
+export function hasProjectArchitecture(projectRoot: string): boolean {
+  return fs.existsSync(path.join(projectRoot, ".navgator", "architecture", "index.json"))
 }
 
 export function parseRulesCliOutput(stdout: string): RulesCliOutput {

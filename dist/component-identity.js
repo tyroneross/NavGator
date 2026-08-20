@@ -3,6 +3,7 @@
  * Base-name normalization and alias merging, extracted from cli/commands/list.ts
  * so resolveComponent() and other callers can share the same identity rules.
  */
+import { generateStableId } from './types.js';
 /**
  * Normalize a component name to its base identity string.
  * Applies the same three normalizations as list.ts:55-59:
@@ -30,7 +31,7 @@ export function identityKey(c) {
     // A path-scoped stable id carries owning-manifest/source identity that a
     // display-name alias must not erase. Name-only ids keep legacy aliasing for
     // labels such as "Railway Config" and "Railway".
-    if (c.stable_id?.includes('__'))
+    if (c.stable_id && c.stable_id !== generateStableId(c.type, c.name))
         return c.stable_id;
     return `${componentBaseName(c.name)}|${c.type}`;
 }

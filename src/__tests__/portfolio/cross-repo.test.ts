@@ -39,6 +39,15 @@ describe('buildCrossRepoMap', () => {
     expect(lodash?.versionSkew).toBe(true);
   });
 
+  it('joins shared dependencies across different owning manifest paths', () => {
+    const role = { purpose: 'ui', layer: 'external' as const, critical: false };
+    const map = buildCrossRepoMap([
+      { repo: '/repos/a', components: [createMockComponent({ name: 'react', type: 'npm', stable_id: 'STABLE_npm_package.json__react', role })], connections: [] },
+      { repo: '/repos/b', components: [createMockComponent({ name: 'react', type: 'npm', stable_id: 'STABLE_npm_apps-web-package.json__react', role })], connections: [] },
+    ]);
+    expect(map.sharedDependencies.find((dependency) => dependency.name === 'react')?.repos).toHaveLength(2);
+  });
+
   it('does not report a dependency present in only one repo', () => {
     const repoA: CrossRepoRepoInput = {
       repo: '/repos/repo-a',

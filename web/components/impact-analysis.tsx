@@ -31,6 +31,8 @@ interface ComponentWithConnections {
   outgoing: Connection[]
 }
 
+const CONNECTION_DISPLAY_LIMIT = 100
+
 export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnalysisProps) {
   const [search, setSearch] = useState("")
   const { components, isLoading: componentsLoading, error: componentsError } = useComponents({ autoFetch: true })
@@ -230,7 +232,7 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {data.incoming.map((conn, idx) => (
+              {data.incoming.slice(0, CONNECTION_DISPLAY_LIMIT).map((conn, idx) => (
                 <div
                   key={idx}
                   className="rounded-lg border border-border bg-secondary/30 p-3"
@@ -253,6 +255,9 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
                   )}
                 </div>
               ))}
+              {data.incoming.length > CONNECTION_DISPLAY_LIMIT && (
+                <p className="text-xs text-muted-foreground">Showing first {CONNECTION_DISPLAY_LIMIT} of {data.incoming.length} incoming connections.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -275,7 +280,7 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {data.outgoing.map((conn, idx) => (
+              {data.outgoing.slice(0, CONNECTION_DISPLAY_LIMIT).map((conn, idx) => (
                 <button
                   key={idx}
                   onClick={() => conn.toComponent && onSelectComponent(resolveComponentName(conn.toComponent, components, conn.to))}
@@ -298,6 +303,9 @@ export function ImpactAnalysis({ componentName, onSelectComponent }: ImpactAnaly
                   )}
                 </button>
               ))}
+              {data.outgoing.length > CONNECTION_DISPLAY_LIMIT && (
+                <p className="text-xs text-muted-foreground">Showing first {CONNECTION_DISPLAY_LIMIT} of {data.outgoing.length} outgoing connections.</p>
+              )}
             </div>
           </CardContent>
         </Card>

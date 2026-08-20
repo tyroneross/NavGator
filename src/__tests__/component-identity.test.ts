@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { componentBaseName, identityKey, mergeComponentAliases } from '../component-identity.js';
+import { generateStableId } from '../types.js';
 import { createMockComponent } from './helpers.js';
 
 describe('componentBaseName', () => {
@@ -32,6 +33,12 @@ describe('identityKey', () => {
     const c = { name: 'Railway (infra)', type: 'infra' as const };
     expect(identityKey(a)).toBe(identityKey(b));
     expect(identityKey(b)).toBe(identityKey(c));
+  });
+
+  it('does not mistake a name-only double underscore for path scope', () => {
+    const named = { name: 'Logging__LogLevel__Default', type: 'config' as const };
+    const generated = { ...named, stable_id: generateStableId(named.type, named.name) };
+    expect(identityKey(generated)).toBe(identityKey(named));
   });
 });
 

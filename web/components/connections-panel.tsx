@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ArrowRight,
   ArrowLeft,
@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { useComponents, useConnections } from "@/lib/hooks"
-import { componentName, pageSlice } from "@/lib/project-data"
+import { pageSlice } from "@/lib/project-data"
 
 interface ConnectionsPanelProps {
   selectedComponent: string | null
@@ -84,17 +84,26 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
   const [activeTab, setActiveTab] = useState("all")
   const [page, setPage] = useState(1)
 
-  const filtered = connections.filter((c) => {
-    const matchesSearch =
-      componentName(c.fromComponent, components, c.from).toLowerCase().includes(search.toLowerCase()) ||
-      componentName(c.toComponent, components, c.to).toLowerCase().includes(search.toLowerCase()) ||
-      c.symbol.toLowerCase().includes(search.toLowerCase())
-
-    if (activeTab === "all") return matchesSearch
-    return matchesSearch && c.type === activeTab
-  })
+  const nameById = useMemo(
+    () => new Map(components.map((component) => [component.id, component.name])),
+    [components]
+  )
+  const filtered = useMemo(() => {
+    const query = search.toLowerCase()
+    return connections.filter((connection) => {
+      const fromName = (connection.fromComponent && nameById.get(connection.fromComponent)) || connection.from
+      const toName = (connection.toComponent && nameById.get(connection.toComponent)) || connection.to
+      const matchesSearch =
+        fromName.toLowerCase().includes(query) ||
+        toName.toLowerCase().includes(query) ||
+        connection.symbol.toLowerCase().includes(query)
+      return matchesSearch && (activeTab === "all" || connection.type === activeTab)
+    })
+  }, [activeTab, connections, nameById, search])
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const visibleConnections = pageSlice(filtered, page, PAGE_SIZE)
+  const displayName = (componentId: string | undefined, fallback: string) =>
+    (componentId && nameById.get(componentId)) || fallback
 
   useEffect(() => {
     setPage(1)
@@ -191,19 +200,19 @@ export function ConnectionsPanel({ selectedComponent, onSelectComponent }: Conne
                     <div className="flex items-center gap-2 text-sm">
                       <button
                         onClick={() => {
-                          onSelectComponent(componentName(connection.fromComponent, components, connection.from))
+                          onSelectComponent(displayName(connection.fromComponent, connection.from))
                         }}
                         className="flex items-center gap-1.5 rounded bg-secondary px-2 py-1 font-mono text-xs text-foreground hover:bg-secondary/80"
                       >
                         <FileCode className="h-3.5 w-3.5 text-muted-foreground" />
-                        {componentName(connection.fromComponent, components, connection.from)}
+                        {displayName(connection.fromComponent, connection.from)}
                       </button>
                       <ArrowRight className="h-4 w-4 text-muted-foreground" />
                       <button
-                        onClick={() => onSelectComponent(componentName(connection.toComponent, components, connection.to))}
+                        onClick={() => onSelectComponent(displayName(connection.toComponent, connection.to))}
                         className="flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 font-mono text-xs text-primary hover:bg-primary/20"
                       >
-                        {componentName(connection.toComponent, components, connection.to)}
+                        {displayName(connection.toComponent, connection.to)}
                       </button>
                     </div>
                     <div className="flex items-center gap-2">

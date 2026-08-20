@@ -88,13 +88,12 @@ export interface ScanOptions {
  * Search nested wrapper directories under `root`, return roots to scan. Behavior:
  *
  *  - If `root` has a stack manifest, include it as `{ origin: '.' }`.
- *  - Walk up to four directory levels. Any directory that carries a
- *    stack manifest is included and its descendants are pruned.
+ *  - Discover manifests up to five directory levels below the scan root. Any
+ *    matching directory is included and nested stack descendants are pruned.
  *  - When more than one nested stack is found, all of them are scanned and
  *    components get an `origin_root` metadata tag so consumers can group.
  *
- * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
- * and anything starting with `.` to avoid scanning vendored or generated dirs.
+ * Uses the same `.navgatorignore` and Git-ignore boundary as source discovery.
  */
 export declare function discoverStackRoots(root: string, verbose: boolean): Array<{
     path: string;

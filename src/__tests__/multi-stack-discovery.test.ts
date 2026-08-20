@@ -114,6 +114,18 @@ describe('discoverStackRoots', () => {
       .toEqual(['source.ts']);
   });
 
+  it('fails open when the explicit scan root is ignored by its parent repository', () => {
+    execFileSync('git', ['init', '--quiet'], { cwd: tmp });
+    fs.writeFileSync(path.join(tmp, '.gitignore'), 'scratch/**\n');
+    const scratch = path.join(tmp, 'scratch');
+    fs.mkdirSync(scratch);
+    fs.writeFileSync(path.join(scratch, 'package.json'), '{}');
+    fs.writeFileSync(path.join(scratch, 'source.ts'), 'export const source = true');
+
+    expect(excludeGitIgnoredFiles(scratch, ['package.json', 'source.ts']))
+      .toEqual(['package.json', 'source.ts']);
+  });
+
   it('detects .csproj as a .NET stack root', () => {
     fs.mkdirSync(path.join(tmp, 'service'));
     fs.writeFileSync(path.join(tmp, 'service', 'MyService.csproj'), '<Project/>');

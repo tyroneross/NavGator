@@ -60,7 +60,7 @@ function getIgnorePatterns(root: string): string[] {
  * NavGator ignore list above.
  */
 export function excludeGitIgnoredFiles(root: string, files: string[]): string[] {
-  if (files.length === 0) return files;
+  if (files.length === 0 || process.env.NAVGATOR_NO_GIT_IGNORE === '1') return files;
   const input = `${files.join('\0')}\0`;
   const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
     cwd: root,
@@ -72,6 +72,10 @@ export function excludeGitIgnoredFiles(root: string, files: string[]): string[] 
   const ignored = new Set(
     (result.stdout || '').split('\0').filter(Boolean).map(file => file.replace(/\\/g, '/'))
   );
+  // An explicitly selected scan root can itself live under a parent repo's
+  // ignored tree. In that case Git labels every path ignored; treating that as
+  // a source boundary would silently produce an empty architecture.
+  if (ignored.size === files.length) return files;
   return files.filter(file => !ignored.has(file.replace(/\\/g, '/')));
 }
 import {
@@ -270,13 +274,12 @@ const STACK_MANIFESTS: ReadonlyArray<string> = [
  * Search nested wrapper directories under `root`, return roots to scan. Behavior:
  *
  *  - If `root` has a stack manifest, include it as `{ origin: '.' }`.
- *  - Walk up to four directory levels. Any directory that carries a
- *    stack manifest is included and its descendants are pruned.
+ *  - Discover manifests up to five directory levels below the scan root. Any
+ *    matching directory is included and nested stack descendants are pruned.
  *  - When more than one nested stack is found, all of them are scanned and
  *    components get an `origin_root` metadata tag so consumers can group.
  *
- * Skips dotfiles, `node_modules`, `dist`, `build`, `__pycache__`, `.venv`,
- * and anything starting with `.` to avoid scanning vendored or generated dirs.
+ * Uses the same `.navgatorignore` and Git-ignore boundary as source discovery.
  */
 export function discoverStackRoots(
   root: string,
@@ -284,8 +287,8 @@ export function discoverStackRoots(
 ): Array<{ path: string; origin: string }> {
   // Use the same repo-root ignore contract as source discovery. `globSync`
   // handles arbitrary `.navgatorignore` patterns; the prior hand-written
-  // directory list could not. maxDepth=5 means a manifest can sit under four
-  // wrapper directories, matching the previous bounded walk.
+  // directory list could not. maxDepth=5 keeps discovery bounded while
+  // supporting deeply wrapped monorepo stacks.
   const fixedManifestPatterns = STACK_MANIFESTS.map(manifest => `**/${manifest}`);
   const variableManifestPatterns = ['**/*.csproj', '**/*.xcodeproj', '**/*.xcworkspace'];
   const matches = globSync([...fixedManifestPatterns, ...variableManifestPatterns], {
@@ -1634,7 +1637,8 @@ export async function scan(
   // Absolute paths make stable ids machine-specific and break integrity checks
   // that expect project-relative source files.
   for (const component of allComponents) {
-    component.source.config_files = component.source.config_files.map(file => {
+    if (!component.source) continue;
+    component.source.config_files = (component.source.config_files ?? []).map(file => {
       if (!path.isAbsolute(file)) return file.replace(/\\/g, '/');
       const relative = path.relative(root, file);
       if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {

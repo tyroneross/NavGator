@@ -34,9 +34,9 @@ export function buildCrossRepoMap(repos: CrossRepoRepoInput[]): CrossRepoMap {
 // SHARED DEPENDENCIES
 // =============================================================================
 
-/** stable_id when present (best cross-scan join key); base-name+type otherwise. */
+/** Owning-manifest paths are repo-local, so portfolio joins use logical identity. */
 function dependencyKey(c: ArchitectureComponent): string {
-  return c.stable_id ? `stable:${c.stable_id}` : `base:${identityKey(c)}`;
+  return `base:${identityKey({ ...c, stable_id: undefined })}`;
 }
 
 function findSharedDependencies(repos: CrossRepoRepoInput[]): SharedDependencyEntry[] {
