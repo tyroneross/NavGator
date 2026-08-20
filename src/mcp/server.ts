@@ -67,10 +67,14 @@ markActivity(); // start the clock at boot too, in case no frame ever arrives
 
 const rl = createInterface({ input: process.stdin, terminal: false });
 
-// L1: stdin EOF. readline's own 'close' event fires on EOF; once nothing else holds the
-// loop open (both timers above are unref'd) the process exits naturally with code 0. Exiting
-// explicitly here makes that deterministic rather than incidental.
-rl.on("close", () => shutdown("stdin EOF"));
+// Serialize frames so EOF cannot terminate the process while an async tool call
+// is still producing its response. This matters for one-shot clients that write
+// a request batch and immediately close stdin.
+let messageQueue: Promise<void> = Promise.resolve();
+
+rl.on("close", () => {
+  void messageQueue.finally(() => shutdown("stdin EOF"));
+});
 
 rl.on("line", (line) => {
   markActivity(); // last inbound JSON-RPC frame, per L4
@@ -80,7 +84,7 @@ rl.on("line", (line) => {
 
   try {
     const msg = JSON.parse(trimmed);
-    handleMessage(msg);
+    messageQueue = messageQueue.then(() => handleMessage(msg));
   } catch {
     // Each line should be one complete JSON-RPC message.
     // Log malformed lines to stderr and move on — don't accumulate.

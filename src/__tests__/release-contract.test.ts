@@ -193,6 +193,7 @@ describe('release contract', () => {
     expect(packageJson.files).not.toContain('.mcp.json');
     expect(tsconfig.exclude).toContain('src/__tests__/**');
     expect(json('hooks/hooks.json')).toEqual({ hooks: {} });
+    expect(fs.readdirSync(path.join(root, 'commands')).filter((entry) => entry.endsWith('.md'))).toHaveLength(15);
   });
 
   it('keeps Claude and Codex process resolution host-specific', () => {

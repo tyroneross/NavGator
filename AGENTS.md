@@ -106,8 +106,8 @@ NavGator/
 │   ├── impact-analysis/        # Impact query guidance
 │   ├── code-review/            # Architecture-aware review
 │   └── infrastructure-scanning/   # Infrastructure detection skill
-├── commands/                   # 13 slash command definitions
-│   ├── dead.md, gator.md, impact.md, lessons.md, llm-map.md
+├── commands/                   # 15 slash command definitions
+│   ├── dead.md, deep-map.md, feedback.md, gator.md, impact.md, lessons.md, llm-map.md
 │   ├── map.md, plan.md, promote-lesson.md, review.md
 │   ├── scan.md, schema.md, test.md, trace.md
 ├── hooks/
@@ -236,11 +236,13 @@ below); `npm run mcp` starts it directly as a manual escape hatch.
 
 **`scan_remote` is deliberately not an MCP tool.** `navgator scan-remote <url>` runs `git clone` against a caller-supplied URL — exposing that as an agent-invokable tool would put a network fetch on a prompt-injection-reachable path (a malicious doc or tool output could smuggle a URL that gets cloned and scanned without a human in the loop). It ships CLI-only, human-initiated, and stays that way until a URL allowlist exists. `portfolio` and `arch_diff` were added instead because they operate over local paths only, with no equivalent network-fetch surface. Do not "fix" this omission by adding a `scan_remote` MCP tool without first landing an allowlist.
 
-### Slash Commands (13)
+### Slash Commands (15)
 
 | Command | Purpose |
 |---------|---------|
 | `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
+| `/navgator:deep-map` | Plan, ingest, and report semantic findings outside the authoritative graph |
+| `/navgator:feedback` | Prepare and file a source-grounded NavGator issue |
 | `/navgator:gator` | Main router — dispatches to the right subcommand based on intent |
 | `/navgator:impact` | Blast-radius analysis before modifying a component |
 | `/navgator:lessons` | List, search, promote, and manage architecture lessons |

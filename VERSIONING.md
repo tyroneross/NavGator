@@ -14,7 +14,7 @@
 ## Release target changes in 0.9.1
 
 - Correct incremental deletion, single-writer lease, directed rules, alias resolution, and coverage signals
-- Package all 13 Claude commands, 4 Claude subagents, 6 shared skills, and the 10-tool MCP server
+- Package all 15 Claude commands, 4 Claude subagents, 6 shared skills, and the 12-tool opt-in MCP server
 - Give Codex a package template plus a cache-owned absolute MCP entry whose scan scope follows the active task workspace
 - Package a launchable dashboard runtime without nested `node_modules`
 

@@ -14,7 +14,7 @@ NavGator tracks architecture connections across your entire stack—packages, se
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: 13 slash commands, 4 subagents, 6 skills, and the `navgator` CLI as the default agent surface
+- **Claude Code Integration**: 15 slash commands, 4 subagents, 6 skills, and the `navgator` CLI as the default agent surface
 - **Codex Integration**: the same 6 skills, driving the `navgator` CLI, through a Codex-specific manifest
 
 ## Agent interface policy: CLI first, HTTP second, MCP last resort
@@ -118,7 +118,7 @@ bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --global
 bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --project
 ```
 
-The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads 13 `/navgator:*` commands, 4 subagents, 6 skills, and the `navgator` CLI. MCP is off by default; re-run with `--with-mcp` only if your client cannot run a shell.
+The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads 15 `/navgator:*` commands, 4 subagents, 6 skills, and the `navgator` CLI. MCP is off by default; re-run with `--with-mcp` only if your client cannot run a shell.
 
 If the older `navgator@rosslabs-ai-toolkit` registry entry is still enabled, the installer stops before claiming success and prints the exact scoped `claude plugin disable` command. Disable the legacy entry and rerun so only one NavGator surface is active.
 
@@ -305,6 +305,8 @@ When installed as a Claude Code plugin, all commands are available as `/navgator
 | `/navgator:llm-map` | Map LLM use cases by purpose and provider |
 | `/navgator:schema [model]` | Show database readers and writers |
 | `/navgator:dead` | Find orphaned components and dead code |
+| `/navgator:deep-map` | Plan, ingest, and report semantic findings outside the authoritative scan graph |
+| `/navgator:feedback` | Prepare and file a source-grounded NavGator issue |
 | `/navgator:lessons` | Manage project and global architecture lessons |
 | `/navgator:promote-lesson` | Find recurring cross-project lesson patterns for promotion |
 

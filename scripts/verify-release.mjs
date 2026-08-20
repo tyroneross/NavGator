@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { request as nodeHttpRequest } from 'node:http'
 import { readFileSync, realpathSync } from 'node:fs'
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -310,7 +310,7 @@ function probeMcpTool(packageDir, configPath, host, cwd, name, args = {}) {
   })
   const responses = output.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line))
   const called = responses.find((response) => response.id === 3)
-  assert.ok(called?.result, `${host} MCP ${name} returned a result`)
+  assert.ok(called?.result, `${host} MCP ${name} returned a result; output=${output}`)
   assert.equal(called.result.isError, undefined, `${host} MCP ${name} did not return an error`)
   return called.result.content?.map((item) => item.text ?? '').join('\n') ?? ''
 }
@@ -1374,6 +1374,7 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
     last_scan: Date.now(),
     last_full_scan: Date.now(),
     incrementals_since_full: 0,
+    stable_id_scheme: 2,
     project_path: realpathSync(workspace),
     components: { by_name: {}, by_type: {}, by_layer: {}, by_status: {} },
     connections: { by_type: {}, by_from: {}, by_to: {} },
@@ -1657,26 +1658,21 @@ async function probeCodex(packageDir, tempRoot, expectedVersion) {
   assert.match(workspaceCacheStatus, /Components: 4242/, 'installed workspace cache MCP reads the task workspace')
   assert.match(workspaceCacheStatus, /Connections: 17/, 'installed workspace cache MCP keeps package and task roots separate')
 
-  // Opt-in write path, run against the live --with-mcp tree: the MCP config
-  // LEAF must be refused before materialization, not by a guard downstream of
-  // the write. `npm install --install-links` of an already-materialized same
-  // version prunes nothing, so the planted symlink survives into the write
-  // step, and the run fails before `update_marketplace` — leaving the cache
-  // probes below untouched.
+  // A same-version refresh now replaces the entire guard-validated package
+  // directory before materialization. A planted MCP leaf symlink is therefore
+  // removed as an entry, never followed, and the fresh config replaces it.
   const codexMcpLink = path.join(workspacePackageDir, '.codex-plugin', 'mcp.json')
+  const codexMcpVictim = path.join(tempRoot, 'victim-codex-mcp.json')
   await rm(codexMcpLink, { force: true })
-  await assertInstallerSymlinkRejected({
-    label: 'Codex opt-in MCP config guard',
-    installer,
-    args: ['--workspace', '--with-mcp'],
+  await writeFile(codexMcpVictim, 'Codex MCP victim: unchanged\n')
+  await symlink(codexMcpVictim, codexMcpLink, 'file')
+  run('bash', [installer, '--workspace', '--with-mcp'], {
     cwd: workspace,
     env: workspaceEnv,
-    linkPath: codexMcpLink,
-    victimPath: path.join(tempRoot, 'victim-codex-mcp.json'),
-    victimKind: 'file',
     timeout: 300_000,
   })
-  await rm(codexMcpLink, { force: true })
+  assert.equal(await readFile(codexMcpVictim, 'utf8'), 'Codex MCP victim: unchanged\n')
+  assert.equal((await lstat(codexMcpLink)).isSymbolicLink(), false, 'fresh MCP config replaces the stale symlink entry')
 
   await writeFile(
     path.join(workspacePackageDir, 'dist', 'mcp', 'server.js'),
@@ -1769,7 +1765,7 @@ async function main() {
       removeTarball = true
     }
 
-    assert.equal(countMatching(files, /^commands\/[^/]+\.md$/), 14, 'packed Claude commands')
+    assert.equal(countMatching(files, /^commands\/[^/]+\.md$/), 15, 'packed Claude commands')
     assert.equal(countMatching(files, /^agents\/[^/]+\.md$/), 4, 'packed Claude agents')
     assert.equal(countMatching(files, /^skills\/[^/]+\/SKILL\.md$/), 6, 'packed shared skills')
     assert.ok(files.includes('scripts/promote-lessons.py'), 'promote-lessons script is packed')
