@@ -587,11 +587,13 @@ PACKAGE_RELATIVE=".codex/plugins/navgator-runtime/node_modules/@tyroneross/navga
 PACKAGE_BACKUP_RELATIVE=".codex/plugins/navgator-runtime/.navgator-package-backup"
 restore_previous_package() {
   local status=$?
-  trap - ERR
+  trap - EXIT
   guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" rollback || true
   exit "$status"
 }
-trap restore_previous_package ERR
+# EXIT also covers explicit validation failures (`exit 1`), which do not fire
+# an ERR trap. Remove it only after the replacement package is complete.
+trap restore_previous_package EXIT
 guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" stage
 npm install \
   --prefix "$RUNTIME_ROOT" \
@@ -661,7 +663,7 @@ npm install \
   --no-audit \
   --no-fund
 guarded_package_backup "$MARKETPLACE_ROOT" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" commit
-trap - ERR
+trap - EXIT
 
 # Opt-in and opt-out are symmetric: --with-mcp writes the config and the
 # manifest key, and a re-run without it removes both. Reinstallation undoes

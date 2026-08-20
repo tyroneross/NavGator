@@ -383,7 +383,8 @@ describe('release contract', () => {
       expect(hostInstaller).toContain('guarded_package_backup');
       expect(hostInstaller).toContain('restore_previous_package');
       expect(hostInstaller).toContain('rollback || true');
-      expect(hostInstaller).toContain('trap restore_previous_package ERR');
+      expect(hostInstaller).toContain('trap restore_previous_package EXIT');
+      expect(hostInstaller).toContain('trap - EXIT');
     }
     expect(installer).toContain('navgator-runtime/node_modules/@tyroneross/navgator');
     expect(installer).toContain("path.join(packageDir, 'dist', 'mcp', 'server.js')");

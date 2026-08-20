@@ -308,11 +308,13 @@ PACKAGE_RELATIVE="$CLAUDE_RELATIVE_ROOT/navgator-runtime/node_modules/@tyroneros
 PACKAGE_BACKUP_RELATIVE="$CLAUDE_RELATIVE_ROOT/navgator-runtime/.navgator-package-backup"
 restore_previous_package() {
   local status=$?
-  trap - ERR
+  trap - EXIT
   guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" rollback || true
   exit "$status"
 }
-trap restore_previous_package ERR
+# EXIT also covers explicit validation failures (`exit 1`), which do not fire
+# an ERR trap. Remove it only after the replacement package is complete.
+trap restore_previous_package EXIT
 guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" stage
 npm install \
   --prefix "$RUNTIME_ROOT" \
@@ -356,7 +358,7 @@ npm install \
   --no-audit \
   --no-fund
 guarded_package_backup "$CLAUDE_BOUNDARY" "$PACKAGE_RELATIVE" "$PACKAGE_BACKUP_RELATIVE" commit
-trap - ERR
+trap - EXIT
 
 # The manifest omits version by policy (see .claude-plugin/plugin.json), so the
 # only semver source of truth is package.json.
