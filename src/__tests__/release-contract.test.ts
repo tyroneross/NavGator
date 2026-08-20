@@ -313,6 +313,7 @@ describe('release contract', () => {
     expect(misc).not.toContain("'web', '.next', 'standalone'");
     expect(misc).not.toContain("HOSTNAME: '0.0.0.0'");
     expect(runtimeBuilder).toContain("process.env.HOSTNAME = '127.0.0.1'");
+    expect(runtimeBuilder).toContain("required.relativeAppDir = '.'");
   });
 
   it('does not claim a raw Claude symlink is a registered plugin', () => {

@@ -232,6 +232,7 @@ async function sanitizeRequiredServerFiles(root) {
   const requiredPath = path.join(root, 'required-server-files.json')
   const required = JSON.parse(await readFile(requiredPath, 'utf8'))
   required.appDir = '.'
+  required.relativeAppDir = '.'
   if (required.config && typeof required.config === 'object') {
     required.config.outputFileTracingRoot = '.'
     if (required.config.turbopack && typeof required.config.turbopack === 'object') {
