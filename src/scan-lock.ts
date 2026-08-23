@@ -14,7 +14,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 export const LOCK_FILENAME = 'scan.lock';
-/** Grace period before an unreadable/corrupt record may be recovered. */
+/** Grace period for unreadable records and live-PID records without a verifiable owner fingerprint. */
 export const LOCK_TTL_MS = 60_000;
 export const HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -163,17 +163,29 @@ function canReclaim(
   record: ScanLeaseRecord,
   isPidAlive: (pid: number) => boolean,
   getProcessFingerprint: (pid: number) => string | null,
+  now: number,
+  ttlMs: number,
 ): boolean {
-  // Never fence a valid record while its owner PID is alive. A SIGSTOP,
-  // debugger pause, suspended laptop, or blocked event loop can delay the
-  // heartbeat while the owner can still resume writes. Reclaiming that lease
-  // would admit two writers. Heartbeat age remains diagnostic.
   if (!isPidAlive(record.pid)) return true;
   if (record.owner_fingerprint) {
     const currentFingerprint = getProcessFingerprint(record.pid);
     if (currentFingerprint && currentFingerprint !== record.owner_fingerprint) return true;
+    // A verified owner is never fenced on heartbeat age. A SIGSTOP, debugger
+    // pause, suspended laptop, or blocked event loop can delay the heartbeat
+    // while the owner can still resume writes; reclaiming would admit two
+    // writers. The fingerprint match is what proves this PID IS the owner.
+    if (currentFingerprint === record.owner_fingerprint) return false;
   }
-  return false;
+  // The record cannot prove ownership of its PID (no fingerprint, or the
+  // fingerprint is unverifiable here). PID liveness alone proves nothing: a
+  // record copied in from another machine — e.g. a cloned or scan-remote'd
+  // repo shipping a crafted .navgator/scan.lock naming pid 1 — would
+  // otherwise wedge every future scan of that tree (SEC-011). Honor such a
+  // record only while its heartbeat is plausibly live: within the TTL in the
+  // past and not further than the TTL in the future (a future-dated
+  // heartbeat is forged or corrupt, never a real owner's).
+  const heartbeatAge = now - record.heartbeat_at;
+  return heartbeatAge > ttlMs || heartbeatAge < -ttlMs;
 }
 
 /** Publish a fully-written record without ever exposing a partial lock file. */
@@ -227,6 +239,7 @@ function claimDeadGateGeneration(
   isPidAlive: (pid: number) => boolean,
   getProcessFingerprint: (pid: number) => string | null,
   now: () => number,
+  ttlMs: number,
 ): GateRecoveryResult {
   let subjectPath = gatePath;
   let subject = deadGate;
@@ -249,7 +262,7 @@ function claimDeadGateGeneration(
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') return 'error';
       const existingClaim = readScanLease(claimPath);
       if (!existingClaim) return 'error';
-      if (!canReclaim(existingClaim, isPidAlive, getProcessFingerprint)) return 'wait';
+      if (!canReclaim(existingClaim, isPidAlive, getProcessFingerprint, now(), ttlMs)) return 'wait';
       subjectPath = claimPath;
       subject = existingClaim;
     }
@@ -273,6 +286,7 @@ function acquireAcquisitionGate(
   now: () => number,
   waitMs: number,
   pollMs: number,
+  ttlMs: number,
 ): AcquisitionGateResult {
   const gatePath = `${lockPath}.acquire`;
   const deadline = now() + waitMs;
@@ -347,7 +361,7 @@ function acquireAcquisitionGate(
         sleepSync(pollMs);
         continue;
       }
-      if (canReclaim(existing, isPidAlive, getProcessFingerprint)) {
+      if (canReclaim(existing, isPidAlive, getProcessFingerprint, now(), ttlMs)) {
         const recovery = claimDeadGateGeneration(
           gatePath,
           existing,
@@ -356,6 +370,7 @@ function acquireAcquisitionGate(
           isPidAlive,
           getProcessFingerprint,
           now,
+          ttlMs,
         );
         if (recovery === 'error') {
           return {
@@ -392,10 +407,10 @@ function acquireAcquisitionGate(
 }
 
 /**
- * Remove a dead-owner or old corrupt record only after re-reading it. A valid
- * record is never reclaimed while its PID is live. Scanner-created records are
- * published and heartbeated atomically, so an unreadable canonical file is not
- * one of their normal intermediate states.
+ * Remove a dead-owner, unverifiable stale owner, or old corrupt record only
+ * after re-reading it. Fingerprint-verified owners are never reclaimed while
+ * their PID is live. Scanner-created records are published and heartbeated
+ * atomically, so an unreadable canonical file is not a normal intermediate state.
  */
 type ReclaimResult =
   | { status: 'removed' }
@@ -413,7 +428,7 @@ function removeIfStillReclaimable(
 ): ReclaimResult {
   const current = readScanLease(lockPath);
   if (observed && current?.token !== observed.token) return { status: 'not-reclaimable' };
-  if (current && !canReclaim(current, isPidAlive, getProcessFingerprint)) {
+  if (current && !canReclaim(current, isPidAlive, getProcessFingerprint, now, ttlMs)) {
     return { status: 'not-reclaimable' };
   }
   if (!current) {
@@ -473,6 +488,7 @@ export function acquireScanLease(
     nowFn,
     options.gateWaitMs ?? 5000,
     options.gatePollMs ?? 2,
+    ttlMs,
   );
   if (!gate.ok) {
     if (gate.reason === 'operational') {
@@ -484,7 +500,7 @@ export function acquireScanLease(
     // as a caller who lost the lease race directly.
     const contentionNow = nowFn();
     const currentLease = readScanLease(lockPath);
-    if (currentLease && !canReclaim(currentLease, pidAlive, processFingerprint)) {
+    if (currentLease && !canReclaim(currentLease, pidAlive, processFingerprint, contentionNow, ttlMs)) {
       return {
         ok: false,
         retryable: true,
@@ -528,7 +544,7 @@ export function acquireScanLease(
       }
 
       const existing = readScanLease(lockPath);
-      if (existing && !canReclaim(existing, pidAlive, processFingerprint)) {
+      if (existing && !canReclaim(existing, pidAlive, processFingerprint, now, ttlMs)) {
         return { ok: false, retryable: true, message: formatContention(existing, now) };
       }
       if (attempt === 0) {
@@ -599,8 +615,8 @@ export function acquireScanLease(
         return;
       }
       try {
-        // A valid live-PID record cannot be reclaimed by another process, so
-        // no replacement owner can appear between this token check and unlink.
+        // Re-check after unlink: an unverifiable owner may be reclaimed after
+        // its TTL, so another process can replace the record between operations.
         unlinkForRelease(lockPath);
         if (readScanLease(lockPath)?.token === ownerToken) {
           throw new Error('scan lease still present after release attempt');

@@ -7,7 +7,7 @@
  * its heartbeat current until owner-safe release.
  */
 export declare const LOCK_FILENAME = "scan.lock";
-/** Grace period before an unreadable/corrupt record may be recovered. */
+/** Grace period for unreadable records and live-PID records without a verifiable owner fingerprint. */
 export declare const LOCK_TTL_MS = 60000;
 export declare const HEARTBEAT_INTERVAL_MS = 20000;
 export interface ScanLeaseRecord {

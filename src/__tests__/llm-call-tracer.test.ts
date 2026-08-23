@@ -188,3 +188,41 @@ describe('llm-call-tracer: SDK table audit additions', () => {
     expect(providers).toEqual(new Set(['openai', 'groq', 'anthropic', 'mistral', 'google', 'ollama', 'bedrock']));
   });
 });
+
+describe('llm-call-tracer: resource-exhaustion caps on untrusted trees (SEC-012)', () => {
+  it('completes quickly on a hostile single-line `import { ` + spaces file (line cap + de-overlapped regex)', async () => {
+    // Pre-fix, ONE application of the static-import pattern to an 8KB line
+    // of this shape took 247s; this 100KB line never returned. The 4KB line
+    // cap blanks it before any per-line regex runs.
+    const hostile = 'import { ' + ' '.repeat(100 * 1024);
+    await fs.promises.writeFile(path.join(scratchDir, 'hostile-one-line.ts'), hostile);
+    const started = Date.now();
+    const { calls } = await traceLLMCalls(scratchDir);
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(calls).toHaveLength(0);
+  }, 10_000);
+
+  it('skips files larger than 1 MiB entirely', async () => {
+    const realCall = [
+      "import Anthropic from '@anthropic-ai/sdk';",
+      'const client = new Anthropic();',
+      "export const r = client.messages.create({ model: 'claude-sonnet-5', messages: [] });",
+      `// ${'x'.repeat(1_100_000)}`,
+    ].join('\n');
+    await fs.promises.writeFile(path.join(scratchDir, 'oversized.ts'), realCall);
+    const { calls } = await traceLLMCalls(scratchDir);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('still detects imports with extra whitespace inside the braces (de-overlap equivalence)', async () => {
+    const src = [
+      "import {   Anthropic   } from '@anthropic-ai/sdk';",
+      'const client = new Anthropic();',
+      "export const r = client.messages.create({ model: 'claude-sonnet-5', messages: [] });",
+    ].join('\n');
+    await fs.promises.writeFile(path.join(scratchDir, 'spaced-import.ts'), src);
+    const { calls } = await traceLLMCalls(scratchDir);
+    const call = findCallFor(calls, 'spaced-import.ts');
+    expect(call.provider.name).toBe('anthropic');
+  });
+});

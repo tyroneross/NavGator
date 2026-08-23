@@ -266,6 +266,11 @@ const SDK_DEFINITIONS = [
 // =============================================================================
 // FILE EXCLUSIONS
 // =============================================================================
+// Resource-exhaustion caps for untrusted source trees (SEC-012). A repo
+// reached via `navgator scan-remote` controls its own file contents; without
+// caps a single huge or single-line file can hang or OOM the scan.
+export const MAX_FILE_SIZE_BYTES = 1_048_576; // 1 MiB
+export const MAX_LINE_LENGTH = 4_096;
 function shouldExcludeFile(file) {
     const excludePatterns = [
         /NavGator\/src\//,
@@ -295,7 +300,12 @@ function findSDKImports(content, lines, file) {
         for (const sdk of SDK_DEFINITIONS) {
             for (const pkg of sdk.packageNames) {
                 // Static imports: import X from 'pkg' or import { X } from 'pkg'
-                const staticImport = line.match(new RegExp(`import\\s+(?:(?:\\{\\s*([^}]+)\\s*\\})|(?:(\\w+)))\\s+from\\s+['"]${escapeRegex(pkg)}['"]`));
+                const staticImport = line.match(
+                // `\{([^}]+)\}`, not `\{\s*([^}]+)\s*\}`: since \s ⊂ [^}] the
+                // variants match the same lines (consumers trim the capture), but
+                // the \s*/[^}]+ overlap backtracks super-linearly on `{`+spaces
+                // runs — measured 247s on ONE 8KB line (SEC-012).
+                new RegExp(`import\\s+(?:(?:\\{([^}]+)\\})|(?:(\\w+)))\\s+from\\s+['"]${escapeRegex(pkg)}['"]`));
                 if (staticImport) {
                     const names = staticImport[1]
                         ? staticImport[1].split(',').map(n => n.trim().split(/\s+as\s+/).pop().trim())
@@ -310,7 +320,9 @@ function findSDKImports(content, lines, file) {
                     continue;
                 }
                 // Dynamic imports: const { X } = await import('pkg')
-                const dynamicImport = line.match(new RegExp(`(?:const|let|var)\\s+(?:\\{\\s*([^}]+)\\s*\\}|(\\w+))\\s*=\\s*(?:await\\s+)?import\\s*\\(\\s*['"]${escapeRegex(pkg)}['"]`));
+                const dynamicImport = line.match(
+                // Same de-overlap as the static-import pattern above (SEC-012).
+                new RegExp(`(?:const|let|var)\\s+(?:\\{([^}]+)\\}|(\\w+))\\s*=\\s*(?:await\\s+)?import\\s*\\(\\s*['"]${escapeRegex(pkg)}['"]`));
                 if (dynamicImport) {
                     const names = dynamicImport[1]
                         ? dynamicImport[1].split(',').map(n => n.trim())
@@ -746,10 +758,17 @@ export async function traceLLMCalls(projectRoot, walkSet) {
         const filePath = path.join(projectRoot, file);
         try {
             const stat = await fs.promises.stat(filePath);
-            if (!stat.isFile())
+            if (!stat.isFile() || stat.size > MAX_FILE_SIZE_BYTES)
                 continue;
             const content = await fs.promises.readFile(filePath, 'utf-8');
-            fileContents.set(file, { content, lines: content.split('\n') });
+            // Blank (don't drop) over-long lines so indexes still map to real line
+            // numbers; a >4KB single line is generated or hostile, never a
+            // hand-written import site, and the per-line regexes below must never
+            // see it.
+            const lines = content
+                .split('\n')
+                .map(line => (line.length > MAX_LINE_LENGTH ? '' : line));
+            fileContents.set(file, { content, lines });
         }
         catch {
             continue;

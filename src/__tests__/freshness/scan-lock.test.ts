@@ -163,7 +163,9 @@ describe('owner-safe scan lease', () => {
     expect(contender.ok).toBe(false);
   });
 
-  it('does not reclaim an expired heartbeat while its PID is still live', () => {
+  it('does not reclaim an expired heartbeat while its fingerprint-verified owner PID is still live', () => {
+    // SIGSTOP / debugger / suspended-laptop protection: heartbeat age never
+    // fences an owner whose process-start fingerprint proves it IS the owner.
     const lockPath = scanLockPath(root);
     const staleAt = Date.now() - LOCK_TTL_MS - 1;
     const stale: ScanLeaseRecord = {
@@ -173,11 +175,74 @@ describe('owner-safe scan lease', () => {
       started_at: staleAt,
       heartbeat_at: staleAt,
       scan_type: 'full',
+      owner_fingerprint: 'boot-a:start-owner',
     };
     fs.writeFileSync(lockPath, JSON.stringify(stale));
-    const result = acquireScanLease(lockPath, 'contender', { startHeartbeat: false });
+    const result = acquireScanLease(lockPath, 'contender', {
+      startHeartbeat: false,
+      isPidAlive: () => true,
+      getProcessFingerprint: () => 'boot-a:start-owner',
+      ownerFingerprint: 'boot-a:start-owner',
+    });
     expect(result.ok).toBe(false);
     expect(readScanLease(lockPath)?.token).toBe('stale-owner');
+  });
+
+  it('does not reclaim a fresh-heartbeat fingerprintless record while its PID is live', () => {
+    const lockPath = scanLockPath(root);
+    const stale: ScanLeaseRecord = {
+      version: 1,
+      pid: process.pid,
+      token: 'fingerprintless-owner',
+      started_at: Date.now(),
+      heartbeat_at: Date.now(),
+      scan_type: 'full',
+    };
+    fs.writeFileSync(lockPath, JSON.stringify(stale));
+    const result = acquireScanLease(lockPath, 'contender', {
+      startHeartbeat: false,
+      getProcessFingerprint: () => null,
+    });
+    expect(result.ok).toBe(false);
+    expect(readScanLease(lockPath)?.token).toBe('fingerprintless-owner');
+  });
+
+  it('reclaims a hostile shipped lock naming a live unrelated PID (SEC-011)', () => {
+    // A cloned or scan-remote'd repo can ship .navgator/scan.lock verbatim.
+    // pid 1 is always alive (EPERM counts as alive), the record carries no
+    // fingerprint, and its heartbeat is from clone time — before the fence,
+    // this wedged every future scan of the tree.
+    const lockPath = scanLockPath(root);
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 1,
+        pid: 1,
+        token: 'x',
+        started_at: 0,
+        heartbeat_at: 0,
+        scan_type: 'scan',
+      } satisfies ScanLeaseRecord),
+    );
+    const lease = acquire({ startHeartbeat: false });
+    expect(lease.token).not.toBe('x');
+  });
+
+  it('reclaims a fingerprintless record whose heartbeat is future-dated beyond the TTL', () => {
+    // An attacker who cannot predict scan time may forge a far-future
+    // heartbeat instead; a real owner can never be ahead of now by the TTL.
+    const lockPath = scanLockPath(root);
+    const forged: ScanLeaseRecord = {
+      version: 1,
+      pid: process.pid,
+      token: 'forged-future',
+      started_at: Date.now(),
+      heartbeat_at: Date.now() + LOCK_TTL_MS * 10,
+      scan_type: 'scan',
+    };
+    fs.writeFileSync(lockPath, JSON.stringify(forged));
+    const lease = acquire({ startHeartbeat: false, getProcessFingerprint: () => null });
+    expect(lease.token).not.toBe('forged-future');
   });
 
   it('recovers a valid lease after its owner PID is dead', () => {

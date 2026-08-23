@@ -81,3 +81,8 @@ __tests__/fixtures/**/.navgator/
 .navgator/scan.lock*
 .navgator/architecture/freshness.json.tmp*
 # <<< NavGator safety guard
+
+# Private slug denylist for the pre-commit guard — runtime config, never tracked.
+# Copy from another repo or create one slug per line. See build-loop
+# scripts/check_private_slugs.py.
+.private-slugs
