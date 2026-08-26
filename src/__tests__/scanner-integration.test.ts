@@ -43,6 +43,11 @@ model User {
   meta  Json   @default({})
   email String @unique
   name  String?
+  /*
+   * phantomScalar String
+   * phantomRelation Post @relation(fields: [phantomId], references: [id])
+   * @@map("phantom_users")
+   */
 }
 
 model Post {
@@ -116,6 +121,20 @@ const worker = new Worker('email-queue', async (job) => {
     expect(fieldNames).toContain('meta');
     expect(fieldNames).toContain('email');
     expect(fieldNames).toContain('name');
+  });
+
+  it('Prisma scanner ignores field-shaped metadata inside block comments', async () => {
+    const result = await scanPrismaSchema(fixtureDir);
+    const userComp = result.components.find(c => c.name === 'User');
+    expect(userComp).toBeDefined();
+
+    const fields = userComp!.metadata?.fields as Array<{ name: string }>;
+    const fieldNames = fields.map(field => field.name);
+    expect(fieldNames).not.toContain('phantomScalar');
+    expect(fieldNames).not.toContain('phantomRelation');
+    expect(userComp!.metadata?.tableName).toBe('User');
+    expect(userComp!.metadata?.relationCount).toBe(0);
+    expect(result.connections).toHaveLength(0);
   });
 
   it('Prisma scanner result has components typed as database', async () => {

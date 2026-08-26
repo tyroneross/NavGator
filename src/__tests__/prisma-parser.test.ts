@@ -178,6 +178,7 @@ model Post {
     const models = parsePrismaModels(schema);
     expect(models.map(model => model.name)).toEqual(['User', 'Post']);
     expect(models[0].body).toContain('name String');
+    expect(models[0].body).not.toContain("don't let");
   });
 
   it('ignores braces and model declarations in block comments', () => {
@@ -195,6 +196,8 @@ model Account {
     const models = parsePrismaModels(schema);
     expect(models.map(model => model.name)).toEqual(['Account']);
     expect(models[0].body).toContain('active Boolean');
+    expect(models[0].body).not.toContain('model Nested');
+    expect(models[0].body.split('\n')).toHaveLength(5);
   });
 
   it('keeps comment markers, model tokens, braces, and escaped quotes inside strings', () => {
@@ -211,6 +214,7 @@ model NextModel {
 `;
     const models = parsePrismaModels(schema);
     expect(models.map(model => model.name)).toEqual(['Template', 'NextModel']);
+    expect(models[0].body).toContain('// /* model Fake { } */');
     expect(models[0].body).toContain('\\"hello\\"');
     expect(models[0].body).toMatch(/ready\s+Boolean/);
   });

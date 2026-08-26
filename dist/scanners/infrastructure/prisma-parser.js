@@ -81,6 +81,60 @@ function findModelEnd(content, bodyStart) {
     return null;
 }
 /**
+ * Replace comment text with spaces while preserving quoted content, line
+ * breaks, and character offsets for downstream line-oriented parsers.
+ */
+function maskComments(content) {
+    const masked = content.split('');
+    let state = 'normal';
+    for (let i = 0; i < content.length; i++) {
+        const character = content[i];
+        const nextCharacter = content[i + 1];
+        if (state === 'line-comment') {
+            if (character === '\n' || character === '\r') {
+                state = 'normal';
+            }
+            else {
+                masked[i] = ' ';
+            }
+            continue;
+        }
+        if (state === 'block-comment') {
+            if (character === '*' && nextCharacter === '/') {
+                masked[i] = ' ';
+                masked[i + 1] = ' ';
+                state = 'normal';
+                i++;
+            }
+            else if (character !== '\n' && character !== '\r') {
+                masked[i] = ' ';
+            }
+            continue;
+        }
+        if (state === 'string') {
+            if (character === '"' && !isEscaped(content, i))
+                state = 'normal';
+            continue;
+        }
+        if (character === '/' && nextCharacter === '/') {
+            masked[i] = ' ';
+            masked[i + 1] = ' ';
+            state = 'line-comment';
+            i++;
+        }
+        else if (character === '/' && nextCharacter === '*') {
+            masked[i] = ' ';
+            masked[i + 1] = ' ';
+            state = 'block-comment';
+            i++;
+        }
+        else if (character === '"') {
+            state = 'string';
+        }
+    }
+    return masked.join('');
+}
+/**
  * Parse Prisma schema content into model blocks using brace-depth counting.
  * Handles nested braces like @default({}) correctly.
  */
@@ -130,7 +184,7 @@ export function parsePrismaModels(content) {
                     break;
                 models.push({
                     name: declaration.name,
-                    body: content.substring(declaration.bodyStart, bodyEnd),
+                    body: maskComments(content.substring(declaration.bodyStart, bodyEnd)),
                 });
                 i = bodyEnd;
                 continue;
