@@ -16,11 +16,41 @@ Resolve the NavGator binary once per session, in this order. Never hardcode an
 absolute path.
 
 1. `navgator` on PATH — installed globally or via `npm link`.
-2. `npx --no-install navgator` — when the project depends on `@tyroneross/navgator`.
-3. `node "$NAVGATOR_HOME/dist/cli/index.js"` — where `NAVGATOR_HOME` is the
-   installed plugin/package root (Claude: `${CLAUDE_PLUGIN_ROOT}`).
+2. The project dependency — resolve `@tyroneross/navgator/package.json` without
+   downloading anything.
+3. `NAVGATOR_HOME` — the installed plugin/package root (Claude exports
+   `${CLAUDE_PLUGIN_ROOT}`).
 
-If none resolve, tell the user to run `npm i -g @tyroneross/navgator` and stop.
+Whichever rung resolves, retain both `NAVGATOR_BIN` and `NAVGATOR_PACKAGE` for
+the whole operation. Report the path, version, and realpath source before
+installing or updating anything:
+
+   ```bash
+   if command -v navgator >/dev/null 2>&1; then
+     NAVGATOR_BIN="$(command -v navgator)"
+     NAVGATOR_RESOLVED="$(node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1]))" "$NAVGATOR_BIN")"
+     NAVGATOR_PACKAGE="$(dirname "$(dirname "$(dirname "$NAVGATOR_RESOLVED")")")"
+   elif NAVGATOR_ENTRY="$(node --input-type=module -e "import {fileURLToPath} from 'node:url';process.stdout.write(fileURLToPath(import.meta.resolve('@tyroneross/navgator')))" 2>/dev/null)"; then
+     NAVGATOR_PACKAGE="$(dirname "$(dirname "$NAVGATOR_ENTRY")")"
+     NAVGATOR_BIN="$NAVGATOR_PACKAGE/dist/cli/index.js"
+     NAVGATOR_SOURCE="$NAVGATOR_BIN"
+   elif [ -n "${NAVGATOR_HOME:-}" ] && [ -x "$NAVGATOR_HOME/dist/cli/index.js" ]; then
+     NAVGATOR_PACKAGE="$NAVGATOR_HOME"
+     NAVGATOR_BIN="$NAVGATOR_PACKAGE/dist/cli/index.js"
+     NAVGATOR_SOURCE="$NAVGATOR_BIN"
+   else
+     echo "navgator CLI unavailable" >&2
+     return 1 2>/dev/null || exit 1
+   fi
+   NAVGATOR_SOURCE="$(node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1]))" "$NAVGATOR_BIN")"
+   NAVGATOR_VERSION="$("$NAVGATOR_BIN" --version)"
+   printf 'navgator CLI path: %s\nnavgator CLI version: %s\nnavgator CLI source: %s\n' \
+     "$NAVGATOR_BIN" "$NAVGATOR_VERSION" "$NAVGATOR_SOURCE"
+   ```
+
+If none resolve, prefer the already-materialized runtime path printed by the
+host installer. Recommend a registry install only after checking the registry
+version is not older than an available local package.
 Treat a non-zero exit code as a real failure and surface stderr; never silently
 continue with stale architecture data.
 
@@ -35,7 +65,10 @@ Install NavGator explicitly for Claude Code or Codex.
 npm ls -g @tyroneross/navgator 2>/dev/null | head -3
 ```
 
-2. **Install globally if needed:**
+2. **Choose the package source.** If the active NavGator checkout or resolved
+   binary is newer than the registry, use that local package root and skip the
+   global install. Install from the registry only when no equal-or-newer local
+   package is available:
 ```bash
 npm install -g @tyroneross/navgator
 ```
@@ -43,7 +76,7 @@ npm install -g @tyroneross/navgator
 3. **Locate the published package:**
 
 ```bash
-NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
+NAVGATOR_PACKAGE="${NAVGATOR_PACKAGE:-$(npm root -g)/@tyroneross/navgator}"
 test -f "$NAVGATOR_PACKAGE/.claude-plugin/plugin.json"
 ```
 
@@ -99,27 +132,42 @@ With `--with-mcp`, the Codex installer also registers `mcp-optin/codex.mcp.json`
 
 ## Update
 
-1. Check current vs latest version:
+1. Use the retained `NAVGATOR_BIN` and `NAVGATOR_PACKAGE` from the three-rung
+   resolution above. Check that exact binary against the registry version. Do not use
+   `npx @tyroneross/navgator --version` for the current version: it can download
+   and report the registry package instead of the binary being updated.
 ```bash
-npx @tyroneross/navgator --version
-npm view @tyroneross/navgator version
+CURRENT_VERSION="$("$NAVGATOR_BIN" --version)"
+REGISTRY_VERSION="$(npm view @tyroneross/navgator version)"
+printf 'current=%s registry=%s package=%s\n' "$CURRENT_VERSION" "$REGISTRY_VERSION" "$NAVGATOR_PACKAGE"
 ```
 
-2. If update available, update the CLI package:
+2. Compare the versions using SemVer. Update only when the registry version is
+   newer. If the resolved local version is newer (for example, local `0.9.1`
+   while the registry is `0.9.0`), keep the local binary and do not run
+   `npm install ...@latest`.
+
+3. If and only if the registry is newer, update the CLI package and deliberately
+   switch the retained package root. Otherwise leave both retained variables
+   pointed at the equal-or-newer local package:
 ```bash
 npm install -g @tyroneross/navgator@latest
+NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
+NAVGATOR_BIN="$NAVGATOR_PACKAGE/dist/cli/index.js"
 ```
 
-3. Re-run the relevant Claude/Codex installer so its isolated runtime is updated:
+4. Re-run only the relevant Claude or Codex installer from the retained package
+   root so its isolated runtime is updated:
 ```bash
-NAVGATOR_PACKAGE="$(npm root -g)/@tyroneross/navgator"
 bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --global
+# Or, for Codex:
 bash "$NAVGATOR_PACKAGE/scripts/install-codex-plugin.sh" --user
 ```
 
-4. Verify the updated package explicitly:
+5. Verify the resolved binary explicitly, including its provenance:
 ```bash
-npx @tyroneross/navgator@latest --version
+"$NAVGATOR_BIN" --version
+node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1])+'\n')" "$NAVGATOR_BIN"
 ```
 
 ## Web Dashboard

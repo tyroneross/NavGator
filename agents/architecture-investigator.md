@@ -20,7 +20,7 @@ Follow these five phases in order. Do not skip phases.
 Get the current state of the architecture before touching anything specific.
 
 ```bash
-navgator status --agent
+navgator status --agent --no-refresh
 ```
 
 Read the output to understand:
@@ -129,7 +129,7 @@ Explicit list of what you investigated but left untouched, and why.
 
 **Phase 1 — Overview:**
 ```bash
-navgator status --agent
+navgator status --agent --no-refresh
 # → 42 components, 3 queues detected, 1 warning flagged
 ```
 

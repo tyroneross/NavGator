@@ -14,7 +14,7 @@ Run an end-to-end architecture test on this project.
 ## What to do
 
 ### Phase 1: Freshness Check
-1. Run `navgator status --agent` (prefer `navgator` on PATH) — check if data is stale
+1. Run `navgator status --agent --no-refresh` (prefer `navgator` on PATH) — inspect whether stored data is stale without refreshing it
 2. If stale (>24h), run `navgator scan --agent` first. A non-zero exit code from either call is a real failure — surface stderr and stop; do not run the remaining phases against stale or missing data.
 
 ### Phase 2: Architecture Health

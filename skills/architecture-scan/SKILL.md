@@ -35,7 +35,10 @@ After scanning, present a smart brevity brief:
 
 ## Status
 
-Run `navgator status --agent` to show architecture summary without re-scanning.
+Run `navgator status --agent --no-refresh` to inspect the stored architecture
+summary without re-scanning or writing architecture data. Plain
+`navgator status --agent` may auto-refresh stale data, so use it only when that
+write is intended.
 
 Returns: component counts by type/layer, connection counts, AI routing table, last scan timestamp, and staleness indicator.
 
@@ -55,9 +58,9 @@ Run `navgator scan --agent` with a follow-up review of the results. Health infor
 |-------------|-------------|-------|
 | "Scan my project" | `navgator scan --agent` | Full scan |
 | "Quick scan" | `navgator scan --agent --quick` | Packages only |
-| "What's my stack?" | `navgator status --agent` | No re-scan needed |
+| "What's my stack?" | `navgator status --agent --no-refresh` | Read-only stored summary |
 | "Any outdated packages?" | `navgator scan --agent` | Check health results |
-| "Is architecture data fresh?" | `navgator status --agent` | Check timestamp |
+| "Is architecture data fresh?" | `navgator status --agent --no-refresh` | Read-only timestamp check |
 
 ## Output Format
 

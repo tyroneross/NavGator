@@ -200,13 +200,13 @@ Claude, which exports `${CLAUDE_PLUGIN_ROOT}`. Neither installer puts `navgator`
 on PATH — `npm install --prefix` leaves the shim at
 `<runtime-root>/node_modules/.bin/navgator`, which no host reads.
 
-A Codex user who never ran `npm i -g @tyroneross/navgator` therefore has every
-rung fail and the whole NavGator surface degrade to "tell the user to install
-it". `scripts/install-codex-plugin.sh` checks `command -v navgator` after
-materialization and, when it does not resolve, prints a REQUIRED next step
-naming both remediations (`npm i -g @tyroneross/navgator`, or exporting the
-printed absolute `<runtime-root>/node_modules/.bin`). It warns rather than
-hard-fails: registration itself succeeded and is not rolled back by exiting
+A Codex user without `navgator` on PATH therefore has every rung fail.
+`scripts/install-codex-plugin.sh` checks `command -v navgator` after
+materialization, reports the resolved PATH binary's path, version, and realpath
+source when present, and otherwise prints a REQUIRED next step that exports the
+already-materialized `<runtime-root>/node_modules/.bin`. It does not recommend
+replacing a newer local runtime with an older registry release. It warns rather
+than hard-fails: registration itself succeeded and is not rolled back by exiting
 non-zero, and the fix applies afterwards without re-running the installer. The
 Claude installer reports the same reachability, but its message says the plugin
 works regardless — `${CLAUDE_PLUGIN_ROOT}` keeps rung 3 live there.

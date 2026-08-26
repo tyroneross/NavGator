@@ -714,13 +714,23 @@ echo "  Scan target: active task workspace"
 
 # Codex loads skills/ only: it declares no binary, exports no PATH entry, and
 # sets no NAVGATOR_HOME. Every skill resolves the CLI at runtime, so an
-# unreachable `navgator` silently degrades the whole surface to "tell the user
-# to install it". Report reachability instead of assuming it.
+# unreachable `navgator` silently degrades the whole surface to setup guidance.
+# Report reachability and the exact runtime provenance instead of assuming it.
 NAVGATOR_BIN_DIR="$RUNTIME_ROOT/node_modules/.bin"
 if NAVGATOR_ON_PATH="$(command -v navgator 2>/dev/null)"; then
-  echo "  navgator CLI: $NAVGATOR_ON_PATH"
+  NAVGATOR_PATH_VERSION="$("$NAVGATOR_ON_PATH" --version 2>/dev/null || true)"
+  NAVGATOR_PATH_SOURCE="$(node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1]))" "$NAVGATOR_ON_PATH" 2>/dev/null || printf '%s' "$NAVGATOR_ON_PATH")"
+  echo "  navgator CLI path:    $NAVGATOR_ON_PATH"
+  echo "  navgator CLI version: ${NAVGATOR_PATH_VERSION:-unknown}"
+  echo "  navgator CLI source:  $NAVGATOR_PATH_SOURCE"
   NAVGATOR_REACHABLE="true"
 else
+  NAVGATOR_RUNTIME_CLI="$NAVGATOR_BIN_DIR/navgator"
+  NAVGATOR_RUNTIME_VERSION="$("$NAVGATOR_RUNTIME_CLI" --version 2>/dev/null || true)"
+  NAVGATOR_RUNTIME_SOURCE="$(node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1]))" "$NAVGATOR_RUNTIME_CLI" 2>/dev/null || printf '%s' "$NAVGATOR_RUNTIME_CLI")"
+  echo "  navgator CLI path:    not on PATH"
+  echo "  navgator CLI version: ${NAVGATOR_RUNTIME_VERSION:-unknown}"
+  echo "  navgator CLI source:  $NAVGATOR_RUNTIME_SOURCE"
   NAVGATOR_REACHABLE="false"
 fi
 
@@ -738,8 +748,7 @@ if [ "$NAVGATOR_REACHABLE" != "true" ]; then
   err "REQUIRED: the navgator CLI is not reachable, so the skills cannot run it."
   err "Codex loads skills only. It puts no binary on PATH and sets no NAVGATOR_HOME,"
   err "so every NavGator skill will fail until 'navgator' resolves in your shell."
-  err "Do one of these before starting a Codex task:"
-  err "  npm i -g @tyroneross/navgator"
+  err "Add the already-materialized runtime before starting a Codex task:"
   if [ -x "$NAVGATOR_BIN_DIR/navgator" ]; then
     err "  export PATH=\"$NAVGATOR_BIN_DIR:\$PATH\"   # add to your shell profile"
   fi

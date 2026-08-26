@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NAVGATOR_LICENSE, NAVGATOR_PACKAGE_NAME, NAVGATOR_VERSION } from '../version.js';
@@ -400,5 +401,48 @@ describe('release contract', () => {
     expect(verifier).toContain('NAVGATOR_RELEASE_TARBALL');
     expect(verifier).toContain('installed user cache scans after source removal');
     expect(verifier).toContain('leaves victim content unchanged');
+  });
+
+  it('keeps read-only architecture inspection from auto-refreshing stored data', () => {
+    const scanSkill = text('skills/architecture-scan/SKILL.md');
+    const investigator = text('agents/architecture-investigator.md');
+    const architectureTest = text('commands/test.md');
+
+    expect(scanSkill).toContain('navgator status --agent --no-refresh');
+    expect(scanSkill).toContain('Plain\n`navgator status --agent` may auto-refresh stale data');
+    expect(investigator.match(/navgator status --agent --no-refresh/g)).toHaveLength(2);
+    expect(architectureTest).toContain('navgator status --agent --no-refresh');
+  });
+
+  it('reports CLI provenance and never recommends replacing the materialized runtime', () => {
+    const setupSkill = text('skills/navgator-setup/SKILL.md');
+    const claudeInstaller = text('scripts/install-plugin.sh');
+    const codexInstaller = text('scripts/install-codex-plugin.sh');
+
+    expect(setupSkill).toContain('navgator CLI path: %s');
+    expect(setupSkill).toContain('navgator CLI version: %s');
+    expect(setupSkill).toContain('navgator CLI source: %s');
+    expect(setupSkill).toContain('local `0.9.1`\n   while the registry is `0.9.0`');
+    const updateSection = setupSkill.split('## Update')[1].split('## Web Dashboard')[0];
+    expect(updateSection).toContain('retained `NAVGATOR_BIN` and `NAVGATOR_PACKAGE`');
+    expect(updateSection).toContain('If and only if the registry is newer');
+    expect(updateSection).not.toContain('NAVGATOR_BIN="$(command -v navgator)"');
+    expect(updateSection.match(/NAVGATOR_PACKAGE="\$\(npm root -g\)/g)).toHaveLength(1);
+
+    const dependencyEntry = execFileSync(process.execPath, [
+      '--input-type=module',
+      '-e',
+      "import {fileURLToPath} from 'node:url';process.stdout.write(fileURLToPath(import.meta.resolve('@tyroneross/navgator')))",
+    ], { cwd: root, encoding: 'utf8', env: { ...process.env, PATH: '' } });
+    expect(dependencyEntry).toBe(path.join(root, 'dist/index.js'));
+
+    for (const installer of [claudeInstaller, codexInstaller]) {
+      expect(installer).toContain('navgator CLI path:');
+      expect(installer).toContain('navgator CLI version:');
+      expect(installer).toContain('navgator CLI source:');
+      expect(installer).toContain('fs.realpathSync(process.argv[1])');
+      expect(installer).not.toContain('npm i -g @tyroneross/navgator');
+    }
+    expect(codexInstaller).toContain('Add the already-materialized runtime');
   });
 });

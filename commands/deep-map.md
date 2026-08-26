@@ -139,6 +139,6 @@ expanding, and the manifest says how many groups were dropped.
 
 ## When not to use
 
-- A quick structural question — `navgator status --agent` or
+- A quick structural question — `navgator status --agent --no-refresh` or
   `navgator explore <component> --agent` answers it for free
 - A repo NavGator has not scanned; there is nothing to partition

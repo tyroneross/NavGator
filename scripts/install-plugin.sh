@@ -483,9 +483,15 @@ fi
 # missing PATH entry costs you the shell shorthand, not the plugin surface —
 # which is the opposite of Codex, where nothing sets NAVGATOR_HOME.
 if NAVGATOR_ON_PATH="$(command -v navgator 2>/dev/null)"; then
-  echo "  navgator CLI: $NAVGATOR_ON_PATH"
+  NAVGATOR_PATH_VERSION="$("$NAVGATOR_ON_PATH" --version 2>/dev/null || true)"
+  NAVGATOR_PATH_SOURCE="$(node -e "const fs=require('fs');process.stdout.write(fs.realpathSync(process.argv[1]))" "$NAVGATOR_ON_PATH" 2>/dev/null || printf '%s' "$NAVGATOR_ON_PATH")"
+  echo "  navgator CLI path:    $NAVGATOR_ON_PATH"
+  echo "  navgator CLI version: ${NAVGATOR_PATH_VERSION:-unknown}"
+  echo "  navgator CLI source:  $NAVGATOR_PATH_SOURCE"
 else
-  echo "  navgator CLI: $INSTALL_PATH/dist/cli/index.js (via \${CLAUDE_PLUGIN_ROOT}; not on PATH)"
+  echo "  navgator CLI path:    not on PATH"
+  echo "  navgator CLI version: $EXPECTED_VERSION"
+  echo "  navgator CLI source:  $INSTALL_PATH/dist/cli/index.js (via \${CLAUDE_PLUGIN_ROOT})"
 fi
 
 echo ""
@@ -494,7 +500,6 @@ echo "MCP is off by default. Re-run with --with-mcp only if your client cannot r
 if [ -z "${NAVGATOR_ON_PATH:-}" ]; then
   warn "navgator is not on your PATH. The plugin still works — Claude resolves the CLI"
   warn "through \${CLAUDE_PLUGIN_ROOT}. Add it to PATH only to run navgator yourself:"
-  warn "  npm i -g @tyroneross/navgator"
   if [ -x "$RUNTIME_ROOT/node_modules/.bin/navgator" ]; then
     warn "  export PATH=\"$RUNTIME_ROOT/node_modules/.bin:\$PATH\""
   fi

@@ -78,7 +78,7 @@ this change; every other row already existed.
 | MCP tool | CLI replacement |
 |---|---|
 | `scan` | `navgator scan --agent` (add `--quick` for the fast path) |
-| `status` | `navgator status --agent` |
+| `status` | `navgator status --agent --no-refresh` (read-only; omit `--no-refresh` to allow stale-data auto-refresh) |
 | `impact` | `navgator impact <component> --agent` |
 | `connections` | `navgator connections <component> --agent` |
 | `diagram` | `navgator diagram` (emits Mermaid text; no `--agent` envelope) |

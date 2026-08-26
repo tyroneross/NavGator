@@ -120,7 +120,7 @@ Off by default to keep the on-disk footprint small. The canonical consolidated `
 | Follow data through the system | `navgator trace <component> --agent` |
 | Check architecture health | `navgator rules --agent` or `/navgator:review` |
 | Find where a function/file is used | `navgator connections <component> --agent` |
-| See the full architecture overview | `navgator status --agent` |
+| See the stored architecture overview without refreshing | `navgator status --agent --no-refresh` |
 
 ## Retrieving Stored Context
 
