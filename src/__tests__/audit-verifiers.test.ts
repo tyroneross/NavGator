@@ -194,6 +194,70 @@ describe('verifyWrongEndpoint', () => {
     const out = await verifyWrongEndpoint([conn], ctxFor({ componentById: map }));
     expect(out.defectCount).toBe(1);
   });
+
+  it('accepts a template fetch whose dynamic suffix follows the canonical endpoint', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), 'fetch(`/api/search${search}`);\n');
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/search')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('accepts template paths with slashes only before a dynamic suffix', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), 'fetch(`/api/graph/${id}`);\n');
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/graph')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('accepts a fetch endpoint when the call has options', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), "fetch('/api/contact', { method: 'POST' });\n");
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/contact')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('accepts a double-quoted fetch endpoint', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), 'fetch("/api/settings/search-preferences");\n');
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/settings/search-preferences')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('accepts scanner-recognized fetch wrappers', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), [
+      "fetchWithTimeout('/api/timeout');",
+      "apiFetch('/api/client');",
+      "fetchJSON('/api/json');",
+      "fetcher('/api/resource');",
+    ].join('\n'));
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/timeout')" } }),
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/client')" } }),
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/json')" } }),
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/resource')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(0);
+  });
+
+  it('does not accept a longer API path with the same prefix', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), "fetch('/api/contact-form');\n");
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/contact')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(1);
+  });
+
+  it('does not accept a static slash suffix after the canonical endpoint', async () => {
+    fs.writeFileSync(path.join(workDir, 'a.ts'), "fetch('/api/graph/details');\n");
+    const out = await verifyWrongEndpoint([
+      makeConnection({ code_reference: { file: 'a.ts', symbol: "fetch('/api/graph')" } }),
+    ], ctxFor());
+    expect(out.defectCount).toBe(1);
+  });
 });
 
 // ============================================================================
