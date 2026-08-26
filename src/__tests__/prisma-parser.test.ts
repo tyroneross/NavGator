@@ -159,6 +159,61 @@ model Template {
     expect(models).toHaveLength(1);
     expect(models[0].body).toContain('fallback');
   });
+
+  it('ignores apostrophes, braces, and model declarations in line comments', () => {
+    const schema = `
+// getExtractionStats' return shape changed } model CommentedOut {
+//   id String @id
+// }
+model User {
+  id String @id
+  // don't let } or model Nested { change the active model
+  name String
+}
+
+model Post {
+  id String @id
+}
+`;
+    const models = parsePrismaModels(schema);
+    expect(models.map(model => model.name)).toEqual(['User', 'Post']);
+    expect(models[0].body).toContain('name String');
+  });
+
+  it('ignores braces and model declarations in block comments', () => {
+    const schema = `
+/*
+ * An apostrophe can't start a Prisma string here.
+ * } model CommentedOut { id String @id }
+ */
+model Account {
+  id String @id
+  /* } model Nested { */
+  active Boolean
+}
+`;
+    const models = parsePrismaModels(schema);
+    expect(models.map(model => model.name)).toEqual(['Account']);
+    expect(models[0].body).toContain('active Boolean');
+  });
+
+  it('keeps comment markers, model tokens, braces, and escaped quotes inside strings', () => {
+    const schema = `
+model Template {
+  id      String @id
+  pattern String @default("// /* model Fake { } */ say \\"hello\\" {name}")
+  ready   Boolean
+}
+
+model NextModel {
+  id String @id
+}
+`;
+    const models = parsePrismaModels(schema);
+    expect(models.map(model => model.name)).toEqual(['Template', 'NextModel']);
+    expect(models[0].body).toContain('\\"hello\\"');
+    expect(models[0].body).toMatch(/ready\s+Boolean/);
+  });
 });
 
 describe('parseDatasource', () => {

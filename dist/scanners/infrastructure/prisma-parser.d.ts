@@ -6,8 +6,10 @@
  * dropping fields that appear after nested braces such as @default({}) or
  * @relation({fields: [...], references: [...]}).
  *
- * This implementation uses brace-depth counting to correctly locate the
- * matching closing brace for each model block.
+ * This implementation uses a small lexer plus brace-depth counting to locate
+ * active model declarations and their matching closing braces. The lexer
+ * ignores comments and quoted strings so their contents cannot change parser
+ * state or create phantom models.
  */
 export interface ParsedPrismaModel {
     name: string;

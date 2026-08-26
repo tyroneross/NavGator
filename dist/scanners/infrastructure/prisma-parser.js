@@ -6,52 +6,140 @@
  * dropping fields that appear after nested braces such as @default({}) or
  * @relation({fields: [...], references: [...]}).
  *
- * This implementation uses brace-depth counting to correctly locate the
- * matching closing brace for each model block.
+ * This implementation uses a small lexer plus brace-depth counting to locate
+ * active model declarations and their matching closing braces. The lexer
+ * ignores comments and quoted strings so their contents cannot change parser
+ * state or create phantom models.
  */
+function isIdentifierCharacter(character) {
+    return character !== undefined && /[A-Za-z0-9_]/.test(character);
+}
+function isEscaped(content, index) {
+    let backslashCount = 0;
+    for (let i = index - 1; i >= 0 && content[i] === '\\'; i--) {
+        backslashCount++;
+    }
+    return backslashCount % 2 === 1;
+}
+function matchModelDeclaration(content, index) {
+    if (!content.startsWith('model', index) ||
+        isIdentifierCharacter(content[index - 1]) ||
+        isIdentifierCharacter(content[index + 'model'.length])) {
+        return null;
+    }
+    const match = /^model\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/.exec(content.slice(index));
+    if (!match)
+        return null;
+    return {
+        name: match[1],
+        bodyStart: index + match[0].length,
+    };
+}
+function findModelEnd(content, bodyStart) {
+    let depth = 1;
+    let state = 'normal';
+    for (let i = bodyStart; i < content.length; i++) {
+        const character = content[i];
+        const nextCharacter = content[i + 1];
+        if (state === 'line-comment') {
+            if (character === '\n' || character === '\r')
+                state = 'normal';
+            continue;
+        }
+        if (state === 'block-comment') {
+            if (character === '*' && nextCharacter === '/') {
+                state = 'normal';
+                i++;
+            }
+            continue;
+        }
+        if (state === 'string') {
+            if (character === '"' && !isEscaped(content, i))
+                state = 'normal';
+            continue;
+        }
+        if (character === '/' && nextCharacter === '/') {
+            state = 'line-comment';
+            i++;
+        }
+        else if (character === '/' && nextCharacter === '*') {
+            state = 'block-comment';
+            i++;
+        }
+        else if (character === '"') {
+            state = 'string';
+        }
+        else if (character === '{') {
+            depth++;
+        }
+        else if (character === '}') {
+            depth--;
+            if (depth === 0)
+                return i;
+        }
+    }
+    return null;
+}
 /**
  * Parse Prisma schema content into model blocks using brace-depth counting.
  * Handles nested braces like @default({}) correctly.
  */
 export function parsePrismaModels(content) {
     const models = [];
-    const modelStartRegex = /model\s+(\w+)\s*\{/g;
-    let startMatch;
-    while ((startMatch = modelStartRegex.exec(content)) !== null) {
-        const modelName = startMatch[1];
-        const bodyStart = startMatch.index + startMatch[0].length;
-        // Count braces to find the matching closing brace, skipping string literals
-        let depth = 1;
-        let i = bodyStart;
-        let inString = false;
-        let stringChar = '';
-        while (i < content.length && depth > 0) {
-            const ch = content[i];
-            const prev = i > 0 ? content[i - 1] : '';
-            if ((ch === '"' || ch === "'") && prev !== '\\') {
-                if (!inString) {
-                    inString = true;
-                    stringChar = ch;
-                }
-                else if (ch === stringChar) {
-                    inString = false;
-                }
+    let state = 'normal';
+    let topLevelDepth = 0;
+    for (let i = 0; i < content.length; i++) {
+        const character = content[i];
+        const nextCharacter = content[i + 1];
+        if (state === 'line-comment') {
+            if (character === '\n' || character === '\r')
+                state = 'normal';
+            continue;
+        }
+        if (state === 'block-comment') {
+            if (character === '*' && nextCharacter === '/') {
+                state = 'normal';
+                i++;
             }
-            else if (!inString) {
-                if (ch === '{')
-                    depth++;
-                else if (ch === '}')
-                    depth--;
-            }
+            continue;
+        }
+        if (state === 'string') {
+            if (character === '"' && !isEscaped(content, i))
+                state = 'normal';
+            continue;
+        }
+        if (character === '/' && nextCharacter === '/') {
+            state = 'line-comment';
             i++;
+            continue;
         }
-        if (depth === 0) {
-            const body = content.substring(bodyStart, i - 1);
-            models.push({ name: modelName, body });
+        if (character === '/' && nextCharacter === '*') {
+            state = 'block-comment';
+            i++;
+            continue;
         }
-        // Resume regex search after this model block so consecutive models
-        // are not skipped and the regex does not re-scan already-parsed text.
-        modelStartRegex.lastIndex = i;
+        if (character === '"') {
+            state = 'string';
+            continue;
+        }
+        if (topLevelDepth === 0) {
+            const declaration = matchModelDeclaration(content, i);
+            if (declaration) {
+                const bodyEnd = findModelEnd(content, declaration.bodyStart);
+                if (bodyEnd === null)
+                    break;
+                models.push({
+                    name: declaration.name,
+                    body: content.substring(declaration.bodyStart, bodyEnd),
+                });
+                i = bodyEnd;
+                continue;
+            }
+        }
+        if (character === '{')
+            topLevelDepth++;
+        else if (character === '}' && topLevelDepth > 0)
+            topLevelDepth--;
     }
     return models;
 }
