@@ -2,7 +2,7 @@
 name: code-review
 description: Architectural integrity review of changes already made — system flow, connections, drift. Use when user asks to review architecture, check connections, navgator review, is this safe to merge, what did I break, or when scan detects architectural drift. Not for forecasting the effect of a change you have not made yet; use `impact-analysis` instead.
 version: 0.9.1
-user-invocable: true
+user-invocable: false
 ---
 
 # Architectural Integrity Review

@@ -2,7 +2,7 @@
 name: navgator-setup
 description: Use when user asks to install navgator, update navgator, set up navgator, launch the dashboard, or run navgator ui maintenance.
 version: 0.9.1
-user-invocable: true
+user-invocable: false
 argument-hint: [install|update|ui]
 ---
 
