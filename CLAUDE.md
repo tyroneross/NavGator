@@ -118,7 +118,7 @@ Off by default to keep the on-disk footprint small. The canonical consolidated `
 | Understand a component before changing it | `navgator explore <component> --agent` |
 | Know what breaks if I change X | `navgator impact <component> --agent` |
 | Follow data through the system | `navgator trace <component> --agent` |
-| Check architecture health | `navgator rules --agent` or `/navgator:review` |
+| Check architecture health | `navgator rules --agent` or `navgator review --agent` |
 | Find where a function/file is used | `navgator connections <component> --agent` |
 | See the stored architecture overview without refreshing | `navgator status --agent --no-refresh` |
 
@@ -144,23 +144,26 @@ NavGator stores architecture data in `.navgator/architecture/`. Key files for re
 
 ### Slash Commands
 
+Only 4 commands ship as slash commands. Everything else has no subcommand — load the named skill (or run the `navgator` CLI directly) instead.
+
 | Command | Purpose |
 |---------|---------|
 | `/navgator:gator [intent]` | Route a free-form architecture request to the most specific command or skill |
-| `/navgator:map` | Map full architecture — components, connections, topology, LLM use cases |
 | `/navgator:plan "<intent>"` | Delegate architecture-aware change planning to the planner agent |
 | `/navgator:scan` | Quick scan — refresh tracking data |
-| `/navgator:trace <component>` | Trace data flow through the system (cron → route → service → DB → queue → LLM) |
-| `/navgator:impact <component>` | What breaks if you change this? Blast radius analysis |
-| `/navgator:test [instructions]` | End-to-end architecture test with optional custom focus |
-| `/navgator:review` | Architectural integrity review (connections, drift, lessons) |
-| `/navgator:review learn "..."` | Record a manual architectural lesson |
-| `/navgator:llm-map` | Map all LLM use cases by purpose (search, summarization, extraction, etc.) |
-| `/navgator:deep-map` | Tiered mapping — isolate component groups, fan out parallel agents to describe them, then hunt inefficiencies with evidence |
-| `/navgator:schema [model]` | Show readers vs writers per database model |
-| `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
-| `/navgator:lessons` | Manage project and global architecture lessons |
-| `/navgator:promote-lesson` | Find recurring cross-project lesson patterns for promotion |
+| `/navgator:feedback` | Report a bug or send feedback about NavGator |
+
+### Capability routing — no subcommand, load the skill
+
+| I want to... | Load |
+|---|---|
+| Map components, connections, runtime topology, or LLM use cases; find outdated packages; show project structure | `architecture-scan` skill |
+| Calculate blast radius before changing a component; trace data flow forward and backward | `impact-analysis` skill |
+| Run an architectural integrity review; check drift on changes already made | `code-review` skill |
+| Find orphaned components, unused packages, models, queues, or infrastructure; show database readers and writers | `infrastructure-scanning` skill |
+| Show or export an architecture diagram | `architecture-export` skill |
+| Install, update, or set up navgator; launch the dashboard; run the end-to-end integrity workflow | `navgator-setup` skill |
+| List, search, promote, or manage architecture lessons | `navgator` CLI directly (`navgator lessons`, `navgator lessons promote`) |
 
 ### CLI Commands
 
@@ -290,9 +293,9 @@ makes a skipped fan-out visible rather than silent.
 
 ### Lessons System
 
-NavGator accumulates architectural lessons in `.navgator/lessons/lessons.json`. Lessons are patterns that caused issues — they're matched against future changes during `/navgator:review`. Categories: api-contract, data-flow, component-communication, llm-architecture, infrastructure, typespec, database-structure.
+NavGator accumulates architectural lessons in `.navgator/lessons/lessons.json`. Lessons are patterns that caused issues — they're matched against future changes when the `code-review` skill runs. Categories: api-contract, data-flow, component-communication, llm-architecture, infrastructure, typespec, database-structure.
 
-Record lessons manually with `/navgator:review learn "description"`. Lessons are validated periodically against current documentation via `/navgator:review --validate`.
+Record lessons manually by loading the `code-review` skill with `learn "description"`. Lessons are validated periodically against current documentation by loading the `code-review` skill with `--validate`.
 
 ### Lessons: Per-Project vs Global (Three-Tier Data Model)
 
@@ -309,8 +312,8 @@ Full scan output includes canonical `components.full.jsonl` and
 Never shared.
 
 **Tier 2 — Per-project lessons** (`<project>/.navgator/lessons/lessons.json`)
-Patterns discovered in *this* project. Recorded via `/navgator:review learn` or
-surfaced by `/navgator:review`. Scoped to this repo by default.
+Patterns discovered in *this* project. Recorded via the `code-review` skill's
+`learn` option, or surfaced when the `code-review` skill runs. Scoped to this repo by default.
 
 **Tier 3 — Global lessons** (`~/.navgator/lessons/global-lessons.json`)
 Cross-project patterns — approaches, architectural connections, config insights

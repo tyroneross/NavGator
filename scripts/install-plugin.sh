@@ -495,7 +495,7 @@ else
 fi
 
 echo ""
-echo "Claude loads 15 /navgator:* commands, 4 subagents, 6 skills, and the navgator CLI."
+echo "Claude loads 4 /navgator:* commands, 4 subagents, 6 skills, and the navgator CLI."
 echo "MCP is off by default. Re-run with --with-mcp only if your client cannot run a shell."
 if [ -z "${NAVGATOR_ON_PATH:-}" ]; then
   warn "navgator is not on your PATH. The plugin still works — Claude resolves the CLI"

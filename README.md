@@ -14,7 +14,7 @@ NavGator tracks architecture connections across your entire stack—packages, se
 - **Impact Analysis**: "What's affected if I change X?"
 - **Change Detection**: SHA-256 file hashing tracks what changed since last scan
 - **Mermaid Diagrams**: Visual architecture diagrams
-- **Claude Code Integration**: 15 slash commands, 4 subagents, 6 skills, and the `navgator` CLI as the default agent surface
+- **Claude Code Integration**: 4 slash commands, 4 subagents, 6 skills, and the `navgator` CLI as the default agent surface
 - **Codex Integration**: the same 6 skills, driving the `navgator` CLI, through a Codex-specific manifest
 
 ## Agent interface policy: CLI first, HTTP second, MCP last resort
@@ -118,7 +118,7 @@ bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --global
 bash "$NAVGATOR_PACKAGE/scripts/install-plugin.sh" --project
 ```
 
-The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads 15 `/navgator:*` commands, 4 subagents, 6 skills, and the `navgator` CLI. MCP is off by default; re-run with `--with-mcp` only if your client cannot run a shell.
+The installer embeds production dependencies before Claude copies the plugin into its cache, then verifies `claude plugin list --json` reports `navgator@navgator` installed and enabled at the requested scope. It is safe to run again when updating. Start a new Claude Code session after installing. Claude loads 4 `/navgator:*` commands, 4 subagents, 6 skills, and the `navgator` CLI. MCP is off by default; re-run with `--with-mcp` only if your client cannot run a shell.
 
 If the older `navgator@rosslabs-ai-toolkit` registry entry is still enabled, the installer stops before claiming success and prints the exact scoped `claude plugin disable` command. Disable the legacy entry and rerun so only one NavGator surface is active.
 
@@ -287,28 +287,26 @@ navgator diagram --output architecture.md --markdown
 
 ## Claude Code Slash Commands
 
-When installed as a Claude Code plugin, all commands are available as `/navgator:*` slash commands:
+When installed as a Claude Code plugin, 4 commands are available as `/navgator:*` slash commands. Everything else has no subcommand — load the named skill (or run the `navgator` CLI directly) instead:
 
 | Command | Description |
 |---------|-------------|
 | `/navgator:gator [intent]` | Route a free-form architecture request to the most specific NavGator command or skill |
-| `/navgator:map` | Map full architecture — components, connections, runtime topology, and LLM use cases |
 | `/navgator:plan "<intent>"` | Plan an architecture change or investigation. Delegates to the `architecture-planner` agent, which checks graph freshness, runs an auto-mode scan if stale, then dispatches the right read-only NavGator tools and aggregates findings |
 | `/navgator:scan` | Quick scan — refresh tracking data |
-| `/navgator:trace <component>` | Trace data flow through the system |
-| `/navgator:impact <component>` | Analyze what's affected by a change |
-| `/navgator:test [instructions]` | Run an end-to-end architecture test |
-| `/navgator:review` | Architectural integrity review (connections, flow, drift, lessons) |
-| `/navgator:review --all` | Review entire architecture, not just changes |
-| `/navgator:review --validate` | Validate lessons against current docs (internet research) |
-| `/navgator:review learn "..."` | Record a manual architectural lesson |
-| `/navgator:llm-map` | Map LLM use cases by purpose and provider |
-| `/navgator:schema [model]` | Show database readers and writers |
-| `/navgator:dead` | Find orphaned components and dead code |
-| `/navgator:deep-map` | Plan, ingest, and report semantic findings outside the authoritative scan graph |
 | `/navgator:feedback` | Prepare and file a source-grounded NavGator issue |
-| `/navgator:lessons` | Manage project and global architecture lessons |
-| `/navgator:promote-lesson` | Find recurring cross-project lesson patterns for promotion |
+
+### Capability routing — no subcommand, load the skill
+
+| I want to... | Load |
+|---|---|
+| Map components, connections, runtime topology, or LLM use cases; find outdated packages; show project structure | `architecture-scan` skill |
+| Calculate blast radius before changing a component; trace data flow forward and backward | `impact-analysis` skill |
+| Run an architectural integrity review; check drift on changes already made (`--all` for full-architecture review, `--validate` to validate lessons against current docs, `learn "..."` to record a manual lesson) | `code-review` skill |
+| Find orphaned components, unused packages, models, queues, or infrastructure; show database readers and writers | `infrastructure-scanning` skill |
+| Show or export an architecture diagram | `architecture-export` skill |
+| Install, update, or set up navgator; launch the dashboard; run the end-to-end integrity workflow | `navgator-setup` skill |
+| List, search, promote, or manage architecture lessons | `navgator` CLI directly (`navgator lessons`, `navgator lessons promote`) |
 
 ### Hooks
 

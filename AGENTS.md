@@ -106,10 +106,8 @@ NavGator/
 │   ├── impact-analysis/        # Impact query guidance
 │   ├── code-review/            # Architecture-aware review
 │   └── infrastructure-scanning/   # Infrastructure detection skill
-├── commands/                   # 15 slash command definitions
-│   ├── dead.md, deep-map.md, feedback.md, gator.md, impact.md, lessons.md, llm-map.md
-│   ├── map.md, plan.md, promote-lesson.md, review.md
-│   ├── scan.md, schema.md, test.md, trace.md
+├── commands/                   # 4 slash command definitions
+│   ├── feedback.md, gator.md, plan.md, scan.md
 ├── hooks/
 │   └── hooks.json              # Empty by default; no automatic hooks enabled
 ├── agents/
@@ -236,25 +234,26 @@ below); `npm run mcp` starts it directly as a manual escape hatch.
 
 **`scan_remote` is deliberately not an MCP tool.** `navgator scan-remote <url>` runs `git clone` against a caller-supplied URL — exposing that as an agent-invokable tool would put a network fetch on a prompt-injection-reachable path (a malicious doc or tool output could smuggle a URL that gets cloned and scanned without a human in the loop). It ships CLI-only, human-initiated, and stays that way until a URL allowlist exists. `portfolio` and `arch_diff` were added instead because they operate over local paths only, with no equivalent network-fetch surface. Do not "fix" this omission by adding a `scan_remote` MCP tool without first landing an allowlist.
 
-### Slash Commands (15)
+### Slash Commands (4)
 
 | Command | Purpose |
 |---------|---------|
-| `/navgator:dead` | Find orphaned components — unused packages, models, queues, infra |
-| `/navgator:deep-map` | Plan, ingest, and report semantic findings outside the authoritative graph |
 | `/navgator:feedback` | Prepare and file a source-grounded NavGator issue |
 | `/navgator:gator` | Main router — dispatches to the right subcommand based on intent |
-| `/navgator:impact` | Blast-radius analysis before modifying a component |
-| `/navgator:lessons` | List, search, promote, and manage architecture lessons |
-| `/navgator:llm-map` | Map all LLM use cases by purpose, provider, and connection |
-| `/navgator:map` | Map full architecture — components, connections, topology, LLM use cases |
 | `/navgator:plan` | Plan an architecture change or investigation (delegates to architecture-planner agent) |
-| `/navgator:promote-lesson` | Scan per-project lessons and propose cross-project patterns for global promotion |
-| `/navgator:review` | Architectural integrity review — connections, drift, lessons |
 | `/navgator:scan` | Quick scan — refresh component and connection tracking |
-| `/navgator:schema` | Show readers vs writers per database model |
-| `/navgator:test` | End-to-end architecture test — verify components, connections, no orphans |
-| `/navgator:trace` | Trace data flow forward and backward through the architecture |
+
+### Capability routing — no subcommand, load the skill
+
+| Capability | Load |
+|---|---|
+| Map components, connections, runtime topology, or LLM use cases; find outdated packages; show project structure | `architecture-scan` skill |
+| Calculate blast radius before changing a component; trace data flow forward and backward | `impact-analysis` skill |
+| Run an architectural integrity review; check drift on changes already made | `code-review` skill |
+| Find orphaned components, unused packages, models, queues, or infrastructure; show database readers and writers | `infrastructure-scanning` skill |
+| Show or export an architecture diagram | `architecture-export` skill |
+| Install, update, or set up navgator; launch the dashboard; run the end-to-end integrity workflow | `navgator-setup` skill |
+| List, search, promote, or manage architecture lessons | `navgator` CLI directly (`navgator lessons`, `navgator lessons promote`) |
 
 ### Skills (6)
 
