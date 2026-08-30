@@ -19,19 +19,21 @@ Route this request to the appropriate NavGator subcommand or skill based on the 
 
 ## Available subcommands
 
-- **`/navgator:dead`** — Find orphaned components and unused packages, models, queues, or infrastructure.
-- **`/navgator:impact`** — Calculate blast radius before changing a component.
-- **`/navgator:lessons`** — List, search, promote, and manage architecture lessons.
-- **`/navgator:llm-map`** — Map LLM use cases by provider, purpose, and downstream connection.
-- **`/navgator:map`** — Map components, connections, runtime topology, and LLM use cases.
-- **`/navgator:plan`** — Delegate architecture-aware change planning to the planner agent.
-- **`/navgator:promote-lesson`** — Find recurring cross-project lessons for promotion.
-- **`/navgator:review`** — Run an architectural integrity review.
 - **`/navgator:scan`** — Refresh component and connection tracking.
-- **`/navgator:schema`** — Show database readers and writers.
-- **`/navgator:test`** — Run the end-to-end architecture integrity workflow.
-- **`/navgator:trace`** — Trace data flow forward and backward.
+- **`/navgator:plan`** — Delegate architecture-aware change planning to the planner agent.
+- **`/navgator:feedback`** — Report a bug or send feedback about NavGator.
 
+## Capability routing — no subcommand, load the skill
+
+These capabilities have no slash command. Load the named skill and follow it.
+
+- **Map components, connections, runtime topology, or LLM use cases; find outdated packages; show project structure** → load `architecture-scan`
+- **Calculate blast radius before changing a component; trace data flow forward and backward** → load `impact-analysis`
+- **Run an architectural integrity review; check drift on changes already made** → load `code-review`
+- **Find orphaned components, unused packages, models, queues, or infrastructure; show database readers and writers** → load `infrastructure-scanning`
+- **Show or export an architecture diagram** → load `architecture-export`
+- **Install, update, or set up navgator; launch the dashboard; run the end-to-end integrity workflow** → load `navgator-setup`
+- **List, search, promote, or manage architecture lessons** → run the `navgator` CLI directly (`navgator lessons`, `navgator lessons promote`)
 
 ## Examples
 
