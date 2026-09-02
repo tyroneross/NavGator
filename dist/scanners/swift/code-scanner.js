@@ -1203,12 +1203,7 @@ function buildProjectMetadata(files, frameworkImports, projectRoot, fragileKeys,
         const pkgSwiftPath = path.join(projectRoot, 'Package.swift');
         if (fs.existsSync(pkgSwiftPath)) {
             const pkgContent = fs.readFileSync(pkgSwiftPath, 'utf-8');
-            const targets = [];
-            const targetMatches = pkgContent.matchAll(/\.(?:executableTarget|target|testTarget)\(\s*name:\s*"([^"]+)"/g);
-            for (const m of targetMatches) {
-                const targetType = m[0].includes('testTarget') ? 'test' : m[0].includes('executableTarget') ? 'executable' : 'library';
-                targets.push({ name: m[1], type: targetType, dependencies: [] });
-            }
+            const targets = parseSwiftPackageTargets(pkgContent);
             if (targets.length > 0) {
                 meta.targets = targets;
             }
@@ -1258,5 +1253,149 @@ function buildFragileKeys(hits) {
         });
     }
     return fragile.length > 0 ? fragile : undefined;
+}
+/**
+ * Parse the local target graph out of a Package.swift manifest.
+ *
+ * The manifest is Swift source, not data, so this is a bounded textual parse:
+ * find each target declaration, take its argument list by balancing
+ * parentheses (skipping string literals and comments), then read the
+ * `dependencies:` array inside it. Handles the four dependency spellings SPM
+ * accepts: a bare "Name" string, .target(name:), .byName(name:), and
+ * .product(name:package:).
+ */
+export function parseSwiftPackageTargets(pkgContent) {
+    const targets = [];
+    const declRe = /\.(executableTarget|testTarget|target|macro|plugin|systemLibrary|binaryTarget)\(/g;
+    let decl;
+    while ((decl = declRe.exec(pkgContent)) !== null) {
+        const kind = decl[1];
+        const openParen = decl.index + decl[0].length - 1;
+        const body = sliceBalanced(pkgContent, openParen, '(', ')');
+        if (body === null)
+            continue;
+        const nameMatch = /name:\s*"([^"]+)"/.exec(stripComments(body));
+        if (!nameMatch)
+            continue;
+        const type = kind === 'testTarget' ? 'test' : kind === 'executableTarget' ? 'executable' : 'library';
+        targets.push({
+            name: nameMatch[1],
+            type,
+            dependencies: extractTargetDependencies(body),
+        });
+    }
+    return targets;
+}
+/**
+ * Return the text between `open` at `openIndex` and its matching `close`,
+ * exclusive. Skips over string literals and // and /* *\/ comments so that a
+ * bracket inside a string or comment cannot unbalance the scan. Returns null
+ * when the manifest is truncated or unbalanced.
+ */
+function sliceBalanced(src, openIndex, open, close) {
+    let depth = 0;
+    let i = openIndex;
+    while (i < src.length) {
+        const ch = src[i];
+        if (ch === '"') {
+            i++;
+            while (i < src.length && src[i] !== '"') {
+                if (src[i] === '\\')
+                    i++;
+                i++;
+            }
+            i++;
+            continue;
+        }
+        if (ch === '/' && src[i + 1] === '/') {
+            while (i < src.length && src[i] !== '\n')
+                i++;
+            continue;
+        }
+        if (ch === '/' && src[i + 1] === '*') {
+            i += 2;
+            while (i < src.length && !(src[i] === '*' && src[i + 1] === '/'))
+                i++;
+            i += 2;
+            continue;
+        }
+        if (ch === open)
+            depth++;
+        else if (ch === close) {
+            depth--;
+            if (depth === 0)
+                return src.slice(openIndex + 1, i);
+        }
+        i++;
+    }
+    return null;
+}
+/**
+ * Remove // and /* *\/ comments, preserving string literals so that a `//`
+ * inside a string is not mistaken for a comment.
+ */
+function stripComments(src) {
+    let out = '';
+    let i = 0;
+    while (i < src.length) {
+        const ch = src[i];
+        if (ch === '"') {
+            out += ch;
+            i++;
+            while (i < src.length && src[i] !== '"') {
+                if (src[i] === '\\') {
+                    out += src[i];
+                    i++;
+                }
+                out += src[i];
+                i++;
+            }
+            out += src[i] ?? '';
+            i++;
+            continue;
+        }
+        if (ch === '/' && src[i + 1] === '/') {
+            while (i < src.length && src[i] !== '\n')
+                i++;
+            continue;
+        }
+        if (ch === '/' && src[i + 1] === '*') {
+            i += 2;
+            while (i < src.length && !(src[i] === '*' && src[i + 1] === '/'))
+                i++;
+            i += 2;
+            continue;
+        }
+        out += ch;
+        i++;
+    }
+    return out;
+}
+/** Pull dependency names out of a single target's argument list. */
+function extractTargetDependencies(targetBody) {
+    const body = stripComments(targetBody);
+    const depsKey = /(^|[,\s(])dependencies:\s*\[/.exec(body);
+    if (!depsKey)
+        return [];
+    const bracketIndex = body.indexOf('[', depsKey.index);
+    const list = sliceBalanced(body, bracketIndex, '[', ']');
+    if (list === null)
+        return [];
+    const names = [];
+    // Consume each qualified entry WHOLE — .product(name:package:) carries a
+    // second string literal that must not be read back as a dependency.
+    const qualified = /\.(?:target|byName|product)\(([^)]*)\)/g;
+    let m;
+    while ((m = qualified.exec(list)) !== null) {
+        const name = /name:\s*"([^"]+)"/.exec(m[1]);
+        if (name)
+            names.push(name[1]);
+    }
+    // Bare "Name" entries — whatever the qualified forms did not claim.
+    const withoutQualified = list.replace(qualified, '');
+    const bare = /"([^"]+)"/g;
+    while ((m = bare.exec(withoutQualified)) !== null)
+        names.push(m[1]);
+    return [...new Set(names)];
 }
 //# sourceMappingURL=code-scanner.js.map
