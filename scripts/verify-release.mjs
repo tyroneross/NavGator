@@ -1768,7 +1768,14 @@ async function main() {
       removeTarball = true
     }
 
-    assert.equal(countMatching(files, /^commands\/[^/]+\.md$/), 15, 'packed Claude commands')
+    // 4cd3782 (2026-08-30) deleted 11 commands to shrink the user-facing
+    // surface. Asserting the NAMES, not a bare count, so that dropping one
+    // command while adding another cannot slip past a total that still matches.
+    assert.deepEqual(
+      files.filter((entry) => /^commands\/[^/]+\.md$/.test(entry)).sort(),
+      ['commands/feedback.md', 'commands/gator.md', 'commands/plan.md', 'commands/scan.md'],
+      'packed Claude commands',
+    )
     assert.equal(countMatching(files, /^agents\/[^/]+\.md$/), 4, 'packed Claude agents')
     assert.equal(countMatching(files, /^skills\/[^/]+\/SKILL\.md$/), 6, 'packed shared skills')
     assert.ok(files.includes('scripts/promote-lessons.py'), 'promote-lessons script is packed')
