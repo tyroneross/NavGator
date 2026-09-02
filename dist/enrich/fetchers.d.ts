@@ -25,6 +25,12 @@ export declare function fetchPypiLatest(pkg: string): Promise<LatestVersion | nu
  * Honors GITHUB_TOKEN when present to avoid the 60/hr unauthenticated limit.
  */
 export declare function fetchGitHubLatest(ownerRepo: string): Promise<LatestVersion | null>;
+/**
+ * crates.io: the highest stable version, falling back to the newest when a
+ * crate has only prereleases. crates.io returns 403 without a User-Agent, which
+ * `getJson` already sends.
+ */
+export declare function fetchCratesLatest(pkg: string): Promise<LatestVersion | null>;
 /** Dispatch by ecosystem. `ref` is a package name, or owner/repo for github. */
-export declare function fetchLatest(registry: 'npm' | 'pypi' | 'github', ref: string): Promise<LatestVersion | null>;
+export declare function fetchLatest(registry: 'npm' | 'pypi' | 'github' | 'cargo', ref: string): Promise<LatestVersion | null>;
 //# sourceMappingURL=fetchers.d.ts.map

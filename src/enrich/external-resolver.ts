@@ -199,9 +199,10 @@ export async function refreshExternal(
     report.checked++;
     const eco = ecosystemFor(c.type);
     let ref: string | null = c.name;
-    let registry: 'npm' | 'pypi' | 'github' | null = null;
+    let registry: 'npm' | 'pypi' | 'github' | 'cargo' | null = null;
     if (eco === 'npm') registry = 'npm';
     else if (eco === 'pypi') registry = 'pypi';
+    else if (eco === 'cargo') registry = 'cargo';
     else if (eco === 'github') {
       registry = 'github';
       ref = opts.githubRefOf?.(c) ?? deriveOwnerRepo(c.repository_url);

@@ -125,8 +125,18 @@ function parseDependencyLine(line, kind, section, configFile) {
     const match = line.match(/^("?[\w.-]+"?)\s*=\s*(.+)$/);
     if (!match)
         return null;
-    const crateName = unquote(match[1]);
+    const rawKey = unquote(match[1]);
     const value = match[2].trim();
+    // TOML dotted-key form: `serde.workspace = true` means
+    // `[dependencies.serde] workspace = true`. Crate names cannot contain a dot
+    // (crates.io allows only alphanumerics, `-` and `_`), so a dot here is always
+    // this sugar, never part of the name. Reading the literal key as the crate
+    // name yields a phantom package like "serde.workspace" that resolves against
+    // no registry, and hides real workspace-inherited dependencies.
+    const dotIndex = rawKey.lastIndexOf('.');
+    const dottedField = dotIndex > 0 ? rawKey.slice(dotIndex + 1) : null;
+    const isDotted = dottedField !== null && DEPENDENCY_FIELDS.has(dottedField);
+    const crateName = isDotted ? rawKey.slice(0, dotIndex) : rawKey;
     const dependency = {
         name: crateName,
         crateName,
@@ -134,35 +144,16 @@ function parseDependencyLine(line, kind, section, configFile) {
         sourceKind: 'registry',
         configFile,
     };
+    if (isDotted) {
+        applyDependencyField(dependency, dottedField, value);
+        return dependency;
+    }
     if (value.startsWith('{')) {
         for (const field of splitInlineTable(value)) {
             const fieldMatch = field.match(/^([\w.-]+)\s*=\s*(.+)$/);
             if (!fieldMatch)
                 continue;
-            const key = fieldMatch[1];
-            const raw = fieldMatch[2].trim();
-            if (key === 'package')
-                dependency.name = unquote(raw);
-            if (key === 'version') {
-                dependency.versionRequirement = unquote(raw);
-                dependency.version = cleanVersion(unquote(raw));
-            }
-            if (key === 'path') {
-                dependency.sourceKind = 'path';
-                dependency.source = unquote(raw);
-            }
-            if (key === 'git') {
-                dependency.sourceKind = 'git';
-                dependency.source = unquote(raw);
-            }
-            if (key === 'workspace' && raw === 'true') {
-                dependency.workspace = true;
-                dependency.sourceKind = 'workspace';
-            }
-            if (key === 'optional')
-                dependency.optional = raw === 'true';
-            if (key === 'features')
-                dependency.features = parseStringArray(raw);
+            applyDependencyField(dependency, fieldMatch[1], fieldMatch[2].trim());
         }
     }
     else {
@@ -173,6 +164,44 @@ function parseDependencyLine(line, kind, section, configFile) {
         dependency.target = section.replace(/^target\./, '').replace(/\.dependencies$/, '');
     }
     return dependency;
+}
+const DEPENDENCY_FIELDS = new Set([
+    'workspace',
+    'version',
+    'path',
+    'git',
+    'package',
+    'optional',
+    'features',
+    'branch',
+    'tag',
+    'rev',
+    'default-features',
+]);
+/** Apply one dependency field, from either an inline table or a dotted key. */
+function applyDependencyField(dependency, key, raw) {
+    if (key === 'package')
+        dependency.name = unquote(raw);
+    if (key === 'version') {
+        dependency.versionRequirement = unquote(raw);
+        dependency.version = cleanVersion(unquote(raw));
+    }
+    if (key === 'path') {
+        dependency.sourceKind = 'path';
+        dependency.source = unquote(raw);
+    }
+    if (key === 'git') {
+        dependency.sourceKind = 'git';
+        dependency.source = unquote(raw);
+    }
+    if (key === 'workspace' && raw === 'true') {
+        dependency.workspace = true;
+        dependency.sourceKind = 'workspace';
+    }
+    if (key === 'optional')
+        dependency.optional = raw === 'true';
+    if (key === 'features')
+        dependency.features = parseStringArray(raw);
 }
 function mergeWorkspaceDependency(dependency, workspaceDependencies) {
     if (!dependency.workspace)

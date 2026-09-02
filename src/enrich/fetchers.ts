@@ -97,9 +97,38 @@ export async function fetchGitHubLatest(ownerRepo: string): Promise<LatestVersio
   };
 }
 
+/**
+ * crates.io: the highest stable version, falling back to the newest when a
+ * crate has only prereleases. crates.io returns 403 without a User-Agent, which
+ * `getJson` already sends.
+ */
+export async function fetchCratesLatest(pkg: string): Promise<LatestVersion | null> {
+  const data = (await getJson(`https://crates.io/api/v1/crates/${encodeURIComponent(pkg)}`)) as
+    | {
+        crate?: {
+          max_stable_version?: string;
+          newest_version?: string;
+          updated_at?: string;
+          repository?: string;
+          documentation?: string;
+        };
+      }
+    | null;
+  const crate = data?.crate;
+  if (!crate) return null;
+  const version = crate.max_stable_version || crate.newest_version;
+  if (!version) return null;
+  return {
+    version,
+    released_at: crate.updated_at,
+    docs_url: crate.documentation ?? `https://docs.rs/${pkg}`,
+    repo_url: crate.repository,
+  };
+}
+
 /** Dispatch by ecosystem. `ref` is a package name, or owner/repo for github. */
 export async function fetchLatest(
-  registry: 'npm' | 'pypi' | 'github',
+  registry: 'npm' | 'pypi' | 'github' | 'cargo',
   ref: string,
 ): Promise<LatestVersion | null> {
   switch (registry) {
@@ -109,6 +138,8 @@ export async function fetchLatest(
       return fetchPypiLatest(ref);
     case 'github':
       return fetchGitHubLatest(ref);
+    case 'cargo':
+      return fetchCratesLatest(ref);
     default:
       return null;
   }

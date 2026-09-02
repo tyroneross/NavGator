@@ -141,6 +141,8 @@ export async function refreshExternal(components, cache, now, opts = {}) {
             registry = 'npm';
         else if (eco === 'pypi')
             registry = 'pypi';
+        else if (eco === 'cargo')
+            registry = 'cargo';
         else if (eco === 'github') {
             registry = 'github';
             ref = opts.githubRefOf?.(c) ?? deriveOwnerRepo(c.repository_url);
