@@ -13,6 +13,18 @@ export declare const MAX_FILE_SIZE_BYTES = 1048576;
 /** Lines longer than this are blanked before any regex runs. */
 export declare const MAX_LINE_LENGTH = 4096;
 /**
+ * Longest run of consecutive whitespace kept intact before collapsing.
+ *
+ * Not a taste threshold. The import clause is the only place the scanner's
+ * regexes tolerate arbitrary interior whitespace, and a real clause separates
+ * identifiers by a newline plus indentation — a handful of characters. 64 is
+ * two orders of magnitude above that and still three orders below the run
+ * length where backtracking becomes visible, so no real barrel import can
+ * reach it and no pathological run can survive it.
+ */
+export declare const MAX_WHITESPACE_RUN = 64;
+export declare function collapseWhitespaceRuns(content: string, maxRun?: number): string;
+/**
  * Blank every line longer than `MAX_LINE_LENGTH`, preserving the line COUNT so
  * reported line numbers stay correct. Minified bundles and single-line data
  * blobs are the pathological input for every regex in the scanner set, and
