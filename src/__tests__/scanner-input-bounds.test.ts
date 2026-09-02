@@ -23,7 +23,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { scanImports } from '../scanners/connections/import-scanner.js';
-import { MAX_FILE_SIZE_BYTES, MAX_LINE_LENGTH, capLongLines } from '../scanners/scan-limits.js';
+import {
+  MAX_FILE_SIZE_BYTES,
+  MAX_LINE_LENGTH,
+  capLongLines,
+  collapseWhitespaceRuns,
+} from '../scanners/scan-limits.js';
 
 let root: string;
 
@@ -116,5 +121,74 @@ describe('import scanner input bounds', () => {
     const result = await scanImports(dir, ['source.ts', 'target.ts']);
     const edges = result.connections.filter(c => c.connection_type === 'imports');
     expect(edges).toHaveLength(1);
+  });
+});
+
+describe('collapseWhitespaceRuns — the guard that actually defeats the backtracking', () => {
+  // A length cap alone does not. With the bounded `{0,4096}?` clause already in
+  // place, `import` + N spaces measured 4,311 ms at 2,000 chars, 50,501 ms at
+  // 4,000 and 391,597 ms at 8,000 — and 4,000 is UNDER MAX_LINE_LENGTH, so the
+  // cap never fired on the worst realistic case. The unbounded clause it
+  // replaced cost 4,171 ms at 2,000, i.e. the bound bought nothing.
+  //
+  // Every specifier this scanner looks for is quoted, so a line with no quote
+  // cannot contain one and never needs the engine.
+
+  const CLAUSE = '[\\s\\S]{0,4096}?';
+  const ES_IMPORT_RE = new RegExp(
+    `(?:import\\s+(?:${CLAUSE}\\s+from\\s+)?['"]([^'"]+)['"])`,
+    'g',
+  );
+
+  function timeScan(content: string): number {
+    const guarded = collapseWhitespaceRuns(content);
+    const started = Date.now();
+    ES_IMPORT_RE.lastIndex = 0;
+    [...guarded.matchAll(ES_IMPORT_RE)];
+    return Date.now() - started;
+  }
+
+  it('collapses the pathological input to a no-op, well under the cap', () => {
+    // 4,000 < MAX_LINE_LENGTH, so this is precisely the case the cap misses.
+    expect(4_000).toBeLessThan(MAX_LINE_LENGTH);
+    expect(timeScan(`import${' '.repeat(4_000)}`)).toBeLessThan(1_000);
+  });
+
+  it('stays linear far past any cap', () => {
+    // Unguarded this is minutes. The assertion is deliberately loose: it is
+    // catching a return to quadratic behaviour, not policing milliseconds on a
+    // loaded machine.
+    expect(timeScan(`import${' '.repeat(200_000)}`)).toBeLessThan(2_000);
+  });
+
+  it('still finds every real import — the guard must not buy speed with edges', () => {
+    const source = [
+      "import { a } from './x.js';",
+      "const notAnImport = 42;",
+      "import y from '../z.js';",
+      "const { c } = require('./c.js');",
+    ].join('\n');
+    ES_IMPORT_RE.lastIndex = 0;
+    const found = [...collapseWhitespaceRuns(source).matchAll(ES_IMPORT_RE)].map(m => m[1]);
+    expect(found).toEqual(['./x.js', '../z.js']);
+  });
+
+  it('preserves line count, so reported line numbers stay correct', () => {
+    const source = ['no quotes here', "import a from './a.js';", 'still none'].join('\n');
+    expect(collapseWhitespaceRuns(source).split('\n')).toHaveLength(3);
+    expect(collapseWhitespaceRuns(source).split('\n')[1]).toContain('./a.js');
+  });
+
+  it('keeps a multi-line barrel import intact — the regression a line-blanking guard caused', () => {
+    // The rejected design blanked every line without a quote, which erased the
+    // `import {` keyword and all 120 identifier lines, silently dropping the
+    // edge. Collapsing runs touches none of them.
+    const names = Array.from({ length: 120 }, (_, i) => `exportedName${i}`);
+    const barrel = `import {\n${names.map(n => `  ${n},`).join('\n')}\n} from './target.js';`;
+    const guarded = collapseWhitespaceRuns(barrel);
+    expect(guarded).toContain('import {');
+    expect(guarded).toContain('exportedName119');
+    ES_IMPORT_RE.lastIndex = 0;
+    expect([...guarded.matchAll(ES_IMPORT_RE)].map(m => m[1])).toEqual(['./target.js']);
   });
 });

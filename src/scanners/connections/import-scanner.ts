@@ -13,7 +13,7 @@ import {
   generateComponentId,
   generateConnectionId,
 } from '../../types.js';
-import { MAX_FILE_SIZE_BYTES, capLongLines } from '../scan-limits.js';
+import { MAX_FILE_SIZE_BYTES, capLongLines, collapseWhitespaceRuns } from '../scan-limits.js';
 
 // Extensions to try when resolving bare imports (order matters)
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
@@ -22,13 +22,21 @@ const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 // Module specifier patterns. Candidates are filtered to relative paths or
 // aliases configured by the nearest owning tsconfig/jsconfig.
 //
-// SEC-012: the import-clause quantifier is BOUNDED (`{0,4096}?`, not `*?`).
-// Unbounded, `import` + a long whitespace run drives `\s+` and `[\s\S]*?`
-// into polynomial backtracking — measured on one line of `import` plus N
-// spaces: 2,000 = 1.4s, 4,000 = 10.9s, 8,000 = 88s. 4,096 characters is far
-// past the longest real barrel import, so bounding it costs no real edge.
-// The cap pairs with `capLongLines` below; neither alone is sufficient,
-// because a long run can also be spread across many short lines.
+// SEC-012. `import` plus a long whitespace run drives this clause into
+// quadratic backtracking, because with no closing quote the engine retries
+// every clause split at every start offset.
+//
+// BOUNDING THE QUANTIFIER DID NOT FIX IT, and the earlier version of this
+// comment claimed otherwise. Re-measured with `{0,4096}?` in place: 2,000
+// chars = 4,311 ms, 4,000 = 50,501 ms, 8,000 = 391,597 ms. The unbounded
+// clause it replaced cost 4,171 ms at 2,000 — statistically the same. A cap
+// only removes inputs longer than the cap, so a 4,000-character line sits
+// under MAX_LINE_LENGTH and still costs 50 seconds.
+//
+// What actually defeats it is `collapseWhitespaceRuns` in scan-limits.ts: a
+// specifier is always quoted, so a line with no quote never reaches the engine.
+// That takes the same input to 0 ms at 200,000 chars. The bound stays because
+// it is free and narrows the window for any quoted pathological line.
 const IMPORT_CLAUSE = '[\\s\\S]{0,4096}?';
 const ES_IMPORT_RE = new RegExp(`(?:import\\s+(?:${IMPORT_CLAUSE}\\s+from\\s+)?['"]([^'"]+)['"])`, 'g');
 const ES_REEXPORT_RE = /export\s+(?:type\s+)?(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+['"]([^'"]+)['"]/g;
@@ -268,7 +276,10 @@ async function readBoundedFile(
     const stat = await fs.promises.stat(absolute);
     if (!stat.isFile() || stat.size > MAX_FILE_SIZE_BYTES) return null;
     const raw = await fs.promises.readFile(absolute, 'utf-8');
-    return { file, content: capLongLines(raw) };
+    // Order matters only for cost, not correctness: collapsing runs removes
+    // the pathological input outright, the length cap catches minified blobs
+    // that carry no absurd run but are still enormous.
+    return { file, content: capLongLines(collapseWhitespaceRuns(raw)) };
   } catch {
     return null;
   }
