@@ -194,7 +194,13 @@ describe('release contract', () => {
     expect(packageJson.files).not.toContain('.mcp.json');
     expect(tsconfig.exclude).toContain('src/__tests__/**');
     expect(json('hooks/hooks.json')).toEqual({ hooks: {} });
-    expect(fs.readdirSync(path.join(root, 'commands')).filter((entry) => entry.endsWith('.md'))).toHaveLength(15);
+    // 4cd3782 (2026-08-30) deleted 11 commands to shrink the user-facing
+    // surface. Asserting the NAMES, not a bare count, so that deleting one
+    // command while adding another cannot slip through a count that still
+    // matches.
+    expect(
+      fs.readdirSync(path.join(root, 'commands')).filter((entry) => entry.endsWith('.md')).sort(),
+    ).toEqual(['feedback.md', 'gator.md', 'plan.md', 'scan.md']);
   });
 
   it('keeps Claude and Codex process resolution host-specific', () => {
@@ -292,7 +298,10 @@ describe('release contract', () => {
       const skill = path.join('skills', entry.name, 'SKILL.md');
       if (fs.existsSync(path.join(root, skill))) surfaces.push(skill);
     }
-    expect(surfaces.length).toBeGreaterThanOrEqual(23);
+    // Floor guard: proves the readdir above actually collected surfaces, so an
+    // empty scan can never report "no offenders". Lowered 23 -> 14 by 4cd3782
+    // (2026-08-30), which deleted 11 commands and hid auxiliary skills.
+    expect(surfaces.length).toBeGreaterThanOrEqual(14);
 
     const offenders: string[] = [];
     for (const surface of surfaces) {
@@ -406,12 +415,13 @@ describe('release contract', () => {
   it('keeps read-only architecture inspection from auto-refreshing stored data', () => {
     const scanSkill = text('skills/architecture-scan/SKILL.md');
     const investigator = text('agents/architecture-investigator.md');
-    const architectureTest = text('commands/test.md');
+    // commands/test.md carried a fourth assertion here until 4cd3782
+    // (2026-08-30) deleted that command. The rule it enforced is unchanged;
+    // it simply has one fewer surface to enforce against.
 
     expect(scanSkill).toContain('navgator status --agent --no-refresh');
     expect(scanSkill).toContain('Plain\n`navgator status --agent` may auto-refresh stale data');
     expect(investigator.match(/navgator status --agent --no-refresh/g)).toHaveLength(2);
-    expect(architectureTest).toContain('navgator status --agent --no-refresh');
   });
 
   it('reports CLI provenance and never recommends replacing the materialized runtime', () => {
