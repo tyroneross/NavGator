@@ -16,6 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { glob } from 'glob';
+import { MAX_FILE_SIZE_BYTES, MAX_LINE_LENGTH } from '../scan-limits.js';
 import {
   ArchitectureConnection,
   ArchitectureComponent,
@@ -409,8 +410,11 @@ const SDK_DEFINITIONS: SDKDefinition[] = [
 // Resource-exhaustion caps for untrusted source trees (SEC-012). A repo
 // reached via `navgator scan-remote` controls its own file contents; without
 // caps a single huge or single-line file can hang or OOM the scan.
-export const MAX_FILE_SIZE_BYTES = 1_048_576; // 1 MiB
-export const MAX_LINE_LENGTH = 4_096;
+//
+// The values now live in `../scan-limits.js` so every scanner shares one
+// definition — import-scanner shipped without any cap because these constants
+// were private to this module. Re-exported here for existing callers.
+export { MAX_FILE_SIZE_BYTES, MAX_LINE_LENGTH } from '../scan-limits.js';
 
 function shouldExcludeFile(file: string): boolean {
   const excludePatterns = [
