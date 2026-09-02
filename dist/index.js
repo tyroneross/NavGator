@@ -54,6 +54,8 @@ export { resolveComponent, findCandidates } from './resolve.js';
 export { resolveFileConnections, looksLikeFilePath, formatFileImpact, formatFileConnections } from './file-resolve.js';
 // Import scanner
 export { scanImports } from './scanners/connections/import-scanner.js';
+// Architecture index (committed, deterministic projection of the import graph)
+export { buildArchitectureIndex, writeArchitectureIndex, renderArchitectureMarkdown, stableStringify, ARCHITECTURE_INDEX_PATH, ARCHITECTURE_INDEX_SCHEMA_VERSION, ARCHITECTURE_MD_PATH, ARCHITECTURE_MODULES_PATH, } from './architecture-index.js';
 // Classify
 export { classifyConnection, classifyAllConnections } from './classify.js';
 // Trace

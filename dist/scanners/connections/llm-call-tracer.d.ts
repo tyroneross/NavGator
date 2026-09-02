@@ -73,13 +73,11 @@ interface WrapperFunction {
     containedAnchors: CallAnchor[];
     hasTraceable: boolean;
 }
-export declare const MAX_FILE_SIZE_BYTES = 1048576;
-export declare const MAX_LINE_LENGTH = 4096;
+export { MAX_FILE_SIZE_BYTES, MAX_LINE_LENGTH } from '../scan-limits.js';
 export interface LLMTraceResult {
     calls: TracedLLMCall[];
     wrappers: WrapperFunction[];
     scanResult: ScanResult;
 }
 export declare function traceLLMCalls(projectRoot: string, walkSet?: Set<string>): Promise<LLMTraceResult>;
-export {};
 //# sourceMappingURL=llm-call-tracer.d.ts.map

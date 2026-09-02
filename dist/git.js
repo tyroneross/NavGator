@@ -2,40 +2,45 @@
  * NavGator Git Utilities
  * Reads branch and commit info for opt-in branch tracking
  */
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 /**
  * Get current git branch and commit info.
  * Returns null if not a git repo or git is unavailable.
  * Never throws — all failures return null.
+ *
+ * ONE shell-free spawn, deliberately. This used to be two `exec()` calls in a
+ * `Promise.all`, and `exec` routes through `/bin/sh` — four processes per
+ * call. `computeStamp` (src/freshness/stamp.ts) calls this, and a single
+ * `drain()` computes two stamps, so the freshness path was paying twelve
+ * process spawns for two facts. Spawn cost is what scales under machine load:
+ * measured 13 ms idle against 25-36 ms under full-suite load, which is how the
+ * drainer tests reached the default 5-second vitest budget and failed
+ * intermittently while passing in isolation.
+ *
+ * `git rev-parse HEAD --abbrev-ref HEAD` emits the full sha on line 1 and the
+ * branch on line 2 — rev-parse applies `--abbrev-ref` only to the args that
+ * follow it. A non-repo exits 128, which lands in the error branch and returns
+ * null, matching the previous behavior.
  */
 export async function getGitInfo(projectRoot) {
-    try {
-        const [branch, commitFull] = await Promise.all([
-            execGit('git rev-parse --abbrev-ref HEAD', projectRoot),
-            execGit('git rev-parse HEAD', projectRoot),
-        ]);
-        if (!branch || !commitFull)
-            return null;
-        return {
-            branch: branch.trim(),
-            commit: commitFull.trim().slice(0, 7),
-            commitFull: commitFull.trim(),
-        };
-    }
-    catch {
+    const output = await execGit(['rev-parse', 'HEAD', '--abbrev-ref', 'HEAD'], projectRoot);
+    if (!output)
         return null;
-    }
+    const [commitFull, branch] = output.trim().split('\n').map(line => line.trim());
+    if (!branch || !commitFull)
+        return null;
+    return {
+        branch,
+        commit: commitFull.slice(0, 7),
+        commitFull,
+    };
 }
-function execGit(command, cwd) {
+function execGit(args, cwd) {
     return new Promise((resolve) => {
-        const child = exec(command, { cwd, timeout: 3000 }, (error, stdout) => {
-            if (error) {
-                resolve(null);
-                return;
-            }
-            resolve(stdout);
+        const child = execFile('git', args, { cwd, timeout: 3000 }, (error, stdout) => {
+            resolve(error ? null : stdout);
         });
-        // Safety: kill on timeout (exec timeout should handle this, but belt-and-suspenders)
+        // Safety: a spawn failure (git absent) surfaces here, not in the callback.
         child.on('error', () => resolve(null));
     });
 }

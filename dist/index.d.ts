@@ -36,6 +36,8 @@ export { resolveComponent, findCandidates } from './resolve.js';
 export { resolveFileConnections, looksLikeFilePath, formatFileImpact, formatFileConnections } from './file-resolve.js';
 export type { FileConnections } from './file-resolve.js';
 export { scanImports } from './scanners/connections/import-scanner.js';
+export { buildArchitectureIndex, writeArchitectureIndex, renderArchitectureMarkdown, stableStringify, ARCHITECTURE_INDEX_PATH, ARCHITECTURE_INDEX_SCHEMA_VERSION, ARCHITECTURE_MD_PATH, ARCHITECTURE_MODULES_PATH, } from './architecture-index.js';
+export type { ArchitectureIndex as CommittedArchitectureIndex, CoverageReport as ArchitectureIndexCoverage, ModuleEntry as ArchitectureIndexModule, } from './architecture-index.js';
 export { classifyConnection, classifyAllConnections } from './classify.js';
 export type { SemanticClassification, SemanticInfo } from './classify.js';
 export { traceDataflow, formatTraceOutput } from './trace.js';

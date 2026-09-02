@@ -6,12 +6,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
+import { MAX_FILE_SIZE_BYTES, capLongLines } from '../scan-limits.js';
 // Extensions to try when resolving bare imports (order matters)
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
 // Module specifier patterns. Candidates are filtered to relative paths or
 // aliases configured by the nearest owning tsconfig/jsconfig.
-const ES_IMPORT_RE = /(?:import\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"])/g;
+//
+// SEC-012: the import-clause quantifier is BOUNDED (`{0,4096}?`, not `*?`).
+// Unbounded, `import` + a long whitespace run drives `\s+` and `[\s\S]*?`
+// into polynomial backtracking — measured on one line of `import` plus N
+// spaces: 2,000 = 1.4s, 4,000 = 10.9s, 8,000 = 88s. 4,096 characters is far
+// past the longest real barrel import, so bounding it costs no real edge.
+// The cap pairs with `capLongLines` below; neither alone is sufficient,
+// because a long run can also be spread across many short lines.
+const IMPORT_CLAUSE = '[\\s\\S]{0,4096}?';
+const ES_IMPORT_RE = new RegExp(`(?:import\\s+(?:${IMPORT_CLAUSE}\\s+from\\s+)?['"]([^'"]+)['"])`, 'g');
 const ES_REEXPORT_RE = /export\s+(?:type\s+)?(?:\{[^}]*\}|\*(?:\s+as\s+\w+)?)\s+from\s+['"]([^'"]+)['"]/g;
 const REQUIRE_RE = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const DYNAMIC_IMPORT_RE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -19,7 +29,7 @@ const DYNAMIC_IMPORT_RE = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 // Captures anything not starting with ./ ../ @/ ~/ — includes @scope/name and bare names.
 // Excludes node: protocol (built-ins) and data: / http: protocols.
 const BARE_SPEC = `(?!\\.\\.?\\/|@\\/|~\\/|node:|data:|http:|https:|file:)([a-zA-Z0-9@][a-zA-Z0-9@_./-]*)`;
-const ES_IMPORT_BARE_RE = new RegExp(`import\\s+(?:[\\s\\S]*?\\s+from\\s+)?['\"]${BARE_SPEC}['\"]`, 'g');
+const ES_IMPORT_BARE_RE = new RegExp(`import\\s+(?:${IMPORT_CLAUSE}\\s+from\\s+)?['\"]${BARE_SPEC}['\"]`, 'g');
 const ES_REEXPORT_BARE_RE = new RegExp(`export\\s+(?:\\{[^}]*\\}|\\*(?:\\s+as\\s+\\w+)?)\\s+from\\s+['\"]${BARE_SPEC}['\"]`, 'g');
 const REQUIRE_BARE_RE = new RegExp(`require\\s*\\(\\s*['\"]${BARE_SPEC}['\"]\\s*\\)`, 'g');
 const DYNAMIC_IMPORT_BARE_RE = new RegExp(`import\\s*\\(\\s*['\"]${BARE_SPEC}['\"]\\s*\\)`, 'g');
@@ -195,6 +205,29 @@ function loadPathAliasesForImporter(importerFile, projectRoot, cache) {
     for (const dir of visited)
         cache.set(dir, fallback);
     return fallback;
+}
+/**
+ * Read one source file with SEC-012 input bounds applied.
+ *
+ * An untrusted tree (`navgator scan-remote`) chooses its own file contents, so
+ * the input is bounded BEFORE any regex touches it: oversized files are
+ * skipped outright, and long lines are blanked in place. Blanking preserves
+ * the line COUNT, so every `file:line` this scanner reports stays correct.
+ * Returns null when the file is unreadable or over the size cap — callers
+ * already skip nulls.
+ */
+async function readBoundedFile(projectRoot, file) {
+    try {
+        const absolute = path.join(projectRoot, file);
+        const stat = await fs.promises.stat(absolute);
+        if (!stat.isFile() || stat.size > MAX_FILE_SIZE_BYTES)
+            return null;
+        const raw = await fs.promises.readFile(absolute, 'utf-8');
+        return { file, content: capLongLines(raw) };
+    }
+    catch {
+        return null;
+    }
 }
 function extractImports(content, pathAliases) {
     const specifiers = new Map();
@@ -382,15 +415,7 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
     const batchSize = 100;
     for (let i = 0; i < files.length; i += batchSize) {
         const batch = files.slice(i, i + batchSize);
-        const results = await Promise.all(batch.map(async (file) => {
-            try {
-                const content = await fs.promises.readFile(path.join(projectRoot, file), 'utf-8');
-                return { file, content };
-            }
-            catch {
-                return null;
-            }
-        }));
+        const results = await Promise.all(batch.map(file => readBoundedFile(projectRoot, file)));
         for (const result of results) {
             if (!result)
                 continue;
@@ -480,15 +505,7 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
     const FETCH_WRAPPER_RE = /(?:fetchWith\w+|apiFetch|fetchJSON|fetcher)\s*\(\s*['"`](\/api\/[^'"`\s?]+)/g;
     for (let i = 0; i < files.length; i += batchSize) {
         const batch = files.slice(i, i + batchSize);
-        const results = await Promise.all(batch.map(async (file) => {
-            try {
-                const content = await fs.promises.readFile(path.join(projectRoot, file), 'utf-8');
-                return { file, content };
-            }
-            catch {
-                return null;
-            }
-        }));
+        const results = await Promise.all(batch.map(file => readBoundedFile(projectRoot, file)));
         for (const result of results) {
             if (!result)
                 continue;
