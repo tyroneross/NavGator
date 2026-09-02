@@ -417,9 +417,17 @@ export async function scan(projectRoot, options = {}) {
     // `readOnlyFs` has one known gap, documented rather than fixed here:
     // - `acquireScanLease` (below, ~line 637) runs BEFORE analysis starts.
     //   `execFileSync('sysctl'/'ps'/'powershell.exe')` for owner-fingerprinting
-    //   (src/scan-lock.ts:88,112,124) is wrapped in try/catch per call and
-    //   falls back to a best-effort fingerprint on failure, so
-    //   `noChildProcess` degrades it gracefully. `fs.mkdirSync` + the lease-file
+    //   (src/scan-lock.ts:88,112,124) is wrapped in try/catch per call, so the
+    //   spawn cannot crash the scan. It does NOT fall back to a best-effort
+    //   fingerprint: `defaultProcessFingerprint` returns `null` from its catch
+    //   and from its tail, and `acquireScanLease` then publishes a record with
+    //   no `owner_fingerprint`. That is not graceful degradation — under the
+    //   post-SEC-011 reclaim policy a fingerprintless record is fenced on
+    //   heartbeat age, so a live owner that is merely slow (suspend, SIGSTOP,
+    //   blocked event loop) can be reclaimed and admit a second writer. Only
+    //   `bootFingerprint()` has an uptime fallback. Tracked as a backlog item;
+    //   this comment previously claimed the opposite and reassured readers
+    //   about precisely the path that breaks. `fs.mkdirSync` + the lease-file
     //   publish (src/scan-lock.ts:445,475) are real writes: the publish itself
     //   is caught and returned as a structured `ScanLeaseResult` failure, but
     //   the leading `mkdirSync` is not caught — on a filesystem that is
