@@ -3,6 +3,30 @@
 
 # NavGator — Architecture Context for Claude
 
+## Read this first: `ARCHITECTURE.md`
+
+Before anything else in this repository, read [`ARCHITECTURE.md`](ARCHITECTURE.md) at the repo
+root. It is committed and version-controlled, so it is there in a fresh clone with no scan run
+and no prior session context. It answers, in one hop:
+
+| Question | Section |
+|---|---|
+| What are the major components, and what is each responsible for? | Modules |
+| What depends on what? | Module dependencies |
+| If I change file X, what else is affected? | Blast radius, then `jq '.files["<path>"]' docs/architecture/index.json` |
+| Which boundaries must I not cross? | Boundaries |
+
+Its `Coverage and blind spots` section is not decoration — read it before treating an absence
+of edges as evidence. A language NavGator cannot scan reports zero edges, and zero edges means
+"not measured", never "not coupled".
+
+`docs/architecture/index.json` is the machine-readable half: per-file `imports` /
+`imported_by`, module edges, and boundary status. Regenerate both with `npm run architecture`
+(deterministic — same bytes every run); CI fails if the committed copy is stale.
+
+`.navgator/architecture/` below is the LIVE scan cache: richer, but gitignored, per-clone, and
+possibly absent. Use `ARCHITECTURE.md` for orientation, the live store and CLI for depth.
+
 ## What NavGator Does
 
 NavGator externalizes architecture knowledge so you never lose track of file paths, dependencies, model routing, or component connections between sessions.
@@ -189,6 +213,7 @@ Only 4 commands ship as slash commands. Everything else has no subcommand — lo
 | `navgator portfolio [dir]` | Cross-repo dependency/service map; scans a folder of repos, or reports over registered projects with no `dir` |
 | `navgator scan-remote <url>` | Shallow-clone a GitHub repo by URL and scan it (CLI-only, human-initiated) |
 | `navgator arch-diff` | Pre-merge architecture diff — current branch vs. canonical (or a named `--base` ref) |
+| `navgator arch-index` | Regenerate the committed architecture index (`--write`) or fail on staleness (`--check`, exit 2). Scans the tree directly, never `.navgator/`, so it is byte-stable across machines |
 | `navgator registry-log` | Show recent reads and writes of the project registry |
 | `navgator doctor` | Registry + gator-memory hygiene report; `--fix` prunes accumulated temp fixtures behind a backup and confirmation |
 | `navgator deep-map plan\|ingest\|report\|status` | Tiered mapping — emits work packets for the calling agent to fan out over, then validates and attributes what comes back |

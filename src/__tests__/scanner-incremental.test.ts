@@ -322,7 +322,13 @@ describe('selectScanMode (Run 1 — D2)', () => {
 // End-to-end scenarios with a real tmp project
 // =============================================================================
 
-describe('incremental scan e2e (Run 1 — D4)', () => {
+// Explicit budget, not a flake patch. These e2e cases run 2-3 real ts-morph
+// scans (measured ~0.5s of pure CPU for scenario 1 on an idle machine), so
+// vitest's default 5s testTimeout is a load-sensitive budget on work that
+// carries no timing semantics: under a loaded 16-fork run they timed out at
+// 5000ms with zero assertion failures. Nothing here asserts a deadline, so
+// the budget only decides how much CPU contention the suite tolerates.
+describe('incremental scan e2e (Run 1 — D4)', { timeout: 20_000 }, () => {
   let projectRoot: string;
 
   beforeEach(() => {
@@ -620,7 +626,7 @@ describe.each([false, true])(
   },
 );
 
-describe('dirty-ledger forced incremental walk', () => {
+describe('dirty-ledger forced incremental walk', { timeout: 20_000 }, () => {
   it('rescans a late edit even when the previous scan persisted its new hash', async () => {
     const root = makeTmpProject();
     try {
@@ -760,7 +766,7 @@ describe('dirty-ledger forced incremental walk', () => {
 // Concurrency lock (Run 1.6 — item #4)
 // =============================================================================
 
-describe('scan concurrency lock (Run 1.6 — item #4)', () => {
+describe('scan concurrency lock (Run 1.6 — item #4)', { timeout: 20_000 }, () => {
   let projectRoot: string;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
@@ -1182,7 +1188,7 @@ describe('manifest.json (Run 1.6 — item #9)', () => {
 // result with `scan_type` overridden to 'incremental→full' for evidence
 // (Run 1.6 #3 contract). No release/reacquire writer window is introduced.
 
-describe('integrity-promote no-truncation (Run 1.7 — Problem A)', () => {
+describe('integrity-promote no-truncation (Run 1.7 — Problem A)', { timeout: 20_000 }, () => {
   it('promote retains full graph (>= baseline counts), not just walk-set slice', async () => {
     const root = makeTmpProject();
 

@@ -54,6 +54,8 @@
     "dev": "tsc --watch",
     "dev:web": "cd web && NAVGATOR_DASHBOARD_INSECURE=1 next dev",
     "start": "node dist/cli/index.js",
+    "architecture": "node dist/cli/index.js arch-index --write",
+    "architecture:check": "node dist/cli/index.js arch-index --check",
     "test": "vitest run",
     "test:release": "npm test",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p web/tsconfig.json --noEmit",

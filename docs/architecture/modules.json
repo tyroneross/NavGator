@@ -1,0 +1,177 @@
+{
+  "$comment": [
+    "Curated input to `navgator arch-index`. This is the ONE hand-maintained file in the",
+    "architecture index: humans write intent (what a module is for, which boundaries must",
+    "hold), the generator supplies every number and every edge. Regeneration is still",
+    "deterministic because this file is an INPUT, not an output.",
+    "",
+    "modules[]    id + path + one-sentence responsibility. A file is assigned to the LONGEST",
+    "             matching path prefix, so a curated parent claims its whole subtree until a",
+    "             child is curated too — splitting a module is an edit here, not a code change.",
+    "             A path no curated prefix covers falls back to its first two path segments and",
+    "             shows up as 'uncurated' in ARCHITECTURE.md, which is how a new top-level",
+    "             directory announces itself.",
+    "boundaries[] Rules the generator re-checks on every run. A violation is printed with the",
+    "             exact importing file, and CI fails on any drift in the generated output."
+  ],
+  "modules": [
+    {
+      "id": ".",
+      "path": ".",
+      "responsibility": "Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them."
+    },
+    {
+      "id": "src",
+      "path": "src",
+      "responsibility": "Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system."
+    },
+    {
+      "id": "src/cli",
+      "path": "src/cli",
+      "responsibility": "The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`."
+    },
+    {
+      "id": "src/scanners",
+      "path": "src/scanners",
+      "responsibility": "Language and infrastructure scanners that turn source files into components and connections (TS/JS imports, Swift, Rust, Prisma, queues, cron, env, LLM calls)."
+    },
+    {
+      "id": "src/audit",
+      "path": "src/audit",
+      "responsibility": "Dependency-free statistical sampling and process-control math used to audit scan accuracy."
+    },
+    {
+      "id": "src/deep-map",
+      "path": "src/deep-map",
+      "responsibility": "Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph."
+    },
+    {
+      "id": "src/enrich",
+      "path": "src/enrich",
+      "responsibility": "External-boundary enrichment: resolves npm/pip/cargo identities and versions against registries, cached machine-wide in `~/.navgator/`."
+    },
+    {
+      "id": "src/freshness",
+      "path": "src/freshness",
+      "responsibility": "Concurrency-safe dirty ledger and drainer that decide whether stored architecture data is stale enough to rescan."
+    },
+    {
+      "id": "src/git-aware",
+      "path": "src/git-aware",
+      "responsibility": "Canonical-main plus branch-delta snapshots, so an agent can separate committed architecture from uncommitted local change (`arch-diff`)."
+    },
+    {
+      "id": "src/mcp",
+      "path": "src/mcp",
+      "responsibility": "Opt-in MCP server. Deprecated as a default surface — the CLI is the agent interface; this ships only for consumers that cannot spawn a subprocess."
+    },
+    {
+      "id": "src/memory",
+      "path": "src/memory",
+      "responsibility": "gator-memory: the durable cross-session narrative in `~/.navgator/memory/` (which projects exist, when, and what materially changed)."
+    },
+    {
+      "id": "src/metrics",
+      "path": "src/metrics",
+      "responsibility": "PageRank and Louvain community detection over the component graph; writes `metrics.json` and back-writes scores onto components."
+    },
+    {
+      "id": "src/parsers",
+      "path": "src/parsers",
+      "responsibility": "SCIP overlay: shells out to scip-typescript for compiler-accurate cross-file edges the regex scanner cannot resolve."
+    },
+    {
+      "id": "src/portfolio",
+      "path": "src/portfolio",
+      "responsibility": "Cross-repo sweep: runs the single-repo scan pipeline over a folder of repositories and joins the results into one dependency map."
+    },
+    {
+      "id": "src/remote",
+      "path": "src/remote",
+      "responsibility": "Shallow-clones a GitHub URL into a cache and scans it. This is the untrusted-input path — every scanner cap in `src/scanners/scan-limits.ts` exists because of it."
+    },
+    {
+      "id": "src/storage",
+      "path": "src/storage",
+      "responsibility": "Markdown projection of stored components. Pure derivative — the JSON store stays canonical."
+    },
+    {
+      "id": "src/temporal",
+      "path": "src/temporal",
+      "responsibility": "Nested git repository inside `.navgator/` that gives architecture snapshots a history without touching the parent repo's git."
+    },
+    {
+      "id": "src/__tests__",
+      "path": "src/__tests__",
+      "responsibility": "Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it."
+    },
+    {
+      "id": "web",
+      "path": "web",
+      "responsibility": "Next.js dashboard (`navgator ui`), built and packaged separately from the CLI. Talks to stored architecture data through its own API routes, never by importing `src/`."
+    },
+    {
+      "id": "web/app",
+      "path": "web/app",
+      "responsibility": "Dashboard routes and the loopback read-only HTTP API under `web/app/api/`."
+    },
+    {
+      "id": "web/components",
+      "path": "web/components",
+      "responsibility": "Dashboard React components, including the vendored shadcn/ui primitives in `web/components/ui/`."
+    },
+    {
+      "id": "web/hooks",
+      "path": "web/hooks",
+      "responsibility": "Dashboard React hooks shared across components."
+    },
+    {
+      "id": "web/lib",
+      "path": "web/lib",
+      "responsibility": "Dashboard client and server helpers: API client, types, project-path resolution, and request guards."
+    },
+    {
+      "id": "scripts",
+      "path": "scripts",
+      "responsibility": "Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers."
+    }
+  ],
+  "boundaries": [
+    {
+      "id": "core-not-cli",
+      "from": "src",
+      "must_not_depend_on": ["src/cli"],
+      "why": "`src` is the published library (`main`/`exports` in package.json). If it imported the CLI, every library consumer would pull in commander and the whole command surface."
+    },
+    {
+      "id": "core-not-tests",
+      "from": "src",
+      "must_not_depend_on": ["src/__tests__"],
+      "why": "Test helpers are not shipped in the `files` list, so a production import of one breaks the published package while passing locally."
+    },
+    {
+      "id": "core-not-dashboard",
+      "from": "src",
+      "must_not_depend_on": ["web", "web/app", "web/components", "web/hooks", "web/lib"],
+      "why": "The CLI and the dashboard are separate build units with separate tsconfigs. `src` importing `web` would put React and Next.js in the CLI's dependency path."
+    },
+    {
+      "id": "scanners-not-cli",
+      "from": "src/scanners",
+      "must_not_depend_on": ["src/cli"],
+      "why": "Scanners must stay callable as plain functions from the library, the MCP server, and tests. A dependency on the CLI layer would couple them to process state and exit codes."
+    },
+    {
+      "id": "dashboard-not-core",
+      "from": "web/lib",
+      "must_not_depend_on": ["src", "src/cli", "src/scanners"],
+      "why": "The dashboard reads architecture data over its own loopback API, not by importing the scanner. Importing `src` would make the Next.js build depend on the CLI's compile output."
+    },
+    {
+      "id": "dashboard-app-not-core",
+      "from": "web/app",
+      "must_not_depend_on": ["src", "src/cli", "src/scanners"],
+      "why": "Same separation as `dashboard-not-core`, enforced at the route layer where the temptation to import the scanner directly is highest."
+    }
+  ]
+}

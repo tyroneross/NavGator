@@ -6,6 +6,12 @@
 
 NavGator tracks architecture connections across your entire stack—packages, services, databases, queues, and infrastructure—so your coding agent knows what else needs to change when you modify one part of the system.
 
+> **New here, human or agent? Read [`ARCHITECTURE.md`](ARCHITECTURE.md) first.** It is committed,
+> so a fresh clone has it before any scan runs: modules and what each is responsible for, what
+> depends on what, per-file blast radius, and the boundaries that must not be crossed. The
+> machine-readable form is [`docs/architecture/index.json`](docs/architecture/index.json).
+> Regenerate both with `npm run architecture`; CI fails if the committed copy is stale.
+
 ## Features
 
 - **Component Detection**: Packages (npm, pip, SPM, Cargo), frameworks, databases, queues, infrastructure
@@ -620,6 +626,24 @@ Pre-merge architecture diff: shows how the current branch's architecture differs
 | `--record` | Also write the current ref's snapshot before diffing |
 | `--json` | Output as JSON |
 | `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
+### `navgator arch-index`
+
+Regenerates this repository's committed architecture index — `ARCHITECTURE.md` for a reader and `docs/architecture/index.json` for a program. Unlike every other command it never reads `.navgator/architecture/`; it scans the tree directly, so a developer laptop and a clean CI checkout produce the same bytes. That determinism is what makes `--check` usable as a merge gate.
+
+Run it after any change that moves files between modules, adds a directory, or crosses a module boundary. Responsibilities and boundary rules are hand-written once in `docs/architecture/modules.json`; every number and every edge is generated.
+
+| Option | Description |
+|--------|-------------|
+| `--write` | Write both artifacts. Reports which files changed |
+| `--check` | Exit `2` (`NO_DATA`) if the committed artifacts are stale — the CI gate |
+| `--json` | Output as JSON |
+| `--agent` | Output wrapped in agent envelope (implies `--json`) |
+
+```bash
+npm run architecture          # navgator arch-index --write
+npm run architecture:check    # navgator arch-index --check
+```
 
 ### `navgator registry-log`
 

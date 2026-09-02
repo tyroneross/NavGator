@@ -4,6 +4,21 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 ---
 
+## Read this first: `ARCHITECTURE.md`
+
+Start at [`ARCHITECTURE.md`](ARCHITECTURE.md) in the repo root. It is committed, so it is
+present in a fresh clone with no scan run and no prior context, and it answers the four
+questions that decide how you work in this repo: what the modules are and what each is
+responsible for, what depends on what, what a change to a given file can break, and which
+boundaries must not be crossed.
+
+- Machine-readable half: `docs/architecture/index.json` — `jq '.files["src/storage.ts"]' docs/architecture/index.json` returns that file's imports and its full list of dependents.
+- Curated half: `docs/architecture/modules.json` — module responsibilities and boundary rules. This is the only file to hand-edit; everything else regenerates.
+- Regenerate: `npm run architecture`. Deterministic by contract; CI fails if the committed copy is stale.
+- Read its `Coverage and blind spots` section before treating missing edges as evidence of low coupling.
+
+---
+
 ## What This Project Is
 
 NavGator (`@tyroneross/navgator`) is an architecture tracking plugin for Claude Code and Codex. It maps dependencies, analyzes impact, and visualizes your stack before you make changes. It ships as an npm package plus explicit host surfaces for Claude and Codex.

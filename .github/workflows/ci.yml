@@ -63,6 +63,19 @@ jobs:
       - name: Assert committed dist matches source
         run: git diff --exit-code -- dist
 
+      # ARCHITECTURE.md + docs/architecture/index.json are committed for the
+      # same reason dist is: a fresh clone, and any agent dispatched into one,
+      # must find the architecture without running a scan first. A committed
+      # generated artifact rots silently, so it gets the same gate shape as
+      # dist — regenerate, then fail on any difference. The generator is
+      # deterministic by contract (no timestamps, no absolute paths, sorted
+      # keys), asserted in src/__tests__/architecture-index.test.ts, so a diff
+      # here always means real architecture change that was not committed.
+      - name: Assert committed architecture index matches source
+        run: |
+          npm run architecture
+          git diff --exit-code -- ARCHITECTURE.md docs/architecture
+
       - name: Verify packed Claude and Codex surfaces
         run: npm run verify:release
 

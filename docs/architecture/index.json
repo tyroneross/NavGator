@@ -1,0 +1,6386 @@
+{
+  "boundaries": [
+    {
+      "from": "src",
+      "id": "core-not-cli",
+      "must_not_depend_on": [
+        "src/cli"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "`src` is the published library (`main`/`exports` in package.json). If it imported the CLI, every library consumer would pull in commander and the whole command surface."
+    },
+    {
+      "from": "src",
+      "id": "core-not-dashboard",
+      "must_not_depend_on": [
+        "web",
+        "web/app",
+        "web/components",
+        "web/hooks",
+        "web/lib"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "The CLI and the dashboard are separate build units with separate tsconfigs. `src` importing `web` would put React and Next.js in the CLI's dependency path."
+    },
+    {
+      "from": "src",
+      "id": "core-not-tests",
+      "must_not_depend_on": [
+        "src/__tests__"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "Test helpers are not shipped in the `files` list, so a production import of one breaks the published package while passing locally."
+    },
+    {
+      "from": "web/app",
+      "id": "dashboard-app-not-core",
+      "must_not_depend_on": [
+        "src",
+        "src/cli",
+        "src/scanners"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "Same separation as `dashboard-not-core`, enforced at the route layer where the temptation to import the scanner directly is highest."
+    },
+    {
+      "from": "web/lib",
+      "id": "dashboard-not-core",
+      "must_not_depend_on": [
+        "src",
+        "src/cli",
+        "src/scanners"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "The dashboard reads architecture data over its own loopback API, not by importing the scanner. Importing `src` would make the Next.js build depend on the CLI's compile output."
+    },
+    {
+      "from": "src/scanners",
+      "id": "scanners-not-cli",
+      "must_not_depend_on": [
+        "src/cli"
+      ],
+      "status": "held",
+      "violations": [],
+      "why": "Scanners must stay callable as plain functions from the library, the MCP server, and tests. A dependency on the CLI layer would couple them to process state and exit codes."
+    }
+  ],
+  "coverage": {
+    "analyzed_files": 365,
+    "blind_spots": [
+      "7 Python file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Python edges here means \"not measured\", never \"not coupled\".",
+      "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
+      "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
+      "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
+      "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
+    ],
+    "internal_edges": 1049,
+    "languages": [
+      {
+        "analyzed": true,
+        "files": 8,
+        "internal_edges": 0,
+        "language": "JavaScript"
+      },
+      {
+        "analyzed": false,
+        "files": 7,
+        "internal_edges": 0,
+        "language": "Python"
+      },
+      {
+        "analyzed": false,
+        "files": 8,
+        "internal_edges": 0,
+        "language": "Shell"
+      },
+      {
+        "analyzed": true,
+        "files": 358,
+        "internal_edges": 1049,
+        "language": "TypeScript"
+      }
+    ],
+    "status": "partial"
+  },
+  "files": {
+    "scripts/bench-scan.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/ibr-ui-test.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/measure-registry-collisions.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/prepare-web-runtime.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/verify-release.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "src/__tests__/agent-output.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/agent-output.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/rules.ts",
+        "src/coverage.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/coverage.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/architecture-index-contract.test.ts": {
+      "imported_by": [],
+      "imports": [],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/architecture-index.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/architecture-index.ts",
+        "src/scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/architecture-insights-stack.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/architecture-insights.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/architecture-insights.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/architecture-insights.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/atomic-write-concurrency.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/storage.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/audit-sampler.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/audit/sampler.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/audit-spc.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/audit/spc.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/audit-verifiers.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/audit/verifiers.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/auto-refresh.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts",
+        "src/scanner.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/bare-imports.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/import-scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/cargo-dotted-keys.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/packages/cargo.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/cargo-packages.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts",
+        "src/scanners/packages/cargo.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/classify.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/classify.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/cli-commands.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/remote.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/trace.ts",
+        "src/mcp/tools.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/cli-exit-codes.test.ts": {
+      "imported_by": [],
+      "imports": [],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/component-identity.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/component-identity.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/consolidated-readers.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/config.ts",
+        "src/storage.ts",
+        "src/storage/markdown-view.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/coverage.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/coverage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/data-availability-boundary.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/helpers.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/deep-map-cli.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/status.ts",
+        "src/deep-map/report.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/deep-map-core.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/filter.ts",
+        "src/deep-map/partition.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/metrics/pagerank-louvain.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/deep-map-ingest.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/deep-map/filter.ts",
+        "src/deep-map/ingest.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/deep-map-packets.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/deep-map/packets.ts",
+        "src/deep-map/types.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/deploy-scanner-runtime.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/infrastructure/deploy-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/doctor.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/doctor.ts",
+        "src/home-config.ts",
+        "src/memory/health.ts",
+        "src/memory/store.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/entry-points.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/entry-points.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/env-scanner.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/infrastructure/env-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/explore-review.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/config.ts",
+        "src/explore-report.ts",
+        "src/review-report.ts",
+        "src/storage/markdown-view.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/cli-freshness.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/freshness.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/scanner.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/dirty-ledger.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/freshness/dirty-ledger.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/drainer.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/paths.ts",
+        "src/freshness/scan-lock.ts",
+        "src/freshness/stamp.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/paths.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/freshness/paths.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/scan-lock.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/freshness/paths.ts",
+        "src/freshness/scan-lock.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/freshness/stamp.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/freshness/stamp.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/git-aware/canonical.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/git-aware/canonical.ts",
+        "src/git-aware/paths.ts",
+        "src/git-aware/refs.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/git-aware/premerge-diff.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/arch-diff.ts",
+        "src/git-aware/paths.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/git-aware/refs.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/git-aware/refs.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/git-aware/refs.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/gitignore-safety.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/freshness.ts",
+        "src/gitignore-safety.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/helpers.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/architecture-insights-stack.test.ts",
+        "src/__tests__/architecture-insights.test.ts",
+        "src/__tests__/classify.test.ts",
+        "src/__tests__/component-identity.test.ts",
+        "src/__tests__/consolidated-readers.test.ts",
+        "src/__tests__/coverage.test.ts",
+        "src/__tests__/deep-map-packets.test.ts",
+        "src/__tests__/explore-review.test.ts",
+        "src/__tests__/impact.test.ts",
+        "src/__tests__/llm-dedup.test.ts",
+        "src/__tests__/per-entity-files-gate.test.ts",
+        "src/__tests__/portfolio/cross-repo.test.ts",
+        "src/__tests__/prisma-calls.test.ts",
+        "src/__tests__/resolve.test.ts",
+        "src/__tests__/rules.test.ts",
+        "src/__tests__/subgraph.test.ts",
+        "src/__tests__/trace-file-nodes.test.ts",
+        "src/__tests__/trace.test.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/home-config.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/home-config.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/home-isolation.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/projects.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/impact.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/impact.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/lessons-store.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/lessons-store.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/llm-call-tracer.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/llm-call-tracer.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/llm-dedup.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/llm-dedup.ts",
+        "src/scanners/prompts/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/scanners/prompts/types.ts"
+      ]
+    },
+    "src/__tests__/markdown-scanner.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/content/markdown-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/mcp-portfolio-guard.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/mcp/tools.ts",
+        "src/projects.ts",
+        "src/remote/clone.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/mcp-stdio-drain.test.ts": {
+      "imported_by": [],
+      "imports": [],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/memory-capture.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/home-config.ts",
+        "src/memory/store.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/memory-mirror.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/home-config.ts",
+        "src/memory/mirror.ts",
+        "src/memory/store.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/memory-store.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/home-config.ts",
+        "src/memory/store.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/mjs-frontend-fetch.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/service-calls.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/multi-stack-discovery.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/nested-aliases.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/import-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/per-entity-files-gate.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/config.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/portfolio-remote-filter.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/portfolio.ts",
+        "src/config.ts",
+        "src/portfolio/scan.ts",
+        "src/projects.ts",
+        "src/remote/clone.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/portfolio/cross-repo.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/portfolio/types.ts"
+      ]
+    },
+    "src/__tests__/portfolio/discover.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/portfolio/discover.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/portfolio/scan.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/portfolio.ts",
+        "src/config.ts",
+        "src/freshness/paths.ts",
+        "src/portfolio/scan.ts",
+        "src/projects.ts",
+        "src/scan-lock.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/prisma-calls.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/scanners/connections/prisma-calls.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/prisma-parser.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/infrastructure/prisma-parser.ts",
+        "src/scanners/infrastructure/prisma-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/projects.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/projects.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/prompt-detector.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/prompts/detector.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/queue-scanner.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/infrastructure/queue-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/registry-concurrency-oracle.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/projects.ts",
+        "src/registry-journal.ts",
+        "src/registry-lock.ts",
+        "web/lib/server/coverage.ts",
+        "web/lib/server/registry-lock.ts",
+        "web/lib/server/registry-store.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/registry-degraded-lock.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/projects.ts",
+        "src/registry-journal.ts",
+        "web/lib/server/registry-store.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/registry-journal.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/registry-journal.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/release-contract.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/version.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/remote/clone.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/remote/clone.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/remote/github-url.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/remote/github-url.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/remote/scan-remote.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/projects.ts",
+        "src/remote/scan-remote.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/resolve.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/resolve.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/rules.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/cli/commands/rules.ts",
+        "src/rules.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/rust-code-scanner.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/rust/code-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/sandbox.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/sandbox.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scan-boundaries.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/scan.ts",
+        "src/diff.ts",
+        "src/freshness/paths.ts",
+        "src/mcp/tools.ts",
+        "src/scan-lock.ts",
+        "src/scanner.ts",
+        "src/setup.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scan-degradation.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/parsers/scip-runner.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scanner-audit.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/scanner-characterization.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/llm-call-tracer.ts",
+        "src/scanners/connections/service-calls.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scanner-diff-guard.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/scanner-full-scan-diff.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/memory/store.ts",
+        "src/scanner.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scanner-ignore.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scanner-incremental.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/paths.ts",
+        "src/freshness/stamp.ts",
+        "src/scan-lock.ts",
+        "src/scanner.ts",
+        "src/scanners/connections/ast-scanner.ts",
+        "src/scanners/connections/service-calls.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/scanner-input-bounds.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/scan-limits.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scanner-integration.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/infrastructure/cron-scanner.ts",
+        "src/scanners/infrastructure/deploy-scanner.ts",
+        "src/scanners/infrastructure/env-scanner.ts",
+        "src/scanners/infrastructure/prisma-scanner.ts",
+        "src/scanners/infrastructure/queue-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/scip-new-catches.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/parsers/scip-runner.ts",
+        "src/scanners/connections/import-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/setup.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/setup.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/setup/home-redirect.ts": {
+      "imported_by": [],
+      "imports": [],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/subgraph.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/subgraph.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/swift-foundation-models.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/swift/code-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/swift-package-targets.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/swift/code-scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/trace-file-nodes.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/trace.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/trace.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/trace.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-architecture-storage.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/server/architecture-storage.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-atomic-write-concurrency.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/server/atomic-write.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-coverage-route.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/coverage.ts",
+        "src/types.ts",
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/coverage.ts",
+        "web/lib/server/request-guard.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/__tests__/web-dashboard-auth.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/misc.ts",
+        "src/dashboard-session.ts",
+        "web/lib/server/request-guard.ts",
+        "web/proxy.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-project-data.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/project-data.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-project-path-guard.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/app/api/components/route.ts",
+        "web/app/api/connections/route.ts",
+        "web/app/api/graph/route.ts",
+        "web/app/api/prompts/route.ts",
+        "web/app/api/rules/route.ts",
+        "web/app/api/scan/route.ts",
+        "web/app/api/settings/route.ts",
+        "web/app/api/status/route.ts",
+        "web/app/api/subgraph/route.ts",
+        "web/app/api/trace/route.ts",
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/server/request-guard.ts",
+        "web/lib/transform.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/web-registry-health-route.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/app/api/registry-health/route.ts",
+        "web/lib/server/request-guard.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "src/__tests__/web-rules-route.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/server/rules-output.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/agent-output.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/arch-index.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/explore.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/lessons.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/remote.ts",
+        "src/cli/commands/review.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/temporal.ts",
+        "src/cli/commands/trace.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/architecture-index.ts": {
+      "imported_by": [
+        "src/__tests__/architecture-index.test.ts",
+        "src/cli/commands/arch-index.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/scanners/connections/import-scanner.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/architecture-insights.ts": {
+      "imported_by": [
+        "src/__tests__/architecture-insights-stack.test.ts",
+        "src/__tests__/architecture-insights.test.ts",
+        "src/rules.ts",
+        "src/storage.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/audit/index.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/audit/sampler.ts",
+        "src/audit/spc.ts",
+        "src/audit/verifiers.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/audit/sampler.ts": {
+      "imported_by": [
+        "src/__tests__/audit-sampler.test.ts",
+        "src/audit/index.ts"
+      ],
+      "imports": [],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/spc.ts": {
+      "imported_by": [
+        "src/__tests__/audit-spc.test.ts",
+        "src/audit/index.ts"
+      ],
+      "imports": [],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/verifiers.ts": {
+      "imported_by": [
+        "src/__tests__/audit-verifiers.test.ts",
+        "src/audit/index.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/classify.ts": {
+      "imported_by": [
+        "src/__tests__/classify.test.ts",
+        "src/index.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/cli/commands/arch-diff.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/git-aware/premerge-diff.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/types.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/arch-index.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/architecture-index.ts",
+        "src/cli/exit-codes.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/connections.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/file-resolve.ts",
+        "src/resolve.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/coverage.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/coverage.ts",
+        "src/scanners/infrastructure/field-usage-analyzer.ts",
+        "src/scanners/infrastructure/typespec-validator.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/dead.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/deep-map.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/ingest.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/packets.ts",
+        "src/deep-map/partition.ts",
+        "src/deep-map/report.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/diagram.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/diagram.ts",
+        "src/resolve.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/doctor.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/doctor.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/memory/health.ts",
+        "src/memory/mirror.ts",
+        "src/memory/store.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/explore.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/explore-report.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/find.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/cli/commands/freshness.ts": {
+      "imported_by": [
+        "src/__tests__/freshness/cli-freshness.test.ts",
+        "src/__tests__/gitignore-safety.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/enrich/cache.ts",
+        "src/enrich/external-resolver.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/stamp.ts",
+        "src/gitignore-safety.ts",
+        "src/scanner.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/helpers.ts": {
+      "imported_by": [
+        "src/__tests__/data-availability-boundary.test.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/explore.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/review.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/trace.ts"
+      ],
+      "imports": [],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/impact.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/file-resolve.ts",
+        "src/impact.ts",
+        "src/resolve.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/lessons.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/lessons-store.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/list.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/component-identity.ts",
+        "src/config.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/llm-map.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/llm-dedup.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/misc.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/web-dashboard-auth.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/dashboard-session.ts",
+        "src/diff.ts",
+        "src/git.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts",
+        "src/sandbox.ts",
+        "src/scanner.ts",
+        "src/setup.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/portfolio.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/portfolio-remote-filter.test.ts",
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/scan.ts",
+        "src/portfolio/types.ts",
+        "src/projects.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": [
+        "src/portfolio/types.ts"
+      ]
+    },
+    "src/cli/commands/prompts.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/remote.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/remote/scan-remote.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/review.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/review-report.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/rules.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/rules.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/rules.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/scan.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/schema.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/resolve.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/status.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/diff.ts",
+        "src/llm-dedup.ts",
+        "src/scanner.ts",
+        "src/storage.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/subgraph.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/storage.ts",
+        "src/subgraph.ts",
+        "src/types.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/temporal.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/temporal/git-store.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/commands/trace.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/resolve.ts",
+        "src/storage.ts",
+        "src/trace.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/exit-codes.ts": {
+      "imported_by": [
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/arch-index.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/explore.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/lessons.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/remote.ts",
+        "src/cli/commands/review.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/temporal.ts",
+        "src/cli/commands/trace.ts",
+        "src/cli/index.ts"
+      ],
+      "imports": [],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/cli/index.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/arch-index.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/explore.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/freshness.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/lessons.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/remote.ts",
+        "src/cli/commands/review.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/temporal.ts",
+        "src/cli/commands/trace.ts",
+        "src/cli/exit-codes.ts",
+        "src/version.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": []
+    },
+    "src/component-identity.ts": {
+      "imported_by": [
+        "src/__tests__/component-identity.test.ts",
+        "src/cli/commands/list.ts",
+        "src/index.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/resolve.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/config.ts": {
+      "imported_by": [
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/consolidated-readers.test.ts",
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/explore-review.test.ts",
+        "src/__tests__/freshness/paths.test.ts",
+        "src/__tests__/mcp-portfolio-guard.test.ts",
+        "src/__tests__/per-entity-files-gate.test.ts",
+        "src/__tests__/portfolio-remote-filter.test.ts",
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/agent-output.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/temporal.ts",
+        "src/cli/commands/trace.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/store.ts",
+        "src/diff.ts",
+        "src/explore-report.ts",
+        "src/freshness/paths.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/paths.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/portfolio/scan.ts",
+        "src/review-report.ts",
+        "src/scanner.ts",
+        "src/setup.ts",
+        "src/storage.ts",
+        "src/ui-server.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/coverage.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/coverage.test.ts",
+        "src/__tests__/web-coverage-route.test.ts",
+        "src/cli/commands/coverage.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/dashboard-session.ts": {
+      "imported_by": [
+        "src/__tests__/web-dashboard-auth.test.ts",
+        "src/cli/commands/misc.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/deep-map/escalate.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-core.test.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/deep-map/load.ts"
+      ],
+      "imports": [
+        "src/deep-map/filter.ts",
+        "src/deep-map/partition.ts",
+        "src/deep-map/types.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/metrics/pagerank-louvain.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/filter.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/partition.ts"
+      ],
+      "imports": [
+        "src/types.ts",
+        "src/vendor-paths.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/ingest.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/cli/commands/deep-map.ts"
+      ],
+      "imports": [
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/load.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/cli/commands/deep-map.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/types.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/projects.ts",
+        "src/rules.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/deep-map/types.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/packets.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-packets.test.ts",
+        "src/cli/commands/deep-map.ts"
+      ],
+      "imports": [
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/subgraph.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": []
+    },
+    "src/deep-map/partition.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-core.test.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/deep-map/escalate.ts"
+      ],
+      "imports": [
+        "src/deep-map/filter.ts",
+        "src/deep-map/types.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/metrics/pagerank-louvain.ts"
+      ]
+    },
+    "src/deep-map/report.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/cli/commands/deep-map.ts"
+      ],
+      "imports": [
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/store.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/deep-map/ingest.ts",
+        "src/deep-map/packets.ts",
+        "src/deep-map/report.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/deep-map/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/deep-map/types.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/deep-map/types.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-cli.test.ts",
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/__tests__/deep-map-packets.test.ts",
+        "src/cli/commands/deep-map.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/ingest.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/packets.ts",
+        "src/deep-map/partition.ts",
+        "src/deep-map/report.ts",
+        "src/deep-map/store.ts"
+      ],
+      "imports": [
+        "src/rules.ts",
+        "src/types.ts"
+      ],
+      "module": "src/deep-map",
+      "type_only_imports": [
+        "src/rules.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/diagram.ts": {
+      "imported_by": [
+        "src/cli/commands/diagram.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/setup.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/diff.ts": {
+      "imported_by": [
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/status.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/index.ts",
+        "src/scanner.ts",
+        "src/storage.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/enrich/cache.ts": {
+      "imported_by": [
+        "src/cli/commands/freshness.ts",
+        "src/enrich/external-resolver.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/enrich/external-enrichment.types.ts",
+        "src/enrich/external-resolver.ts",
+        "src/types.ts"
+      ],
+      "module": "src/enrich",
+      "type_only_imports": [
+        "src/enrich/external-enrichment.types.ts",
+        "src/enrich/external-resolver.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/enrich/external-enrichment.types.ts": {
+      "imported_by": [
+        "src/enrich/cache.ts",
+        "src/enrich/external-resolver.ts",
+        "src/types.ts"
+      ],
+      "imports": [],
+      "module": "src/enrich",
+      "type_only_imports": []
+    },
+    "src/enrich/external-resolver.ts": {
+      "imported_by": [
+        "src/cli/commands/freshness.ts",
+        "src/enrich/cache.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/enrich/cache.ts",
+        "src/enrich/external-enrichment.types.ts",
+        "src/enrich/fetchers.ts",
+        "src/types.ts"
+      ],
+      "module": "src/enrich",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/enrich/fetchers.ts": {
+      "imported_by": [
+        "src/enrich/external-resolver.ts"
+      ],
+      "imports": [],
+      "module": "src/enrich",
+      "type_only_imports": []
+    },
+    "src/entry-points.ts": {
+      "imported_by": [
+        "src/__tests__/entry-points.test.ts",
+        "src/rules.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/explore-report.ts": {
+      "imported_by": [
+        "src/__tests__/explore-review.test.ts",
+        "src/cli/commands/explore.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/impact.ts",
+        "src/resolve.ts",
+        "src/storage.ts",
+        "src/trace.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/file-resolve.ts": {
+      "imported_by": [
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/impact.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/freshness/dirty-ledger.ts": {
+      "imported_by": [
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/freshness/cli-freshness.test.ts",
+        "src/__tests__/freshness/dirty-ledger.test.ts",
+        "src/__tests__/freshness/drainer.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/cli/commands/freshness.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/stamp.ts"
+      ],
+      "imports": [
+        "src/freshness/paths.ts",
+        "src/scan-lock.ts"
+      ],
+      "module": "src/freshness",
+      "type_only_imports": []
+    },
+    "src/freshness/drainer.ts": {
+      "imported_by": [
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/freshness/drainer.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/cli/commands/freshness.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/paths.ts",
+        "src/freshness/stamp.ts"
+      ],
+      "module": "src/freshness",
+      "type_only_imports": []
+    },
+    "src/freshness/paths.ts": {
+      "imported_by": [
+        "src/__tests__/freshness/drainer.test.ts",
+        "src/__tests__/freshness/paths.test.ts",
+        "src/__tests__/freshness/scan-lock.test.ts",
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/stamp.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/config.ts"
+      ],
+      "module": "src/freshness",
+      "type_only_imports": []
+    },
+    "src/freshness/scan-lock.ts": {
+      "imported_by": [
+        "src/__tests__/freshness/drainer.test.ts",
+        "src/__tests__/freshness/scan-lock.test.ts"
+      ],
+      "imports": [
+        "src/scan-lock.ts"
+      ],
+      "module": "src/freshness",
+      "type_only_imports": []
+    },
+    "src/freshness/stamp.ts": {
+      "imported_by": [
+        "src/__tests__/freshness/drainer.test.ts",
+        "src/__tests__/freshness/stamp.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/cli/commands/freshness.ts",
+        "src/freshness/drainer.ts"
+      ],
+      "imports": [
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/paths.ts",
+        "src/git.ts"
+      ],
+      "module": "src/freshness",
+      "type_only_imports": []
+    },
+    "src/git-aware/canonical.ts": {
+      "imported_by": [
+        "src/__tests__/git-aware/canonical.test.ts",
+        "src/cli/commands/arch-diff.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/diff.ts",
+        "src/git-aware/paths.ts",
+        "src/git-aware/refs.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/git-aware",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/git-aware/paths.ts": {
+      "imported_by": [
+        "src/__tests__/git-aware/canonical.test.ts",
+        "src/__tests__/git-aware/premerge-diff.test.ts",
+        "src/git-aware/canonical.ts"
+      ],
+      "imports": [
+        "src/config.ts"
+      ],
+      "module": "src/git-aware",
+      "type_only_imports": []
+    },
+    "src/git-aware/premerge-diff.ts": {
+      "imported_by": [
+        "src/__tests__/git-aware/premerge-diff.test.ts",
+        "src/cli/commands/arch-diff.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/diff.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/refs.ts",
+        "src/types.ts"
+      ],
+      "module": "src/git-aware",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/git-aware/refs.ts": {
+      "imported_by": [
+        "src/__tests__/git-aware/canonical.test.ts",
+        "src/__tests__/git-aware/premerge-diff.test.ts",
+        "src/__tests__/git-aware/refs.test.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/index.ts"
+      ],
+      "imports": [],
+      "module": "src/git-aware",
+      "type_only_imports": []
+    },
+    "src/git.ts": {
+      "imported_by": [
+        "src/cli/commands/misc.ts",
+        "src/freshness/stamp.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/gitignore-safety.ts": {
+      "imported_by": [
+        "src/__tests__/gitignore-safety.test.ts",
+        "src/cli/commands/freshness.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/home-config.ts": {
+      "imported_by": [
+        "src/__tests__/doctor.test.ts",
+        "src/__tests__/home-config.test.ts",
+        "src/__tests__/memory-capture.test.ts",
+        "src/__tests__/memory-mirror.test.ts",
+        "src/__tests__/memory-store.test.ts",
+        "src/index.ts",
+        "src/memory/mirror.ts",
+        "src/memory/store.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/impact.ts": {
+      "imported_by": [
+        "src/__tests__/impact.test.ts",
+        "src/cli/commands/impact.ts",
+        "src/explore-report.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/review-report.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/index.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/agent-output.ts",
+        "src/architecture-index.ts",
+        "src/classify.ts",
+        "src/component-identity.ts",
+        "src/config.ts",
+        "src/coverage.ts",
+        "src/diagram.ts",
+        "src/diff.ts",
+        "src/file-resolve.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/git-aware/refs.ts",
+        "src/git.ts",
+        "src/home-config.ts",
+        "src/impact.ts",
+        "src/memory/health.ts",
+        "src/memory/mirror.ts",
+        "src/memory/store.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/discover.ts",
+        "src/portfolio/scan.ts",
+        "src/portfolio/types.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts",
+        "src/remote/github-url.ts",
+        "src/remote/scan-remote.ts",
+        "src/resolve.ts",
+        "src/rules.ts",
+        "src/sandbox.ts",
+        "src/scanner.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/prompts/index.ts",
+        "src/scanners/prompts/types.ts",
+        "src/setup.ts",
+        "src/storage.ts",
+        "src/subgraph.ts",
+        "src/trace.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/portfolio/types.ts",
+        "src/scanners/prompts/types.ts"
+      ]
+    },
+    "src/lessons-store.ts": {
+      "imported_by": [
+        "src/__tests__/lessons-store.test.ts",
+        "src/cli/commands/lessons.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/llm-dedup.ts": {
+      "imported_by": [
+        "src/__tests__/llm-dedup.test.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/status.ts",
+        "src/review-report.ts"
+      ],
+      "imports": [
+        "src/scanners/prompts/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/scanners/prompts/types.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/mcp/server.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/mcp/tools.ts",
+        "src/version.ts"
+      ],
+      "module": "src/mcp",
+      "type_only_imports": []
+    },
+    "src/mcp/tools.ts": {
+      "imported_by": [
+        "src/__tests__/cli-commands.test.ts",
+        "src/__tests__/mcp-portfolio-guard.test.ts",
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/mcp/server.ts"
+      ],
+      "imports": [
+        "src/agent-output.ts",
+        "src/config.ts",
+        "src/diagram.ts",
+        "src/explore-report.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/git.ts",
+        "src/impact.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/scan.ts",
+        "src/portfolio/types.ts",
+        "src/projects.ts",
+        "src/remote/clone.ts",
+        "src/resolve.ts",
+        "src/review-report.ts",
+        "src/rules.ts",
+        "src/scanner.ts",
+        "src/storage.ts",
+        "src/subgraph.ts",
+        "src/trace.ts",
+        "src/types.ts"
+      ],
+      "module": "src/mcp",
+      "type_only_imports": [
+        "src/portfolio/types.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/memory/health.ts": {
+      "imported_by": [
+        "src/__tests__/doctor.test.ts",
+        "src/cli/commands/doctor.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/memory/mirror.ts",
+        "src/memory/store.ts",
+        "src/projects.ts",
+        "src/registry-journal.ts"
+      ],
+      "module": "src/memory",
+      "type_only_imports": []
+    },
+    "src/memory/mirror.ts": {
+      "imported_by": [
+        "src/__tests__/memory-mirror.test.ts",
+        "src/cli/commands/doctor.ts",
+        "src/index.ts",
+        "src/memory/health.ts",
+        "src/projects.ts"
+      ],
+      "imports": [
+        "src/home-config.ts",
+        "src/memory/store.ts",
+        "src/version.ts"
+      ],
+      "module": "src/memory",
+      "type_only_imports": []
+    },
+    "src/memory/store.ts": {
+      "imported_by": [
+        "src/__tests__/doctor.test.ts",
+        "src/__tests__/memory-capture.test.ts",
+        "src/__tests__/memory-mirror.test.ts",
+        "src/__tests__/memory-store.test.ts",
+        "src/__tests__/scanner-full-scan-diff.test.ts",
+        "src/cli/commands/doctor.ts",
+        "src/index.ts",
+        "src/memory/health.ts",
+        "src/memory/mirror.ts",
+        "src/projects.ts"
+      ],
+      "imports": [
+        "src/home-config.ts"
+      ],
+      "module": "src/memory",
+      "type_only_imports": []
+    },
+    "src/metrics/pagerank-louvain.ts": {
+      "imported_by": [
+        "src/__tests__/deep-map-core.test.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/partition.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src/metrics",
+      "type_only_imports": []
+    },
+    "src/parsers/scip-runner.ts": {
+      "imported_by": [
+        "src/__tests__/scan-degradation.test.ts",
+        "src/__tests__/scip-new-catches.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [],
+      "module": "src/parsers",
+      "type_only_imports": []
+    },
+    "src/portfolio/cross-repo.ts": {
+      "imported_by": [
+        "src/__tests__/portfolio/cross-repo.test.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/component-identity.ts",
+        "src/portfolio/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/portfolio",
+      "type_only_imports": [
+        "src/portfolio/types.ts",
+        "src/types.ts"
+      ]
+    },
+    "src/portfolio/discover.ts": {
+      "imported_by": [
+        "src/__tests__/portfolio/discover.test.ts",
+        "src/index.ts",
+        "src/portfolio/scan.ts"
+      ],
+      "imports": [
+        "src/portfolio/types.ts"
+      ],
+      "module": "src/portfolio",
+      "type_only_imports": [
+        "src/portfolio/types.ts"
+      ]
+    },
+    "src/portfolio/scan.ts": {
+      "imported_by": [
+        "src/__tests__/portfolio-remote-filter.test.ts",
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/portfolio/discover.ts",
+        "src/portfolio/types.ts",
+        "src/remote/clone.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/portfolio",
+      "type_only_imports": [
+        "src/portfolio/types.ts"
+      ]
+    },
+    "src/portfolio/types.ts": {
+      "imported_by": [
+        "src/__tests__/portfolio/cross-repo.test.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/discover.ts",
+        "src/portfolio/scan.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/portfolio",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/projects.ts": {
+      "imported_by": [
+        "src/__tests__/doctor.test.ts",
+        "src/__tests__/home-isolation.test.ts",
+        "src/__tests__/mcp-portfolio-guard.test.ts",
+        "src/__tests__/memory-capture.test.ts",
+        "src/__tests__/portfolio-remote-filter.test.ts",
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/__tests__/projects.test.ts",
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "src/__tests__/registry-degraded-lock.test.ts",
+        "src/__tests__/remote/scan-remote.test.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/deep-map/load.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/memory/health.ts",
+        "src/remote/scan-remote.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/memory/mirror.ts",
+        "src/memory/store.ts",
+        "src/registry-journal.ts",
+        "src/registry-lock.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/registry-journal.ts": {
+      "imported_by": [
+        "src/__tests__/doctor.test.ts",
+        "src/__tests__/memory-capture.test.ts",
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "src/__tests__/registry-degraded-lock.test.ts",
+        "src/__tests__/registry-journal.test.ts",
+        "src/cli/commands/doctor.ts",
+        "src/cli/commands/misc.ts",
+        "src/index.ts",
+        "src/memory/health.ts",
+        "src/projects.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/registry-lock.ts": {
+      "imported_by": [
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "src/projects.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/remote/clone.ts": {
+      "imported_by": [
+        "src/__tests__/mcp-portfolio-guard.test.ts",
+        "src/__tests__/portfolio-remote-filter.test.ts",
+        "src/__tests__/remote/clone.test.ts",
+        "src/mcp/tools.ts",
+        "src/portfolio/scan.ts",
+        "src/remote/scan-remote.ts"
+      ],
+      "imports": [],
+      "module": "src/remote",
+      "type_only_imports": []
+    },
+    "src/remote/github-url.ts": {
+      "imported_by": [
+        "src/__tests__/remote/github-url.test.ts",
+        "src/index.ts",
+        "src/remote/scan-remote.ts"
+      ],
+      "imports": [],
+      "module": "src/remote",
+      "type_only_imports": []
+    },
+    "src/remote/scan-remote.ts": {
+      "imported_by": [
+        "src/__tests__/remote/scan-remote.test.ts",
+        "src/cli/commands/remote.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/projects.ts",
+        "src/remote/clone.ts",
+        "src/remote/github-url.ts",
+        "src/scanner.ts"
+      ],
+      "module": "src/remote",
+      "type_only_imports": []
+    },
+    "src/resolve.ts": {
+      "imported_by": [
+        "src/__tests__/resolve.test.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/trace.ts",
+        "src/explore-report.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/review-report.ts",
+        "src/subgraph.ts"
+      ],
+      "imports": [
+        "src/component-identity.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/review-report.ts": {
+      "imported_by": [
+        "src/__tests__/explore-review.test.ts",
+        "src/cli/commands/review.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/impact.ts",
+        "src/llm-dedup.ts",
+        "src/resolve.ts",
+        "src/rules.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/rules.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/deep-map-packets.test.ts",
+        "src/__tests__/rules.test.ts",
+        "src/agent-output.ts",
+        "src/cli/commands/rules.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/types.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/review-report.ts"
+      ],
+      "imports": [
+        "src/architecture-insights.ts",
+        "src/entry-points.ts",
+        "src/types.ts",
+        "src/vendor-paths.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/sandbox.ts": {
+      "imported_by": [
+        "src/__tests__/sandbox.test.ts",
+        "src/cli/commands/misc.ts",
+        "src/index.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/scan-lock.ts": {
+      "imported_by": [
+        "src/__tests__/portfolio/scan.test.ts",
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/scan-lock.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/scanner.ts": {
+      "imported_by": [
+        "src/__tests__/architecture-index.test.ts",
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/cargo-packages.test.ts",
+        "src/__tests__/freshness/cli-freshness.test.ts",
+        "src/__tests__/multi-stack-discovery.test.ts",
+        "src/__tests__/remote/scan-remote.test.ts",
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/__tests__/scan-degradation.test.ts",
+        "src/__tests__/scanner-audit.test.ts",
+        "src/__tests__/scanner-characterization.test.ts",
+        "src/__tests__/scanner-diff-guard.test.ts",
+        "src/__tests__/scanner-full-scan-diff.test.ts",
+        "src/__tests__/scanner-ignore.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/cli/commands/freshness.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/prompts.ts",
+        "src/cli/commands/scan.ts",
+        "src/cli/commands/status.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/portfolio/scan.ts",
+        "src/remote/scan-remote.ts",
+        "src/setup.ts"
+      ],
+      "imports": [
+        "src/audit/index.ts",
+        "src/classify.ts",
+        "src/config.ts",
+        "src/diff.ts",
+        "src/enrich/cache.ts",
+        "src/enrich/external-resolver.ts",
+        "src/freshness/drainer.ts",
+        "src/freshness/paths.ts",
+        "src/git.ts",
+        "src/gitignore-safety.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/parsers/scip-runner.ts",
+        "src/projects.ts",
+        "src/sandbox.ts",
+        "src/scan-lock.ts",
+        "src/scanners/connections/ast-scanner.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/llm-call-tracer.ts",
+        "src/scanners/connections/prisma-calls.ts",
+        "src/scanners/connections/service-calls.ts",
+        "src/scanners/content/markdown-scanner.ts",
+        "src/scanners/infrastructure/cron-scanner.ts",
+        "src/scanners/infrastructure/deploy-scanner.ts",
+        "src/scanners/infrastructure/env-scanner.ts",
+        "src/scanners/infrastructure/field-usage-analyzer.ts",
+        "src/scanners/infrastructure/index.ts",
+        "src/scanners/infrastructure/prisma-scanner.ts",
+        "src/scanners/infrastructure/queue-scanner.ts",
+        "src/scanners/infrastructure/typespec-validator.ts",
+        "src/scanners/packages/cargo.ts",
+        "src/scanners/packages/npm.ts",
+        "src/scanners/packages/pip.ts",
+        "src/scanners/packages/swift.ts",
+        "src/scanners/prompts/index.ts",
+        "src/scanners/rust/code-scanner.ts",
+        "src/scanners/swift/code-scanner.ts",
+        "src/scanners/xcode/pbxproj-parser.ts",
+        "src/scanners/xcode/storyboard-scanner.ts",
+        "src/storage.ts",
+        "src/storage/markdown-view.ts",
+        "src/temporal/git-store.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/ast-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/import-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/bare-imports.test.ts",
+        "src/__tests__/mjs-frontend-fetch.test.ts",
+        "src/__tests__/nested-aliases.test.ts",
+        "src/__tests__/scanner-characterization.test.ts",
+        "src/__tests__/scanner-input-bounds.test.ts",
+        "src/__tests__/scip-new-catches.test.ts",
+        "src/architecture-index.ts",
+        "src/index.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/scan-limits.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/llm-call-tracer.ts": {
+      "imported_by": [
+        "src/__tests__/llm-call-tracer.test.ts",
+        "src/__tests__/scanner-characterization.test.ts",
+        "src/scanner.ts",
+        "src/scanners/prompts/types.ts"
+      ],
+      "imports": [
+        "src/scanners/scan-limits.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/prisma-calls.ts": {
+      "imported_by": [
+        "src/__tests__/prisma-calls.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/service-calls.ts": {
+      "imported_by": [
+        "src/__tests__/mjs-frontend-fetch.test.ts",
+        "src/__tests__/scanner-characterization.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/content/markdown-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/markdown-scanner.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/cron-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/scanner-integration.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/deploy-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/deploy-scanner-runtime.test.ts",
+        "src/__tests__/scanner-integration.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/env-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/env-scanner.test.ts",
+        "src/__tests__/scanner-integration.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/field-usage-analyzer.ts": {
+      "imported_by": [
+        "src/cli/commands/coverage.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/infrastructure/prisma-parser.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/index.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/prisma-parser.ts": {
+      "imported_by": [
+        "src/__tests__/prisma-parser.test.ts",
+        "src/scanners/infrastructure/field-usage-analyzer.ts",
+        "src/scanners/infrastructure/prisma-scanner.ts",
+        "src/scanners/infrastructure/typespec-validator.ts"
+      ],
+      "imports": [],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/prisma-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/prisma-parser.test.ts",
+        "src/__tests__/scanner-integration.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/infrastructure/prisma-parser.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/queue-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/queue-scanner.test.ts",
+        "src/__tests__/scanner-integration.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/infrastructure/typespec-validator.ts": {
+      "imported_by": [
+        "src/cli/commands/coverage.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/infrastructure/prisma-parser.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/packages/cargo.ts": {
+      "imported_by": [
+        "src/__tests__/cargo-dotted-keys.test.ts",
+        "src/__tests__/cargo-packages.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/packages/npm.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/packages/pip.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/packages/swift.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/prompts/detector.ts": {
+      "imported_by": [
+        "src/__tests__/prompt-detector.test.ts",
+        "src/scanners/prompts/index.ts"
+      ],
+      "imports": [
+        "src/scanners/prompts/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/prompts/index.ts": {
+      "imported_by": [
+        "src/index.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/prompts/detector.ts",
+        "src/scanners/prompts/types.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/prompts/types.ts": {
+      "imported_by": [
+        "src/__tests__/llm-dedup.test.ts",
+        "src/index.ts",
+        "src/llm-dedup.ts",
+        "src/scanners/prompts/detector.ts",
+        "src/scanners/prompts/index.ts"
+      ],
+      "imports": [
+        "src/scanners/connections/llm-call-tracer.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/rust/code-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/rust-code-scanner.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/scan-limits.ts": {
+      "imported_by": [
+        "src/__tests__/scanner-input-bounds.test.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/llm-call-tracer.ts"
+      ],
+      "imports": [],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/swift/code-scanner.ts": {
+      "imported_by": [
+        "src/__tests__/swift-foundation-models.test.ts",
+        "src/__tests__/swift-package-targets.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/scanners/swift/swiftui-scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/swift/swiftui-scanner.ts": {
+      "imported_by": [
+        "src/scanners/swift/code-scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/xcode/pbxproj-parser.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/xcode/storyboard-scanner.ts": {
+      "imported_by": [
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/setup.ts": {
+      "imported_by": [
+        "src/__tests__/scan-boundaries.test.ts",
+        "src/__tests__/setup.test.ts",
+        "src/cli/commands/misc.ts",
+        "src/index.ts"
+      ],
+      "imports": [
+        "src/config.ts",
+        "src/diagram.ts",
+        "src/scanner.ts",
+        "src/storage.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/storage.ts": {
+      "imported_by": [
+        "src/__tests__/atomic-write-concurrency.test.ts",
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/consolidated-readers.test.ts",
+        "src/__tests__/freshness/cli-freshness.test.ts",
+        "src/__tests__/per-entity-files-gate.test.ts",
+        "src/__tests__/scanner-audit.test.ts",
+        "src/__tests__/scanner-full-scan-diff.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/__tests__/setup.test.ts",
+        "src/audit/index.ts",
+        "src/cli/commands/connections.ts",
+        "src/cli/commands/coverage.ts",
+        "src/cli/commands/dead.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/freshness.ts",
+        "src/cli/commands/impact.ts",
+        "src/cli/commands/list.ts",
+        "src/cli/commands/llm-map.ts",
+        "src/cli/commands/misc.ts",
+        "src/cli/commands/portfolio.ts",
+        "src/cli/commands/rules.ts",
+        "src/cli/commands/schema.ts",
+        "src/cli/commands/status.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/cli/commands/trace.ts",
+        "src/deep-map/load.ts",
+        "src/diff.ts",
+        "src/explore-report.ts",
+        "src/git-aware/canonical.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/projects.ts",
+        "src/review-report.ts",
+        "src/scanner.ts",
+        "src/setup.ts",
+        "src/ui-server.ts"
+      ],
+      "imports": [
+        "src/architecture-insights.ts",
+        "src/config.ts",
+        "src/diff.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/storage/markdown-view.ts": {
+      "imported_by": [
+        "src/__tests__/consolidated-readers.test.ts",
+        "src/__tests__/explore-review.test.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src/storage",
+      "type_only_imports": []
+    },
+    "src/subgraph.ts": {
+      "imported_by": [
+        "src/__tests__/subgraph.test.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/deep-map/packets.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/resolve.ts",
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/temporal/git-store.ts": {
+      "imported_by": [
+        "src/cli/commands/temporal.ts",
+        "src/scanner.ts"
+      ],
+      "imports": [],
+      "module": "src/temporal",
+      "type_only_imports": []
+    },
+    "src/trace.ts": {
+      "imported_by": [
+        "src/__tests__/trace-file-nodes.test.ts",
+        "src/__tests__/trace.test.ts",
+        "src/cli/commands/trace.ts",
+        "src/explore-report.ts",
+        "src/index.ts",
+        "src/mcp/tools.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/types.ts": {
+      "imported_by": [
+        "src/__tests__/agent-output.test.ts",
+        "src/__tests__/architecture-index.test.ts",
+        "src/__tests__/architecture-insights-stack.test.ts",
+        "src/__tests__/audit-verifiers.test.ts",
+        "src/__tests__/auto-refresh.test.ts",
+        "src/__tests__/bare-imports.test.ts",
+        "src/__tests__/component-identity.test.ts",
+        "src/__tests__/consolidated-readers.test.ts",
+        "src/__tests__/coverage.test.ts",
+        "src/__tests__/deep-map-core.test.ts",
+        "src/__tests__/deep-map-ingest.test.ts",
+        "src/__tests__/deep-map-packets.test.ts",
+        "src/__tests__/entry-points.test.ts",
+        "src/__tests__/git-aware/premerge-diff.test.ts",
+        "src/__tests__/helpers.ts",
+        "src/__tests__/impact.test.ts",
+        "src/__tests__/mjs-frontend-fetch.test.ts",
+        "src/__tests__/per-entity-files-gate.test.ts",
+        "src/__tests__/resolve.test.ts",
+        "src/__tests__/scanner-audit.test.ts",
+        "src/__tests__/scanner-diff-guard.test.ts",
+        "src/__tests__/scanner-incremental.test.ts",
+        "src/__tests__/subgraph.test.ts",
+        "src/__tests__/trace-file-nodes.test.ts",
+        "src/__tests__/trace.test.ts",
+        "src/__tests__/web-coverage-route.test.ts",
+        "src/agent-output.ts",
+        "src/architecture-insights.ts",
+        "src/audit/index.ts",
+        "src/audit/verifiers.ts",
+        "src/classify.ts",
+        "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/diagram.ts",
+        "src/cli/commands/find.ts",
+        "src/cli/commands/subgraph.ts",
+        "src/component-identity.ts",
+        "src/config.ts",
+        "src/coverage.ts",
+        "src/deep-map/escalate.ts",
+        "src/deep-map/filter.ts",
+        "src/deep-map/ingest.ts",
+        "src/deep-map/load.ts",
+        "src/deep-map/packets.ts",
+        "src/deep-map/partition.ts",
+        "src/deep-map/report.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/types.ts",
+        "src/diagram.ts",
+        "src/diff.ts",
+        "src/enrich/cache.ts",
+        "src/enrich/external-resolver.ts",
+        "src/entry-points.ts",
+        "src/explore-report.ts",
+        "src/file-resolve.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts",
+        "src/git.ts",
+        "src/impact.ts",
+        "src/index.ts",
+        "src/llm-dedup.ts",
+        "src/mcp/tools.ts",
+        "src/metrics/pagerank-louvain.ts",
+        "src/portfolio/cross-repo.ts",
+        "src/portfolio/types.ts",
+        "src/projects.ts",
+        "src/resolve.ts",
+        "src/review-report.ts",
+        "src/rules.ts",
+        "src/scanner.ts",
+        "src/scanners/connections/ast-scanner.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/llm-call-tracer.ts",
+        "src/scanners/connections/prisma-calls.ts",
+        "src/scanners/connections/service-calls.ts",
+        "src/scanners/content/markdown-scanner.ts",
+        "src/scanners/infrastructure/cron-scanner.ts",
+        "src/scanners/infrastructure/deploy-scanner.ts",
+        "src/scanners/infrastructure/env-scanner.ts",
+        "src/scanners/infrastructure/field-usage-analyzer.ts",
+        "src/scanners/infrastructure/index.ts",
+        "src/scanners/infrastructure/prisma-scanner.ts",
+        "src/scanners/infrastructure/queue-scanner.ts",
+        "src/scanners/infrastructure/typespec-validator.ts",
+        "src/scanners/packages/cargo.ts",
+        "src/scanners/packages/npm.ts",
+        "src/scanners/packages/pip.ts",
+        "src/scanners/packages/swift.ts",
+        "src/scanners/prompts/index.ts",
+        "src/scanners/rust/code-scanner.ts",
+        "src/scanners/swift/code-scanner.ts",
+        "src/scanners/swift/swiftui-scanner.ts",
+        "src/scanners/xcode/pbxproj-parser.ts",
+        "src/scanners/xcode/storyboard-scanner.ts",
+        "src/setup.ts",
+        "src/storage.ts",
+        "src/storage/markdown-view.ts",
+        "src/subgraph.ts",
+        "src/trace.ts",
+        "src/vendor-paths.ts"
+      ],
+      "imports": [
+        "src/enrich/external-enrichment.types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/enrich/external-enrichment.types.ts"
+      ]
+    },
+    "src/ui-server.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/storage.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/vendor-paths.ts": {
+      "imported_by": [
+        "src/deep-map/filter.ts",
+        "src/rules.ts"
+      ],
+      "imports": [
+        "src/types.ts"
+      ],
+      "module": "src",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/version.ts": {
+      "imported_by": [
+        "src/__tests__/release-contract.test.ts",
+        "src/cli/index.ts",
+        "src/mcp/server.ts",
+        "src/memory/mirror.ts"
+      ],
+      "imports": [],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "vitest.config.ts": {
+      "imported_by": [],
+      "imports": [],
+      "module": ".",
+      "type_only_imports": []
+    },
+    "web/app/api/components/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/connections/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/graph/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/app/api/projects/route.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/server/registry-store.ts",
+        "web/lib/server/request-guard.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/app/api/prompts/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/navgator-cli.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/server/request-guard.ts",
+        "web/lib/transform.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/registry-health/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-registry-health-route.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/navgator-cli.ts",
+        "web/lib/server/request-guard.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/rules/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/navgator-cli.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/server/rules-output.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/scan/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/navgator-cli.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/server/request-guard.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/app/api/settings/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/project-path.ts",
+        "web/lib/server/request-guard.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/app/api/status/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/project-path.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/subgraph/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/api/trace/route.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/architecture-storage.ts",
+        "web/lib/server/project-path.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/app",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/app/layout.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/session-bootstrap.tsx",
+        "web/lib/project-context.tsx"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/app/page.tsx": {
+      "imported_by": [
+        "web/components/sidebar.tsx",
+        "web/components/status-overview.tsx"
+      ],
+      "imports": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/coverage-panel.tsx",
+        "web/components/diagram-view.tsx",
+        "web/components/header.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/registry-health-panel.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/sidebar.tsx",
+        "web/components/status-overview.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/project-context.tsx"
+      ],
+      "module": "web/app",
+      "type_only_imports": []
+    },
+    "web/components/components-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/dropdown-menu.tsx",
+        "web/components/ui/input.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/connections-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/tabs.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/project-data.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/coverage-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/progress.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/diagram-view.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/select.tsx",
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/header.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/dropdown-menu.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/tooltip.tsx",
+        "web/lib/api-client.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/impact-analysis.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/project-data.ts",
+        "web/lib/types.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/llm-tracking-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/scroll-area.tsx",
+        "web/components/ui/sheet.tsx",
+        "web/components/ui/tabs.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/registry-health-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/alert-dialog.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/rules-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/project-data.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/session-bootstrap.tsx": {
+      "imported_by": [
+        "web/app/layout.tsx"
+      ],
+      "imports": [
+        "web/lib/api-client.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/settings-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/label.tsx",
+        "web/components/ui/select.tsx",
+        "web/components/ui/switch.tsx",
+        "web/components/ui/tabs.tsx",
+        "web/lib/hooks/index.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/sidebar.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/app/page.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/app/page.tsx"
+      ]
+    },
+    "web/components/status-overview.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/app/page.tsx",
+        "web/components/ui/badge.tsx",
+        "web/components/ui/card.tsx",
+        "web/lib/api-client.ts",
+        "web/lib/hooks/index.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/project-data.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/app/page.tsx",
+        "web/lib/types.ts"
+      ]
+    },
+    "web/components/subgraph-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/slider.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/theme-provider.tsx": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/trace-panel.tsx": {
+      "imported_by": [
+        "web/app/page.tsx"
+      ],
+      "imports": [
+        "web/components/ui/badge.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/slider.tsx",
+        "web/lib/hooks/index.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/accordion.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/alert-dialog.tsx": {
+      "imported_by": [
+        "web/components/registry-health-panel.tsx"
+      ],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/alert.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/aspect-ratio.tsx": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/avatar.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/badge.tsx": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/diagram-view.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/status-overview.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/breadcrumb.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/button-group.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/separator.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/button.tsx": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/coverage-panel.tsx",
+        "web/components/diagram-view.tsx",
+        "web/components/header.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/registry-health-panel.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx",
+        "web/components/ui/alert-dialog.tsx",
+        "web/components/ui/calendar.tsx",
+        "web/components/ui/carousel.tsx",
+        "web/components/ui/input-group.tsx",
+        "web/components/ui/pagination.tsx",
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/calendar.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/card.tsx": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/coverage-panel.tsx",
+        "web/components/diagram-view.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/registry-health-panel.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/status-overview.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/carousel.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/chart.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/checkbox.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/collapsible.tsx": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/command.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/dialog.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/context-menu.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/dialog.tsx": {
+      "imported_by": [
+        "web/components/ui/command.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/drawer.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/dropdown-menu.tsx": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/header.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/empty.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/field.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/label.tsx",
+        "web/components/ui/separator.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/form.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/label.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/hover-card.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/input-group.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/textarea.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/input-otp.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/input.tsx": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/header.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx",
+        "web/components/ui/input-group.tsx",
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/item.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/separator.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/kbd.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/label.tsx": {
+      "imported_by": [
+        "web/components/settings-panel.tsx",
+        "web/components/ui/field.tsx",
+        "web/components/ui/form.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/menubar.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/navigation-menu.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/pagination.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/popover.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/progress.tsx": {
+      "imported_by": [
+        "web/components/coverage-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/radio-group.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/resizable.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/scroll-area.tsx": {
+      "imported_by": [
+        "web/components/llm-tracking-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/select.tsx": {
+      "imported_by": [
+        "web/components/diagram-view.tsx",
+        "web/components/settings-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/separator.tsx": {
+      "imported_by": [
+        "web/components/ui/button-group.tsx",
+        "web/components/ui/field.tsx",
+        "web/components/ui/item.tsx",
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/sheet.tsx": {
+      "imported_by": [
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/sidebar.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/separator.tsx",
+        "web/components/ui/sheet.tsx",
+        "web/components/ui/skeleton.tsx",
+        "web/components/ui/tooltip.tsx",
+        "web/hooks/use-mobile.ts",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/skeleton.tsx": {
+      "imported_by": [
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/slider.tsx": {
+      "imported_by": [
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/sonner.tsx": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/spinner.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/switch.tsx": {
+      "imported_by": [
+        "web/components/settings-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/table.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/tabs.tsx": {
+      "imported_by": [
+        "web/components/connections-panel.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/settings-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/textarea.tsx": {
+      "imported_by": [
+        "web/components/ui/input-group.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/toast.tsx": {
+      "imported_by": [
+        "web/components/ui/toaster.tsx",
+        "web/components/ui/use-toast.ts",
+        "web/hooks/use-toast.ts"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/toaster.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/toast.tsx",
+        "web/hooks/use-toast.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/toggle-group.tsx": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/toggle.tsx",
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/toggle.tsx": {
+      "imported_by": [
+        "web/components/ui/toggle-group.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/tooltip.tsx": {
+      "imported_by": [
+        "web/components/header.tsx",
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [
+        "web/lib/utils.ts"
+      ],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/use-mobile.tsx": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web/components",
+      "type_only_imports": []
+    },
+    "web/components/ui/use-toast.ts": {
+      "imported_by": [],
+      "imports": [
+        "web/components/ui/toast.tsx"
+      ],
+      "module": "web/components",
+      "type_only_imports": [
+        "web/components/ui/toast.tsx"
+      ]
+    },
+    "web/hooks/use-mobile.ts": {
+      "imported_by": [
+        "web/components/ui/sidebar.tsx"
+      ],
+      "imports": [],
+      "module": "web/hooks",
+      "type_only_imports": []
+    },
+    "web/hooks/use-toast.ts": {
+      "imported_by": [
+        "web/components/ui/toaster.tsx"
+      ],
+      "imports": [
+        "web/components/ui/toast.tsx"
+      ],
+      "module": "web/hooks",
+      "type_only_imports": [
+        "web/components/ui/toast.tsx"
+      ]
+    },
+    "web/lib/api-client.ts": {
+      "imported_by": [
+        "web/components/diagram-view.tsx",
+        "web/components/header.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/session-bootstrap.tsx",
+        "web/components/status-overview.tsx",
+        "web/lib/hooks/use-components.ts",
+        "web/lib/hooks/use-connections.ts",
+        "web/lib/hooks/use-coverage.ts",
+        "web/lib/hooks/use-projects.ts",
+        "web/lib/hooks/use-prompts.ts",
+        "web/lib/hooks/use-registry-health.ts",
+        "web/lib/hooks/use-settings.ts",
+        "web/lib/hooks/use-status.ts",
+        "web/lib/hooks/use-subgraph.ts",
+        "web/lib/hooks/use-trace.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/hooks/index.ts": {
+      "imported_by": [
+        "web/app/page.tsx",
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/coverage-panel.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/registry-health-panel.tsx",
+        "web/components/settings-panel.tsx",
+        "web/components/status-overview.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx"
+      ],
+      "imports": [
+        "web/lib/hooks/use-components.ts",
+        "web/lib/hooks/use-connections.ts",
+        "web/lib/hooks/use-coverage.ts",
+        "web/lib/hooks/use-projects.ts",
+        "web/lib/hooks/use-prompts.ts",
+        "web/lib/hooks/use-registry-health.ts",
+        "web/lib/hooks/use-settings.ts",
+        "web/lib/hooks/use-status.ts",
+        "web/lib/hooks/use-subgraph.ts",
+        "web/lib/hooks/use-trace.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/hooks/use-components.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-connections.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-coverage.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-projects.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/hooks/use-prompts.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-registry-health.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-settings.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/hooks/use-status.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-subgraph.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/hooks/use-trace.ts": {
+      "imported_by": [
+        "web/lib/hooks/index.ts"
+      ],
+      "imports": [
+        "web/lib/api-client.ts",
+        "web/lib/project-context.tsx",
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/project-context.tsx": {
+      "imported_by": [
+        "web/app/layout.tsx",
+        "web/app/page.tsx",
+        "web/components/diagram-view.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/status-overview.tsx",
+        "web/lib/hooks/use-components.ts",
+        "web/lib/hooks/use-connections.ts",
+        "web/lib/hooks/use-coverage.ts",
+        "web/lib/hooks/use-prompts.ts",
+        "web/lib/hooks/use-status.ts",
+        "web/lib/hooks/use-subgraph.ts",
+        "web/lib/hooks/use-trace.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/project-data.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-data.test.ts",
+        "web/components/connections-panel.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/status-overview.tsx"
+      ],
+      "imports": [
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/server/architecture-storage.ts": {
+      "imported_by": [
+        "src/__tests__/web-architecture-storage.test.ts",
+        "src/__tests__/web-coverage-route.test.ts",
+        "src/__tests__/web-project-path-guard.test.ts",
+        "web/app/api/components/route.ts",
+        "web/app/api/connections/route.ts",
+        "web/app/api/graph/route.ts",
+        "web/app/api/subgraph/route.ts",
+        "web/app/api/trace/route.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/atomic-write.ts": {
+      "imported_by": [
+        "src/__tests__/web-atomic-write-concurrency.test.ts",
+        "web/lib/server/registry-store.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/coverage.ts": {
+      "imported_by": [
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "src/__tests__/web-coverage-route.test.ts",
+        "web/lib/server/project-path.ts"
+      ],
+      "imports": [
+        "web/lib/server/registry-journal.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/navgator-cli.ts": {
+      "imported_by": [
+        "web/app/api/prompts/route.ts",
+        "web/app/api/registry-health/route.ts",
+        "web/app/api/rules/route.ts",
+        "web/app/api/scan/route.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/project-path.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts",
+        "web/app/api/components/route.ts",
+        "web/app/api/connections/route.ts",
+        "web/app/api/graph/route.ts",
+        "web/app/api/prompts/route.ts",
+        "web/app/api/rules/route.ts",
+        "web/app/api/scan/route.ts",
+        "web/app/api/settings/route.ts",
+        "web/app/api/status/route.ts",
+        "web/app/api/subgraph/route.ts",
+        "web/app/api/trace/route.ts"
+      ],
+      "imports": [
+        "web/lib/server/coverage.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/registry-journal.ts": {
+      "imported_by": [
+        "web/lib/server/coverage.ts",
+        "web/lib/server/registry-store.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/registry-lock.ts": {
+      "imported_by": [
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "web/lib/server/registry-store.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/registry-store.ts": {
+      "imported_by": [
+        "src/__tests__/registry-concurrency-oracle.test.ts",
+        "src/__tests__/registry-degraded-lock.test.ts",
+        "web/app/api/projects/route.ts"
+      ],
+      "imports": [
+        "web/lib/server/atomic-write.ts",
+        "web/lib/server/registry-journal.ts",
+        "web/lib/server/registry-lock.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/request-guard.ts": {
+      "imported_by": [
+        "src/__tests__/web-coverage-route.test.ts",
+        "src/__tests__/web-dashboard-auth.test.ts",
+        "src/__tests__/web-project-path-guard.test.ts",
+        "src/__tests__/web-registry-health-route.test.ts",
+        "web/app/api/projects/route.ts",
+        "web/app/api/prompts/route.ts",
+        "web/app/api/registry-health/route.ts",
+        "web/app/api/scan/route.ts",
+        "web/app/api/settings/route.ts",
+        "web/proxy.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/server/rules-output.ts": {
+      "imported_by": [
+        "src/__tests__/web-rules-route.test.ts",
+        "web/app/api/rules/route.ts"
+      ],
+      "imports": [
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/transform.ts": {
+      "imported_by": [
+        "src/__tests__/web-project-path-guard.test.ts",
+        "web/app/api/prompts/route.ts"
+      ],
+      "imports": [
+        "web/lib/types.ts"
+      ],
+      "module": "web/lib",
+      "type_only_imports": [
+        "web/lib/types.ts"
+      ]
+    },
+    "web/lib/types.ts": {
+      "imported_by": [
+        "src/__tests__/web-registry-health-route.test.ts",
+        "web/app/api/components/route.ts",
+        "web/app/api/connections/route.ts",
+        "web/app/api/prompts/route.ts",
+        "web/app/api/registry-health/route.ts",
+        "web/app/api/rules/route.ts",
+        "web/app/api/status/route.ts",
+        "web/app/api/subgraph/route.ts",
+        "web/app/api/trace/route.ts",
+        "web/components/coverage-panel.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/llm-tracking-panel.tsx",
+        "web/components/registry-health-panel.tsx",
+        "web/components/rules-panel.tsx",
+        "web/components/status-overview.tsx",
+        "web/lib/hooks/use-components.ts",
+        "web/lib/hooks/use-connections.ts",
+        "web/lib/hooks/use-coverage.ts",
+        "web/lib/hooks/use-prompts.ts",
+        "web/lib/hooks/use-registry-health.ts",
+        "web/lib/hooks/use-status.ts",
+        "web/lib/hooks/use-subgraph.ts",
+        "web/lib/hooks/use-trace.ts",
+        "web/lib/project-data.ts",
+        "web/lib/server/rules-output.ts",
+        "web/lib/transform.ts"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/lib/utils.ts": {
+      "imported_by": [
+        "web/components/components-panel.tsx",
+        "web/components/connections-panel.tsx",
+        "web/components/impact-analysis.tsx",
+        "web/components/sidebar.tsx",
+        "web/components/subgraph-panel.tsx",
+        "web/components/trace-panel.tsx",
+        "web/components/ui/accordion.tsx",
+        "web/components/ui/alert-dialog.tsx",
+        "web/components/ui/alert.tsx",
+        "web/components/ui/avatar.tsx",
+        "web/components/ui/badge.tsx",
+        "web/components/ui/breadcrumb.tsx",
+        "web/components/ui/button-group.tsx",
+        "web/components/ui/button.tsx",
+        "web/components/ui/calendar.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/carousel.tsx",
+        "web/components/ui/chart.tsx",
+        "web/components/ui/checkbox.tsx",
+        "web/components/ui/command.tsx",
+        "web/components/ui/context-menu.tsx",
+        "web/components/ui/dialog.tsx",
+        "web/components/ui/drawer.tsx",
+        "web/components/ui/dropdown-menu.tsx",
+        "web/components/ui/empty.tsx",
+        "web/components/ui/field.tsx",
+        "web/components/ui/form.tsx",
+        "web/components/ui/hover-card.tsx",
+        "web/components/ui/input-group.tsx",
+        "web/components/ui/input-otp.tsx",
+        "web/components/ui/input.tsx",
+        "web/components/ui/item.tsx",
+        "web/components/ui/kbd.tsx",
+        "web/components/ui/label.tsx",
+        "web/components/ui/menubar.tsx",
+        "web/components/ui/navigation-menu.tsx",
+        "web/components/ui/pagination.tsx",
+        "web/components/ui/popover.tsx",
+        "web/components/ui/progress.tsx",
+        "web/components/ui/radio-group.tsx",
+        "web/components/ui/resizable.tsx",
+        "web/components/ui/scroll-area.tsx",
+        "web/components/ui/select.tsx",
+        "web/components/ui/separator.tsx",
+        "web/components/ui/sheet.tsx",
+        "web/components/ui/sidebar.tsx",
+        "web/components/ui/skeleton.tsx",
+        "web/components/ui/slider.tsx",
+        "web/components/ui/spinner.tsx",
+        "web/components/ui/switch.tsx",
+        "web/components/ui/table.tsx",
+        "web/components/ui/tabs.tsx",
+        "web/components/ui/textarea.tsx",
+        "web/components/ui/toast.tsx",
+        "web/components/ui/toggle-group.tsx",
+        "web/components/ui/toggle.tsx",
+        "web/components/ui/tooltip.tsx"
+      ],
+      "imports": [],
+      "module": "web/lib",
+      "type_only_imports": []
+    },
+    "web/next.config.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web",
+      "type_only_imports": []
+    },
+    "web/postcss.config.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web",
+      "type_only_imports": []
+    },
+    "web/proxy.ts": {
+      "imported_by": [
+        "src/__tests__/web-dashboard-auth.test.ts"
+      ],
+      "imports": [
+        "web/lib/server/request-guard.ts"
+      ],
+      "module": "web",
+      "type_only_imports": []
+    },
+    "web/server.cjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "web",
+      "type_only_imports": []
+    }
+  },
+  "generator": "navgator arch-index",
+  "hotspots": [
+    {
+      "dependents": 99,
+      "file": "src/types.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 57,
+      "file": "web/lib/utils.ts",
+      "module": "web/lib"
+    },
+    {
+      "dependents": 44,
+      "file": "src/config.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 38,
+      "file": "src/storage.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 28,
+      "file": "src/agent-output.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 27,
+      "file": "src/cli/exit-codes.ts",
+      "module": "src/cli"
+    },
+    {
+      "dependents": 26,
+      "file": "web/lib/types.ts",
+      "module": "web/lib"
+    },
+    {
+      "dependents": 24,
+      "file": "src/scanner.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 19,
+      "file": "src/__tests__/helpers.ts",
+      "module": "src/__tests__"
+    },
+    {
+      "dependents": 19,
+      "file": "src/projects.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 17,
+      "file": "src/cli/commands/helpers.ts",
+      "module": "src/cli"
+    },
+    {
+      "dependents": 17,
+      "file": "web/components/ui/button.tsx",
+      "module": "web/components"
+    },
+    {
+      "dependents": 15,
+      "file": "web/lib/api-client.ts",
+      "module": "web/lib"
+    },
+    {
+      "dependents": 12,
+      "file": "src/deep-map/types.ts",
+      "module": "src/deep-map"
+    },
+    {
+      "dependents": 12,
+      "file": "src/rules.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 12,
+      "file": "web/components/ui/card.tsx",
+      "module": "web/components"
+    },
+    {
+      "dependents": 12,
+      "file": "web/lib/project-context.tsx",
+      "module": "web/lib"
+    },
+    {
+      "dependents": 11,
+      "file": "src/resolve.ts",
+      "module": "src"
+    },
+    {
+      "dependents": 11,
+      "file": "web/lib/hooks/index.ts",
+      "module": "web/lib"
+    },
+    {
+      "dependents": 11,
+      "file": "web/lib/server/project-path.ts",
+      "module": "web/lib"
+    }
+  ],
+  "module_edges": [
+    {
+      "edges": 1,
+      "from": "src",
+      "to": "src/audit"
+    },
+    {
+      "edges": 3,
+      "from": "src",
+      "to": "src/enrich"
+    },
+    {
+      "edges": 2,
+      "from": "src",
+      "to": "src/freshness"
+    },
+    {
+      "edges": 3,
+      "from": "src",
+      "to": "src/git-aware"
+    },
+    {
+      "edges": 5,
+      "from": "src",
+      "to": "src/memory"
+    },
+    {
+      "edges": 1,
+      "from": "src",
+      "to": "src/metrics"
+    },
+    {
+      "edges": 1,
+      "from": "src",
+      "to": "src/parsers"
+    },
+    {
+      "edges": 4,
+      "from": "src",
+      "to": "src/portfolio"
+    },
+    {
+      "edges": 2,
+      "from": "src",
+      "to": "src/remote"
+    },
+    {
+      "edges": 28,
+      "from": "src",
+      "to": "src/scanners"
+    },
+    {
+      "edges": 1,
+      "from": "src",
+      "to": "src/storage"
+    },
+    {
+      "edges": 1,
+      "from": "src",
+      "to": "src/temporal"
+    },
+    {
+      "edges": 113,
+      "from": "src/__tests__",
+      "to": "src"
+    },
+    {
+      "edges": 3,
+      "from": "src/__tests__",
+      "to": "src/audit"
+    },
+    {
+      "edges": 34,
+      "from": "src/__tests__",
+      "to": "src/cli"
+    },
+    {
+      "edges": 15,
+      "from": "src/__tests__",
+      "to": "src/deep-map"
+    },
+    {
+      "edges": 19,
+      "from": "src/__tests__",
+      "to": "src/freshness"
+    },
+    {
+      "edges": 7,
+      "from": "src/__tests__",
+      "to": "src/git-aware"
+    },
+    {
+      "edges": 3,
+      "from": "src/__tests__",
+      "to": "src/mcp"
+    },
+    {
+      "edges": 7,
+      "from": "src/__tests__",
+      "to": "src/memory"
+    },
+    {
+      "edges": 1,
+      "from": "src/__tests__",
+      "to": "src/metrics"
+    },
+    {
+      "edges": 2,
+      "from": "src/__tests__",
+      "to": "src/parsers"
+    },
+    {
+      "edges": 5,
+      "from": "src/__tests__",
+      "to": "src/portfolio"
+    },
+    {
+      "edges": 5,
+      "from": "src/__tests__",
+      "to": "src/remote"
+    },
+    {
+      "edges": 32,
+      "from": "src/__tests__",
+      "to": "src/scanners"
+    },
+    {
+      "edges": 2,
+      "from": "src/__tests__",
+      "to": "src/storage"
+    },
+    {
+      "edges": 1,
+      "from": "src/__tests__",
+      "to": "web"
+    },
+    {
+      "edges": 11,
+      "from": "src/__tests__",
+      "to": "web/app"
+    },
+    {
+      "edges": 18,
+      "from": "src/__tests__",
+      "to": "web/lib"
+    },
+    {
+      "edges": 3,
+      "from": "src/audit",
+      "to": "src"
+    },
+    {
+      "edges": 100,
+      "from": "src/cli",
+      "to": "src"
+    },
+    {
+      "edges": 8,
+      "from": "src/cli",
+      "to": "src/deep-map"
+    },
+    {
+      "edges": 2,
+      "from": "src/cli",
+      "to": "src/enrich"
+    },
+    {
+      "edges": 3,
+      "from": "src/cli",
+      "to": "src/freshness"
+    },
+    {
+      "edges": 2,
+      "from": "src/cli",
+      "to": "src/git-aware"
+    },
+    {
+      "edges": 3,
+      "from": "src/cli",
+      "to": "src/memory"
+    },
+    {
+      "edges": 3,
+      "from": "src/cli",
+      "to": "src/portfolio"
+    },
+    {
+      "edges": 1,
+      "from": "src/cli",
+      "to": "src/remote"
+    },
+    {
+      "edges": 2,
+      "from": "src/cli",
+      "to": "src/scanners"
+    },
+    {
+      "edges": 1,
+      "from": "src/cli",
+      "to": "src/temporal"
+    },
+    {
+      "edges": 18,
+      "from": "src/deep-map",
+      "to": "src"
+    },
+    {
+      "edges": 3,
+      "from": "src/deep-map",
+      "to": "src/metrics"
+    },
+    {
+      "edges": 2,
+      "from": "src/enrich",
+      "to": "src"
+    },
+    {
+      "edges": 4,
+      "from": "src/freshness",
+      "to": "src"
+    },
+    {
+      "edges": 7,
+      "from": "src/git-aware",
+      "to": "src"
+    },
+    {
+      "edges": 16,
+      "from": "src/mcp",
+      "to": "src"
+    },
+    {
+      "edges": 2,
+      "from": "src/mcp",
+      "to": "src/git-aware"
+    },
+    {
+      "edges": 3,
+      "from": "src/mcp",
+      "to": "src/portfolio"
+    },
+    {
+      "edges": 1,
+      "from": "src/mcp",
+      "to": "src/remote"
+    },
+    {
+      "edges": 5,
+      "from": "src/memory",
+      "to": "src"
+    },
+    {
+      "edges": 3,
+      "from": "src/metrics",
+      "to": "src"
+    },
+    {
+      "edges": 5,
+      "from": "src/portfolio",
+      "to": "src"
+    },
+    {
+      "edges": 1,
+      "from": "src/portfolio",
+      "to": "src/remote"
+    },
+    {
+      "edges": 2,
+      "from": "src/remote",
+      "to": "src"
+    },
+    {
+      "edges": 24,
+      "from": "src/scanners",
+      "to": "src"
+    },
+    {
+      "edges": 1,
+      "from": "src/storage",
+      "to": "src"
+    },
+    {
+      "edges": 1,
+      "from": "web",
+      "to": "web/lib"
+    },
+    {
+      "edges": 15,
+      "from": "web/app",
+      "to": "web/components"
+    },
+    {
+      "edges": 38,
+      "from": "web/app",
+      "to": "web/lib"
+    },
+    {
+      "edges": 2,
+      "from": "web/components",
+      "to": "web/app"
+    },
+    {
+      "edges": 2,
+      "from": "web/components",
+      "to": "web/hooks"
+    },
+    {
+      "edges": 85,
+      "from": "web/components",
+      "to": "web/lib"
+    },
+    {
+      "edges": 1,
+      "from": "web/hooks",
+      "to": "web/components"
+    }
+  ],
+  "modules": [
+    {
+      "curated": true,
+      "dependents": [],
+      "depends_on": [],
+      "files": 1,
+      "id": ".",
+      "key_files": [],
+      "path": ".",
+      "responsibility": "Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them."
+    },
+    {
+      "curated": true,
+      "dependents": [],
+      "depends_on": [],
+      "files": 5,
+      "id": "scripts",
+      "key_files": [],
+      "path": "scripts",
+      "responsibility": "Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 113,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 100,
+          "module": "src/cli"
+        },
+        {
+          "edges": 24,
+          "module": "src/scanners"
+        },
+        {
+          "edges": 18,
+          "module": "src/deep-map"
+        },
+        {
+          "edges": 16,
+          "module": "src/mcp"
+        },
+        {
+          "edges": 7,
+          "module": "src/git-aware"
+        },
+        {
+          "edges": 5,
+          "module": "src/memory"
+        },
+        {
+          "edges": 5,
+          "module": "src/portfolio"
+        },
+        {
+          "edges": 4,
+          "module": "src/freshness"
+        },
+        {
+          "edges": 3,
+          "module": "src/audit"
+        },
+        {
+          "edges": 3,
+          "module": "src/metrics"
+        },
+        {
+          "edges": 2,
+          "module": "src/enrich"
+        },
+        {
+          "edges": 2,
+          "module": "src/remote"
+        },
+        {
+          "edges": 1,
+          "module": "src/storage"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 28,
+          "module": "src/scanners"
+        },
+        {
+          "edges": 5,
+          "module": "src/memory"
+        },
+        {
+          "edges": 4,
+          "module": "src/portfolio"
+        },
+        {
+          "edges": 3,
+          "module": "src/enrich"
+        },
+        {
+          "edges": 3,
+          "module": "src/git-aware"
+        },
+        {
+          "edges": 2,
+          "module": "src/freshness"
+        },
+        {
+          "edges": 2,
+          "module": "src/remote"
+        },
+        {
+          "edges": 1,
+          "module": "src/audit"
+        },
+        {
+          "edges": 1,
+          "module": "src/metrics"
+        },
+        {
+          "edges": 1,
+          "module": "src/parsers"
+        },
+        {
+          "edges": 1,
+          "module": "src/storage"
+        },
+        {
+          "edges": 1,
+          "module": "src/temporal"
+        }
+      ],
+      "files": 37,
+      "id": "src",
+      "key_files": [
+        "src/types.ts",
+        "src/config.ts",
+        "src/storage.ts"
+      ],
+      "path": "src",
+      "responsibility": "Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system."
+    },
+    {
+      "curated": true,
+      "dependents": [],
+      "depends_on": [
+        {
+          "edges": 113,
+          "module": "src"
+        },
+        {
+          "edges": 34,
+          "module": "src/cli"
+        },
+        {
+          "edges": 32,
+          "module": "src/scanners"
+        },
+        {
+          "edges": 19,
+          "module": "src/freshness"
+        },
+        {
+          "edges": 18,
+          "module": "web/lib"
+        },
+        {
+          "edges": 15,
+          "module": "src/deep-map"
+        },
+        {
+          "edges": 11,
+          "module": "web/app"
+        },
+        {
+          "edges": 7,
+          "module": "src/git-aware"
+        },
+        {
+          "edges": 7,
+          "module": "src/memory"
+        },
+        {
+          "edges": 5,
+          "module": "src/portfolio"
+        },
+        {
+          "edges": 5,
+          "module": "src/remote"
+        },
+        {
+          "edges": 3,
+          "module": "src/audit"
+        },
+        {
+          "edges": 3,
+          "module": "src/mcp"
+        },
+        {
+          "edges": 2,
+          "module": "src/parsers"
+        },
+        {
+          "edges": 2,
+          "module": "src/storage"
+        },
+        {
+          "edges": 1,
+          "module": "src/metrics"
+        },
+        {
+          "edges": 1,
+          "module": "web"
+        }
+      ],
+      "files": 102,
+      "id": "src/__tests__",
+      "key_files": [
+        "src/__tests__/helpers.ts"
+      ],
+      "path": "src/__tests__",
+      "responsibility": "Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 3,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 1,
+          "module": "src"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 3,
+          "module": "src"
+        }
+      ],
+      "files": 4,
+      "id": "src/audit",
+      "key_files": [
+        "src/audit/sampler.ts",
+        "src/audit/spc.ts",
+        "src/audit/verifiers.ts"
+      ],
+      "path": "src/audit",
+      "responsibility": "Dependency-free statistical sampling and process-control math used to audit scan accuracy."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 34,
+          "module": "src/__tests__"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 100,
+          "module": "src"
+        },
+        {
+          "edges": 8,
+          "module": "src/deep-map"
+        },
+        {
+          "edges": 3,
+          "module": "src/freshness"
+        },
+        {
+          "edges": 3,
+          "module": "src/memory"
+        },
+        {
+          "edges": 3,
+          "module": "src/portfolio"
+        },
+        {
+          "edges": 2,
+          "module": "src/enrich"
+        },
+        {
+          "edges": 2,
+          "module": "src/git-aware"
+        },
+        {
+          "edges": 2,
+          "module": "src/scanners"
+        },
+        {
+          "edges": 1,
+          "module": "src/remote"
+        },
+        {
+          "edges": 1,
+          "module": "src/temporal"
+        }
+      ],
+      "files": 30,
+      "id": "src/cli",
+      "key_files": [
+        "src/cli/exit-codes.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/commands/portfolio.ts"
+      ],
+      "path": "src/cli",
+      "responsibility": "The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 15,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 8,
+          "module": "src/cli"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 18,
+          "module": "src"
+        },
+        {
+          "edges": 3,
+          "module": "src/metrics"
+        }
+      ],
+      "files": 9,
+      "id": "src/deep-map",
+      "key_files": [
+        "src/deep-map/types.ts",
+        "src/deep-map/store.ts",
+        "src/deep-map/filter.ts"
+      ],
+      "path": "src/deep-map",
+      "responsibility": "Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 3,
+          "module": "src"
+        },
+        {
+          "edges": 2,
+          "module": "src/cli"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 2,
+          "module": "src"
+        }
+      ],
+      "files": 4,
+      "id": "src/enrich",
+      "key_files": [
+        "src/enrich/cache.ts",
+        "src/enrich/external-enrichment.types.ts",
+        "src/enrich/external-resolver.ts"
+      ],
+      "path": "src/enrich",
+      "responsibility": "External-boundary enrichment: resolves npm/pip/cargo identities and versions against registries, cached machine-wide in `~/.navgator/`."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 19,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 3,
+          "module": "src/cli"
+        },
+        {
+          "edges": 2,
+          "module": "src"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 4,
+          "module": "src"
+        }
+      ],
+      "files": 5,
+      "id": "src/freshness",
+      "key_files": [
+        "src/freshness/paths.ts",
+        "src/freshness/dirty-ledger.ts",
+        "src/freshness/drainer.ts"
+      ],
+      "path": "src/freshness",
+      "responsibility": "Concurrency-safe dirty ledger and drainer that decide whether stored architecture data is stale enough to rescan."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 7,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 3,
+          "module": "src"
+        },
+        {
+          "edges": 2,
+          "module": "src/cli"
+        },
+        {
+          "edges": 2,
+          "module": "src/mcp"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 7,
+          "module": "src"
+        }
+      ],
+      "files": 4,
+      "id": "src/git-aware",
+      "key_files": [
+        "src/git-aware/refs.ts",
+        "src/git-aware/canonical.ts",
+        "src/git-aware/premerge-diff.ts"
+      ],
+      "path": "src/git-aware",
+      "responsibility": "Canonical-main plus branch-delta snapshots, so an agent can separate committed architecture from uncommitted local change (`arch-diff`)."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 3,
+          "module": "src/__tests__"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 16,
+          "module": "src"
+        },
+        {
+          "edges": 3,
+          "module": "src/portfolio"
+        },
+        {
+          "edges": 2,
+          "module": "src/git-aware"
+        },
+        {
+          "edges": 1,
+          "module": "src/remote"
+        }
+      ],
+      "files": 2,
+      "id": "src/mcp",
+      "key_files": [
+        "src/mcp/tools.ts"
+      ],
+      "path": "src/mcp",
+      "responsibility": "Opt-in MCP server. Deprecated as a default surface — the CLI is the agent interface; this ships only for consumers that cannot spawn a subprocess."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 7,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 5,
+          "module": "src"
+        },
+        {
+          "edges": 3,
+          "module": "src/cli"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 5,
+          "module": "src"
+        }
+      ],
+      "files": 3,
+      "id": "src/memory",
+      "key_files": [
+        "src/memory/store.ts",
+        "src/memory/mirror.ts",
+        "src/memory/health.ts"
+      ],
+      "path": "src/memory",
+      "responsibility": "gator-memory: the durable cross-session narrative in `~/.navgator/memory/` (which projects exist, when, and what materially changed)."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 3,
+          "module": "src/deep-map"
+        },
+        {
+          "edges": 1,
+          "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/__tests__"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 3,
+          "module": "src"
+        }
+      ],
+      "files": 1,
+      "id": "src/metrics",
+      "key_files": [
+        "src/metrics/pagerank-louvain.ts"
+      ],
+      "path": "src/metrics",
+      "responsibility": "PageRank and Louvain community detection over the component graph; writes `metrics.json` and back-writes scores onto components."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 2,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 1,
+          "module": "src"
+        }
+      ],
+      "depends_on": [],
+      "files": 1,
+      "id": "src/parsers",
+      "key_files": [
+        "src/parsers/scip-runner.ts"
+      ],
+      "path": "src/parsers",
+      "responsibility": "SCIP overlay: shells out to scip-typescript for compiler-accurate cross-file edges the regex scanner cannot resolve."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 5,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 4,
+          "module": "src"
+        },
+        {
+          "edges": 3,
+          "module": "src/cli"
+        },
+        {
+          "edges": 3,
+          "module": "src/mcp"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 5,
+          "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/remote"
+        }
+      ],
+      "files": 4,
+      "id": "src/portfolio",
+      "key_files": [
+        "src/portfolio/types.ts",
+        "src/portfolio/scan.ts",
+        "src/portfolio/cross-repo.ts"
+      ],
+      "path": "src/portfolio",
+      "responsibility": "Cross-repo sweep: runs the single-repo scan pipeline over a folder of repositories and joins the results into one dependency map."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 5,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 2,
+          "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/cli"
+        },
+        {
+          "edges": 1,
+          "module": "src/mcp"
+        },
+        {
+          "edges": 1,
+          "module": "src/portfolio"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 2,
+          "module": "src"
+        }
+      ],
+      "files": 3,
+      "id": "src/remote",
+      "key_files": [
+        "src/remote/clone.ts",
+        "src/remote/github-url.ts",
+        "src/remote/scan-remote.ts"
+      ],
+      "path": "src/remote",
+      "responsibility": "Shallow-clones a GitHub URL into a cache and scans it. This is the untrusted-input path — every scanner cap in `src/scanners/scan-limits.ts` exists because of it."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 32,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 28,
+          "module": "src"
+        },
+        {
+          "edges": 2,
+          "module": "src/cli"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 24,
+          "module": "src"
+        }
+      ],
+      "files": 28,
+      "id": "src/scanners",
+      "key_files": [
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/prompts/types.ts",
+        "src/scanners/connections/llm-call-tracer.ts"
+      ],
+      "path": "src/scanners",
+      "responsibility": "Language and infrastructure scanners that turn source files into components and connections (TS/JS imports, Swift, Rust, Prisma, queues, cron, env, LLM calls)."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 2,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 1,
+          "module": "src"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 1,
+          "module": "src"
+        }
+      ],
+      "files": 1,
+      "id": "src/storage",
+      "key_files": [
+        "src/storage/markdown-view.ts"
+      ],
+      "path": "src/storage",
+      "responsibility": "Markdown projection of stored components. Pure derivative — the JSON store stays canonical."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 1,
+          "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/cli"
+        }
+      ],
+      "depends_on": [],
+      "files": 1,
+      "id": "src/temporal",
+      "key_files": [
+        "src/temporal/git-store.ts"
+      ],
+      "path": "src/temporal",
+      "responsibility": "Nested git repository inside `.navgator/` that gives architecture snapshots a history without touching the parent repo's git."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 1,
+          "module": "src/__tests__"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 1,
+          "module": "web/lib"
+        }
+      ],
+      "files": 4,
+      "id": "web",
+      "key_files": [
+        "web/proxy.ts"
+      ],
+      "path": "web",
+      "responsibility": "Next.js dashboard (`navgator ui`), built and packaged separately from the CLI. Talks to stored architecture data through its own API routes, never by importing `src/`."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 11,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 2,
+          "module": "web/components"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 38,
+          "module": "web/lib"
+        },
+        {
+          "edges": 15,
+          "module": "web/components"
+        }
+      ],
+      "files": 14,
+      "id": "web/app",
+      "key_files": [
+        "web/app/page.tsx",
+        "web/app/api/components/route.ts",
+        "web/app/api/connections/route.ts"
+      ],
+      "path": "web/app",
+      "responsibility": "Dashboard routes and the loopback read-only HTTP API under `web/app/api/`."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 15,
+          "module": "web/app"
+        },
+        {
+          "edges": 1,
+          "module": "web/hooks"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 85,
+          "module": "web/lib"
+        },
+        {
+          "edges": 2,
+          "module": "web/app"
+        },
+        {
+          "edges": 2,
+          "module": "web/hooks"
+        }
+      ],
+      "files": 73,
+      "id": "web/components",
+      "key_files": [
+        "web/components/ui/button.tsx",
+        "web/components/ui/card.tsx",
+        "web/components/ui/input.tsx"
+      ],
+      "path": "web/components",
+      "responsibility": "Dashboard React components, including the vendored shadcn/ui primitives in `web/components/ui/`."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 2,
+          "module": "web/components"
+        }
+      ],
+      "depends_on": [
+        {
+          "edges": 1,
+          "module": "web/components"
+        }
+      ],
+      "files": 2,
+      "id": "web/hooks",
+      "key_files": [
+        "web/hooks/use-mobile.ts",
+        "web/hooks/use-toast.ts"
+      ],
+      "path": "web/hooks",
+      "responsibility": "Dashboard React hooks shared across components."
+    },
+    {
+      "curated": true,
+      "dependents": [
+        {
+          "edges": 85,
+          "module": "web/components"
+        },
+        {
+          "edges": 38,
+          "module": "web/app"
+        },
+        {
+          "edges": 18,
+          "module": "src/__tests__"
+        },
+        {
+          "edges": 1,
+          "module": "web"
+        }
+      ],
+      "depends_on": [],
+      "files": 27,
+      "id": "web/lib",
+      "key_files": [
+        "web/lib/utils.ts",
+        "web/lib/types.ts",
+        "web/lib/api-client.ts"
+      ],
+      "path": "web/lib",
+      "responsibility": "Dashboard client and server helpers: API client, types, project-path resolution, and request guards."
+    }
+  ],
+  "schema_version": 1
+}

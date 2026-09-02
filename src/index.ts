@@ -228,6 +228,25 @@ export type { FileConnections } from './file-resolve.js';
 // Import scanner
 export { scanImports } from './scanners/connections/import-scanner.js';
 
+// Architecture index (committed, deterministic projection of the import graph)
+export {
+  buildArchitectureIndex,
+  writeArchitectureIndex,
+  renderArchitectureMarkdown,
+  stableStringify,
+  ARCHITECTURE_INDEX_PATH,
+  ARCHITECTURE_INDEX_SCHEMA_VERSION,
+  ARCHITECTURE_MD_PATH,
+  ARCHITECTURE_MODULES_PATH,
+} from './architecture-index.js';
+// Aliased: `ArchitectureIndex` and `CoverageReport` are already taken by the
+// live scan store's types. These are the committed-projection equivalents.
+export type {
+  ArchitectureIndex as CommittedArchitectureIndex,
+  CoverageReport as ArchitectureIndexCoverage,
+  ModuleEntry as ArchitectureIndexModule,
+} from './architecture-index.js';
+
 // Classify
 export { classifyConnection, classifyAllConnections } from './classify.js';
 export type { SemanticClassification, SemanticInfo } from './classify.js';

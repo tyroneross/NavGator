@@ -1,5 +1,24 @@
 # NavGator Knowledge Base — Cross-Project Architectural Intelligence
 
+> **STATUS: NOT IMPLEMENTED — historical design only. Do not build against this document.**
+>
+> Every `navgator knowledge` command below was removed from the CLI; nothing in
+> `src/cli/index.ts` registers one, and `~/.navgator/knowledge/` is never written. The
+> `/navgator:knowledge` slash command does not exist either. Verified 2026-09-02 against
+> `src/cli/index.ts` (the full command registration list) and `src/cli/commands/`.
+>
+> What actually shipped instead, and where to look:
+>
+> | This document proposes | Shipped equivalent |
+> |---|---|
+> | Per-project pattern capture | Lessons — `navgator lessons list`, `.navgator/lessons/lessons.json` |
+> | Cross-project promotion | `navgator lessons promote <id> --tag <t>` → `~/.navgator/lessons/global-lessons.json` |
+> | Durable cross-project narrative | gator-memory — `~/.navgator/memory/` (see `docs/plans/2026-08-03-gator-memory.md`) |
+> | Semantic "what is this for" answers | `navgator deep-map` work packets |
+>
+> Kept for the design reasoning (entry schema, validation cycle, confidence tiers), which
+> still informs the lessons and deep-map surfaces. Backlog: `NAVG-DOCS-m1g8q4s859ktbggycvnts`.
+
 ## Purpose
 
 Accumulate reusable architectural knowledge across projects so NavGator can answer:

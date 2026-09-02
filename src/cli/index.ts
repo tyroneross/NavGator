@@ -41,6 +41,7 @@ import {
 import { registerPortfolioCommand } from './commands/portfolio.js';
 import { registerScanRemoteCommand } from './commands/remote.js';
 import { registerArchDiffCommand } from './commands/arch-diff.js';
+import { registerArchIndexCommand } from './commands/arch-index.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerDeepMapCommand } from './commands/deep-map.js';
 
@@ -114,6 +115,7 @@ registerLessonsCommand(program);
 registerPortfolioCommand(program);
 registerScanRemoteCommand(program);
 registerArchDiffCommand(program);
+registerArchIndexCommand(program);
 registerDoctorCommand(program);
 registerDeepMapCommand(program);
 
