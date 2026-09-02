@@ -63,6 +63,21 @@ function symbolAppearsIn(content, sym) {
     }
     return content.includes(sym);
 }
+/**
+ * Fetch connections are stored with a canonical single-quoted, no-options
+ * symbol (for example `fetch('/api/search')`).  Source calls can use another
+ * quote style, pass options, use one of the scanner-recognized wrappers, or
+ * extend the path in a template literal.
+ */
+function fetchEndpointAppearsIn(content, symbol) {
+    const endpoint = /^fetch\(\s*['"](\/api\/[^'")\s]+)['"]\s*\)$/.exec(symbol)?.[1];
+    if (!endpoint)
+        return false;
+    const sourceFetch = new RegExp('\\b(?:fetch|fetchWith\\w+|apiFetch|fetchJSON|fetcher)\\s*\\(\\s*[\'"`]' +
+        escapeRegex(endpoint) +
+        '(?=[\'"`?]|\\$\\{|\\/+\\$\\{)');
+    return sourceFetch.test(content);
+}
 async function fileExists(absPath) {
     try {
         await fs.promises.access(absPath, fs.constants.F_OK);
@@ -203,6 +218,8 @@ export async function verifyWrongEndpoint(samples, ctx) {
         if (symbol && symbol.length > 1) {
             tried.push(`symbol="${symbol}"`);
             if (symbolAppearsIn(content, symbol))
+                found = true;
+            if (!found && fetchEndpointAppearsIn(content, symbol))
                 found = true;
         }
         if (!found && targetName && targetName.length > 1) {
