@@ -86,3 +86,7 @@ __tests__/fixtures/**/.navgator/
 # Copy from another repo or create one slug per line. See build-loop
 # scripts/check_private_slugs.py.
 .private-slugs
+
+# Procedural-memory candidate spool — runtime scratch written by the
+# procedural-memory tooling, including a lock file. Never tracked.
+.procedural/
