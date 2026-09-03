@@ -3,7 +3,7 @@
  * default), the rest of NavGator (MCP tools, CLI commands, audit) MUST
  * still be able to read full ArchitectureComponent/Connection objects.
  *
- * The bug this locks down: without these fallbacks, the first atomize-ai
+ * The bug this locks down: without these fallbacks, the first the benchmark repo
  * end-to-end validation produced an `index.json` with `total_components: 0`
  * and `graph.json` with 0 nodes — even though the in-memory scan saw
  * 2,471 components. `buildIndex` / `buildGraph` / `buildFileMap` were

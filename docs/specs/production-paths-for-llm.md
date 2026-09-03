@@ -1,8 +1,8 @@
 # Spec: `PRODUCTION_PATHS.md` Generator
 
 **Status:** Proposal
-**Author:** 2026-04-12 — derived from subagent miss pattern observed in atomize-ai investigation
-**Related:** `atomize-ai/.claude/memory/incidents/INC_20260412_subagent_miss.json`, `atomize-ai/.navgator/lessons/subagent-investigation-protocol.md`
+**Author:** 2026-04-12 — derived from subagent miss pattern observed in the benchmark repo investigation
+**Related:** `the benchmark repo/.claude/memory/incidents/INC_20260412_subagent_miss.json`, `the benchmark repo/.navgator/lessons/subagent-investigation-protocol.md`
 
 ## Problem
 
@@ -15,7 +15,7 @@ LLM subagents tasked with investigating code behavior in large projects regularl
 
 NavGator's existing `NAVSUMMARY.md` is a component-level architectural overview. It doesn't tell an LLM "these are the live entry points, these paths are noise to ignore, here's the data flow for the top N features."
 
-Two concrete misses observed in Atomize AI:
+Two concrete misses observed in the benchmark repo AI:
 
 - Subagent claimed `embedding-service.ts` lacked a DB-fallback for empty content. The fallback was at lines 120-129 with a "CRITICAL FIX" comment. Subagent grep'd the caller and the guard, skipped the middle.
 - Subagent claimed entity deduplication "runs automatically during ingestion." It runs only from a manual script. No caller grep was performed.
@@ -229,4 +229,4 @@ A subagent dispatched to investigate "does feature X work correctly?" in a proje
 4. Cites file:line with quoted snippets per Section 6's rules
 5. Does NOT cite matches from paths in Section 2
 
-Measurable effect: the two misses observed in Atomize AI (embedding-service.ts fallback, entity-dedup invocation context) would not recur.
+Measurable effect: the two misses observed in the benchmark repo AI (embedding-service.ts fallback, entity-dedup invocation context) would not recur.

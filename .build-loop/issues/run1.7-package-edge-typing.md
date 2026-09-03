@@ -4,9 +4,9 @@
 
 ## Summary
 
-After Run 1.7's Problem A + B fixes landed, atomize-ai full scan reported **0 missing-endpoint connections** — down from 418. The Problem B dedup-key fix (`scanner.ts:1037-1066`) resolved 410 of those. The remaining 8 (originally) appeared in the prompt-listed bare-package category.
+After Run 1.7's Problem A + B fixes landed, the benchmark repo full scan reported **0 missing-endpoint connections** — down from 418. The Problem B dedup-key fix (`scanner.ts:1037-1066`) resolved 410 of those. The remaining 8 (originally) appeared in the prompt-listed bare-package category.
 
-E2E re-verification on the Run 1.7 build shows the count is now **0 across the board**, including the 8 originally suspected bare-package mismatches. Rerunning the missing-endpoint sweep on a clean atomize-ai full scan produces:
+E2E re-verification on the Run 1.7 build shows the count is now **0 across the board**, including the 8 originally suspected bare-package mismatches. Rerunning the missing-endpoint sweep on a clean the benchmark repo full scan produces:
 
 ```bash
 $ python3 -c "ids; for f in components: ids.add(id); for f in connections: count missing-endpoints"
@@ -27,7 +27,7 @@ If a future run uncovers a residual bare-package id mismatch — e.g. a connecti
 - Start at `src/scanners/connections/import-scanner.ts:431-465` (the bare-import emit branch).
 - Cross-reference `src/scanners/packages/npm.ts` to see how `KnownPackage[]` is constructed and what `component_id` each gets.
 - Check `mergeByStableId` behavior in `storage.ts:1721` for npm-type stable_ids — same `STABLE_npm_<name>` should always dedupe.
-- Repro recipe: needs a project where `import X from "<pkg>"` lands a connection whose `to.component_id` is in `COMP_component_*` not `COMP_npm_*`. As of Run 1.7, no such case is observed on atomize-ai or NavGator self-scan.
+- Repro recipe: needs a project where `import X from "<pkg>"` lands a connection whose `to.component_id` is in `COMP_component_*` not `COMP_npm_*`. As of Run 1.7, no such case is observed on the benchmark repo or NavGator self-scan.
 
 ## Decision
 

@@ -1148,7 +1148,7 @@ export async function createSnapshot(reason, config, projectRoot) {
  * false). When disabled, the consolidated `graph.json`, `index.json`,
  * `file_map.json`, and `connections.jsonl` are the source of truth and we
  * skip the per-entity file explosion (~2,475 files × ~3KB each on
- * atomize-ai). Component IDs are still stamped onto the in-memory objects
+ * the benchmark repo). Component IDs are still stamped onto the in-memory objects
  * so callers (graph builder, index writer) get stable IDs.
  */
 export async function storeComponents(components, config, projectRoot) {
@@ -1178,7 +1178,7 @@ export async function storeComponents(components, config, projectRoot) {
  * R6 footprint fix: writes are gated on `config.perEntityFiles` (default
  * false). When disabled, `connections.jsonl` + `reverse-deps.json` are the
  * source of truth and we skip the per-edge file explosion (~6,737 files
- * on atomize-ai).
+ * on the benchmark repo).
  */
 export async function storeConnections(connections, config, projectRoot) {
     const cfg = config || getConfig();
@@ -1743,7 +1743,7 @@ export async function loadReverseDepsLegacy(changedFiles, config, projectRoot) {
  * the in-memory connection set + components. This avoids re-walking per-edge
  * JSON files on the next incremental scan.
  *
- * Run 1.6 — item #8: HEADLINE PERF WIN. On atomize-ai's 4,570 connections,
+ * Run 1.6 — item #8: HEADLINE PERF WIN. On the benchmark repo's 4,570 connections,
  * this drops `loadReverseDeps` from ~4,570 file opens to 1.
  */
 export async function buildReverseDepsIndex(components, connections, config, projectRoot) {

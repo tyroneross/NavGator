@@ -57,9 +57,9 @@ Accumulate reusable architectural knowledge across projects so NavGator can answ
 │   ├── deploy-patterns.json     ← Vercel vs Railway vs Docker
 │   └── auth-patterns.json       ← NextAuth vs Clerk vs Auth0
 ├── anti-patterns/
-│   ├── duplicate-consumers.json ← From atomize-ai: 2 workers on same queue
-│   ├── orphaned-code.json       ← From atomize-ai: chart-spec-generator unused
-│   └── raw-sql-blind-spots.json ← From atomize-ai: $queryRaw not detected
+│   ├── duplicate-consumers.json ← From the benchmark repo: 2 workers on same queue
+│   ├── orphaned-code.json       ← From the benchmark repo: chart-spec-generator unused
+│   └── raw-sql-blind-spots.json ← From the benchmark repo: $queryRaw not detected
 └── validations.json             ← Last validation run timestamps
 ```
 
@@ -79,7 +79,7 @@ interface KnowledgeEntry {
   
   // Example
   example?: {
-    project: string;              // "atomize-ai"
+    project: string;              // "the benchmark repo"
     implementation: string;       // How it was done
     result: string;               // What happened
   };
@@ -123,13 +123,13 @@ interface KnowledgeEntry {
     "dont_use_when": "Need highest possible accuracy (legal, medical), batch processing where latency doesn't matter"
   },
   "example": {
-    "project": "atomize-ai",
+    "project": "the benchmark repo",
     "implementation": "lib/search/groq-reranker.ts — Groq reranks search results from vector similarity search",
     "result": "Search latency reduced from 2.5s (OpenAI) to 0.8s (Groq) with <3% relevance score difference"
   },
   "source": {
     "tier": "experience",
-    "projects": ["atomize-ai"]
+    "projects": ["the benchmark repo"]
   },
   "created": "2026-04-02",
   "lastValidated": "2026-04-02",
@@ -153,13 +153,13 @@ interface KnowledgeEntry {
     "Use BullMQ's named processors for different job types on the same queue"
   ],
   "example": {
-    "project": "atomize-ai",
+    "project": "the benchmark repo",
     "implementation": "kg-summaries-groq consumed by both bullmq-summary-worker.ts and hybrid-queue-manager.ts",
     "result": "Railway resources wasted, jobs processed inconsistently. NavGator detected this via anomaly detection."
   },
   "source": {
     "tier": "experience",
-    "projects": ["atomize-ai"]
+    "projects": ["the benchmark repo"]
   },
   "created": "2026-04-02",
   "lastValidated": "2026-04-02",
@@ -220,4 +220,4 @@ Phase 2 (Connection Integrity) checks architecture against knowledge base patter
 
 ## Migration Path
 
-Start with entries seeded from this session's findings on atomize-ai. As more projects are scanned, the knowledge base grows. After 5+ projects, patterns with `evidenceCount >= 3` are considered validated.
+Start with entries seeded from this session's findings on the benchmark repo. As more projects are scanned, the knowledge base grows. After 5+ projects, patterns with `evidenceCount >= 3` are considered validated.

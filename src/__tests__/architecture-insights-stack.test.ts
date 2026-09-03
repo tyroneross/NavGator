@@ -1,7 +1,7 @@
 /**
  * Regression test for R6 stack-overflow on large/cyclic import graphs.
  *
- * Symptom (verified on atomize-ai 2026-05): scanning a project with ~2475
+ * Symptom (verified on the benchmark repo 2026-05): scanning a project with ~2475
  * components and deep import chains caused `detectImportCycles` to throw
  * "Maximum call stack size exceeded" because its `visit()` helper recursed
  * once per import edge along the longest path. Node's default V8 stack tops

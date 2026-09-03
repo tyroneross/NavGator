@@ -14,7 +14,7 @@
 
 ## Problem B — `imports` edges to dropped file components
 
-**Root cause (diagnosed on atomize-ai):** 410 of the 418 missing-endpoint connections are NOT bare-package issues. They're `imports` edges whose target file-component was dropped by `scanner.ts:1037-1045` dedup-by-name. `lib/prisma.ts` produces file-component named `prisma`; Prisma database scanner ALSO produces a component named `prisma` (higher confidence). Dedup-by-name drops the file component. Import-scanner already emitted edges referencing the dropped id.
+**Root cause (diagnosed on the benchmark repo):** 410 of the 418 missing-endpoint connections are NOT bare-package issues. They're `imports` edges whose target file-component was dropped by `scanner.ts:1037-1045` dedup-by-name. `lib/prisma.ts` produces file-component named `prisma`; Prisma database scanner ALSO produces a component named `prisma` (higher confidence). Dedup-by-name drops the file component. Import-scanner already emitted edges referencing the dropped id.
 
 Distribution:
 - 392 → `COMP_component_prisma_c3se` (file `lib/prisma.ts` collides with Prisma DB)
@@ -39,6 +39,6 @@ Single subagent, sequential edits, three new tests in `scanner-incremental.test.
 
 - Critic on diff
 - `npm test` (335+ pass), `npm run build:cli` exit 0
-- E2E on atomize-ai: full scan → touched-file incremental → post-scan counts within ±5% of full-scan baseline (2452 components, 6445 connections)
+- E2E on the benchmark repo: full scan → touched-file incremental → post-scan counts within ±5% of full-scan baseline (2452 components, 6445 connections)
 - Confirm 0 missing-endpoint edges target `COMP_component_prisma*` or `COMP_component_redis*` (both fixed by B)
 - Fact-check + simplify + report

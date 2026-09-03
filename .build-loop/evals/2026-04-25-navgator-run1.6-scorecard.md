@@ -15,7 +15,7 @@ Goal: 9 defensive items before SQC; verify-step #6 and #7
 | 5 | New-file orphan in-edges | ✅ Shipped | `selectScanMode` adds `if (fileChanges.added.length > 0) → full / new-files` (`scanner.ts:218-222`). New `'new-files'` reason added to union. 2 new tests cover added-only and added+modified |
 | 6 | Renames — verify | ⚠️ **Verify result: prompt's ask doesn't apply.** Path-disambiguation IS needed for 6 component types (api-endpoint, db-table, prompt, worker, component, cron) because the name field collides (e.g. `src/utils/index.ts` vs `src/lib/index.ts`, both named `index`). Removing path from stable_id would cause real merge collisions. **No code change. Documented tradeoff in `pickCanonicalPath` docstring.** Renames currently break merge; integrity check + promote-to-full keeps result correct (perf-suboptimal). |
 | 7 | Aliased imports — verify | ✅ Shipped (verify-only) | `import-scanner.ts:56-108` `resolveImport` resolves tsconfig `paths` aliases at scan time and stores the resolved project-relative path in `to.location.file` and `code_reference.file`. **No fix needed.** Added doc comment on `loadReverseDeps`. New test using fixture with `tsconfig.json` `paths: { "@/*": ["src/*"] }` confirms `to.location.file === "src/utils/foo.ts"` (not `@/utils/foo`) and that `loadReverseDeps` finds the importer |
-| 8 | Reverse-deps index | ✅ Shipped — full path; ⚠️ blocked by pre-existing bug on incremental | New file `.navgator/architecture/reverse-deps.json` written at scan end via `buildReverseDepsIndex` (`storage.ts`). `loadReverseDeps` now tries the index first (1 file open), falls back to `loadReverseDepsLegacy` if missing/corrupt. **On atomize-ai full scan: 627 distinct target files, 7,805 edges, written in <1ms from in-memory connection set.** Drop from 4,570 file opens → 1 file open. ⚠️ **On atomize-ai incremental scan: index gets nuked because of pre-existing integrity-promote bug — see "Anything blocking commit" below.** |
+| 8 | Reverse-deps index | ✅ Shipped — full path; ⚠️ blocked by pre-existing bug on incremental | New file `.navgator/architecture/reverse-deps.json` written at scan end via `buildReverseDepsIndex` (`storage.ts`). `loadReverseDeps` now tries the index first (1 file open), falls back to `loadReverseDepsLegacy` if missing/corrupt. **On the benchmark repo full scan: 627 distinct target files, 7,805 edges, written in <1ms from in-memory connection set.** Drop from 4,570 file opens → 1 file open. ⚠️ **On the benchmark repo incremental scan: index gets nuked because of pre-existing integrity-promote bug — see "Anything blocking commit" below.** |
 | 9 | Manifest of derived artifacts | ✅ Shipped | New file `.navgator/architecture/manifest.json` written at scan end via `buildDerivedManifest`. Lists `index.json`, `graph.json`, `file_map.json`, `reverse-deps.json` with their `mtimeMs` + `source_count` for reverse-deps. Atomic write |
 
 **Overall: 7 ✅ (1, 2, 3, 4, 5, 7, 9), 1 ✅-with-caveat (8), 1 verify-only no-fix (6).** Zero ❌.
@@ -51,7 +51,7 @@ Goal: 9 defensive items before SQC; verify-step #6 and #7
 - All 335 pass (`npm test` exit 0).
 - `npm run build:cli` exit 0 (latent Run 1 type errors fixed as a side effect — see types.ts row).
 
-## E2E timing on atomize-ai (1842 files, 4,570+ connections — measurements from this run)
+## E2E timing on the benchmark repo (1842 files, 4,570+ connections — measurements from this run)
 
 | Path | Before Run 1.6 | After Run 1.6 | Δ |
 |---|---|---|---|
@@ -67,12 +67,12 @@ NavGator self-scan: FULL=419 connections, INC=405 connections (only 14 lost = th
 
 ## Anything blocking commit
 
-**One pre-existing bug surfaces during Run 1.6's e2e timing on atomize-ai. NOT introduced by Run 1.6, but it gates the headline #8 perf claim from being delivered on incremental scans.**
+**One pre-existing bug surfaces during Run 1.6's e2e timing on the benchmark repo. NOT introduced by Run 1.6, but it gates the headline #8 perf claim from being delivered on incremental scans.**
 
 **Bug: incremental→full integrity-promote uses incomplete walk-set scan results.**
 
 - Triggered by: integrity check fails (line `scanner.ts:1194-1210`) → `clearStorage` → `finalComponents = uniqueComponents`. But on incremental, `uniqueComponents` was scanned with `walkSet=undefined` for some scanners and `walkSet=<4 files>` for others (Run 1.5 plumbing). It is NOT the full source tree. So the post-promote disk state has the package + infra components but only 4 files' worth of code-level components.
-- Surfaces on atomize-ai: 418 integrity issues fire on every incremental → promote → graph wiped from 6,445 connections to 58.
+- Surfaces on the benchmark repo: 418 integrity issues fire on every incremental → promote → graph wiped from 6,445 connections to 58.
 - Did NOT surface in Run 1+1.5 testing because: NavGator self-scan (221 files, simpler graph) doesn't hit any integrity issues, so the promote branch never fires. The Run 1 e2e test scenario 5 contrives a corruption to force the promote, but it's a small fixture so the post-promote is still small-but-correct.
 - This means Run 1.6's #8 reverse-deps index works correctly on FULL scans (the headline 4,570→1 file-open win lands) but on incremental→full promotes, the index inherits the truncated graph.
 
@@ -88,7 +88,7 @@ npm test                                        # 335 passing
 npm run build:cli                               # exit 0
 node dist/cli/index.js "review my auth flow"    # prints /navgator:plan redirect
 
-cd ~/dev/git-folder/atomize-ai
+cd ~/dev/git-folder/the benchmark repo
 node ~/dev/git-folder/NavGator/dist/cli/index.js scan --full
 ls -la .navgator/architecture/reverse-deps.json # exists, ~378 KB
 ls -la .navgator/architecture/manifest.json     # exists

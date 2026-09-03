@@ -192,7 +192,7 @@ export function detectImportCycles(
 
   // Iterative DFS — converted from recursion to fix R6 stack-overflow on
   // graphs with deep import chains (10k+ frames blew V8's default stack on
-  // atomize-ai). Each frame mirrors the recursive call: it remembers the
+  // the benchmark repo). Each frame mirrors the recursive call: it remembers the
   // node being visited and an iterator over its neighbours so we can resume
   // exactly where the recursive version would have returned. The
   // visiting/visited/stack invariants are preserved 1:1 with the recursive

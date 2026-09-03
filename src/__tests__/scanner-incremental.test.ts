@@ -1177,7 +1177,7 @@ describe('manifest.json (Run 1.6 — item #9)', () => {
 // Run 1.7 — Problem A: integrity-promote must NOT truncate the graph
 // =============================================================================
 //
-// Repros the atomize-ai bug. Pre-Run-1.7, a failed integrity check on an
+// Repros the benchmark repo bug. Pre-Run-1.7, a failed integrity check on an
 // incremental scan reused the in-memory uniqueComponents/uniqueConnections
 // that were just computed under the walk-set restriction. Result: post-promote
 // disk state had the package + infra components but only the walk-set's slice

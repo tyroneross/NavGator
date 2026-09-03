@@ -9,9 +9,9 @@ Goal: fix integrity-promote graph truncation (Problem A) + dedup-key collision (
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
-| A | Integrity-promote graph truncation | ✅ Fixed | Recursive re-entry via `scan(root, {mode:'full', clearFirst:true, _promotedFromIncremental:true})`. Outer scan releases lock before re-entry; inner scan acquires cleanly. Inner labels timeline `scan_type='incremental→full'`. E2E on atomize-ai: post-promote graph is 2463 components / 6445 connections — identical to clean full-scan baseline. **No truncation.** |
-| B | Dedup-key cross-type collision | ✅ Fixed at root | Dedup key changed from `component.name` to `${type}\|${name}\|${primary-config-file}` in `scanner.ts:1037-1066`. Different types coexist (was: collided); same-type same-name from different paths coexist (e.g. `app/proxy.ts` and `proxy.ts`); same-type same-name same-file still dedupes. atomize-ai missing-endpoint count: **418 → 0**. |
-| C | Latent merge-orphan disk files | ✅ Fixed (uncovered by A+B) | `clearForFiles` only deletes disk files whose `source.config_files` overlap walk-set, so npm/database/infra components survived but new fresh versions got new random `component_id`s, doubling on-disk components. Pre-fix this was masked by always-failing integrity check (`clearStorage` on promote wiped orphans). Post-fix, added an orphan-purge pass after merge in `scanner.ts` (~25 LOC inline helper). atomize-ai INC: 2891 → 2462 components (proper count). |
+| A | Integrity-promote graph truncation | ✅ Fixed | Recursive re-entry via `scan(root, {mode:'full', clearFirst:true, _promotedFromIncremental:true})`. Outer scan releases lock before re-entry; inner scan acquires cleanly. Inner labels timeline `scan_type='incremental→full'`. E2E on the benchmark repo: post-promote graph is 2463 components / 6445 connections — identical to clean full-scan baseline. **No truncation.** |
+| B | Dedup-key cross-type collision | ✅ Fixed at root | Dedup key changed from `component.name` to `${type}\|${name}\|${primary-config-file}` in `scanner.ts:1037-1066`. Different types coexist (was: collided); same-type same-name from different paths coexist (e.g. `app/proxy.ts` and `proxy.ts`); same-type same-name same-file still dedupes. the benchmark repo missing-endpoint count: **418 → 0**. |
+| C | Latent merge-orphan disk files | ✅ Fixed (uncovered by A+B) | `clearForFiles` only deletes disk files whose `source.config_files` overlap walk-set, so npm/database/infra components survived but new fresh versions got new random `component_id`s, doubling on-disk components. Pre-fix this was masked by always-failing integrity check (`clearStorage` on promote wiped orphans). Post-fix, added an orphan-purge pass after merge in `scanner.ts` (~25 LOC inline helper). the benchmark repo INC: 2891 → 2462 components (proper count). |
 
 ## Files modified
 
@@ -34,7 +34,7 @@ Goal: fix integrity-promote graph truncation (Problem A) + dedup-key collision (
 - `npm run build:cli` exit 0
 - All 25 test files pass
 
-## E2E result on atomize-ai (1842 source files)
+## E2E result on the benchmark repo (1842 source files)
 
 | Path | Before Run 1.7 | After Run 1.7 |
 |---|---|---|
@@ -63,7 +63,7 @@ fix(scanner): integrity-promote no longer truncates graph; dedup keys by (type, 
 - Problem B: dedup-by-name collided cross-type (lib/prisma.ts ↔ Prisma DB)
 - Fix latent merge-orphan: orphan-purge after incremental merge
 
-E2E on atomize-ai (1842 files): integrity-promote now produces 2463 components /
+E2E on the benchmark repo (1842 files): integrity-promote now produces 2463 components /
 6445 connections — identical to full-scan baseline (was: truncated to 58/58).
 
 338 tests pass (335 + 3 new). Zero new deps.
@@ -76,7 +76,7 @@ cd ~/dev/git-folder/NavGator
 npm test                                  # 338 pass
 npm run build:cli                         # exit 0
 
-cd ~/dev/git-folder/atomize-ai
+cd ~/dev/git-folder/the benchmark repo
 rm -rf .navgator/architecture
 node ~/dev/git-folder/NavGator/dist/cli/index.js scan --full
 ls .navgator/architecture/components | wc -l    # 2463

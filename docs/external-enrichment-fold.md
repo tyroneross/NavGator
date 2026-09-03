@@ -14,7 +14,7 @@ It is the twin of the database-profile fold (research plugin). Both make a
 
 ## Why this and not the scanner
 
-NavGator's scanners **already detect** external nodes — in atomize: `service`,
+NavGator's scanners **already detect** external nodes — in the benchmark repo: `service`,
 `npm`, 5 `llm`, `infra`, 219 `config`, and `spm` (Swift). api-registry's own
 `scan.ts` is npm/pypi-only and would be a *downgrade* in language coverage. The
 gap is not detection — it's that those nodes carry no identity, version, or

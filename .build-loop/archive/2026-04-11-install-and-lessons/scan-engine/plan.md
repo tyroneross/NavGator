@@ -108,4 +108,4 @@ T9 (stable IDs) ─► T10 (graphology PR/Louvain)   ┐
 1. Cut Move 3 entirely, or keep as a stretch? **Recommendation: cut; reopen as a separate design.**
 2. Cut embeddings from Move 2 (keep "no network" invariant), or accept 90MB first-run for `--semantic`? **Recommendation: cut; ship Move 2 without embeddings.**
 3. WS-A scope — migrate all 4 scanner files, or only the 2 with biggest expected win (import + llm-call-tracer)? **Recommendation: all 4, since characterization tests are the expensive part and they apply to all.**
-4. Bench fixture — synthetic ~1000 LOC, or use a real copy of `atomize` / `travel-planner`? **Recommendation: synthetic. Real repos drift over time and muddy the benchmark.**
+4. Bench fixture — synthetic ~1000 LOC, or use a real copy of `the benchmark repo` / `travel-planner`? **Recommendation: synthetic. Real repos drift over time and muddy the benchmark.**

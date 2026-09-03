@@ -2,7 +2,7 @@
  * R6 footprint fix — per-entity files are opt-in and the migration that
  * removes legacy per-entity files is idempotent + safe.
  *
- * Without the fix, every scan on atomize-ai (2,475 components +
+ * Without the fix, every scan on the benchmark repo (2,475 components +
  * 6,737 connections) wrote ~9,200 JSON files into `components/` and
  * `connections/`, totalling ~70MB on disk. The consolidated `graph.json`,
  * `index.json`, `connections.jsonl`, and `reverse-deps.json` carry the

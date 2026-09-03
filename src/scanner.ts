@@ -1664,7 +1664,7 @@ export async function scan(
   // (type='database', name='prisma'). The DB component won on confidence;
   // the file component was silently dropped. But the import-scanner had
   // already emitted edges referencing the dropped file component_id —
-  // 410 orphan edges on atomize-ai, which fired the integrity-promote and
+  // 410 orphan edges on the benchmark repo, which fired the integrity-promote and
   // truncated the graph (Problem A's loud symptom).
   //
   // The fix keys by `${type}|${name}|${first-config-file}`:
@@ -1862,7 +1862,7 @@ export async function scan(
       // uniqueConnections that were just computed under the walk-set
       // restriction. After Run 1.5's walk-set plumbing, those are NOT
       // the full source tree — only the walk-set's slice of it. Reusing
-      // them on promote truncated the graph (atomize-ai: 6,445 → 58
+      // them on promote truncated the graph (the benchmark repo: 6,445 → 58
       // connections, 2,452 → 58 components).
       //
       // Fix: recursively re-enter scan() with `mode: 'full', clearFirst: true`
@@ -2206,7 +2206,7 @@ export async function scan(
   // per-entity files are disabled (the default). These carry the complete
   // ArchitectureComponent / ArchitectureConnection objects so downstream
   // loaders never need per-entity files. Always written; cheap (~2MB for
-  // atomize-ai-scale projects vs the 70MB per-entity sprawl).
+  // benchmark-scale projects vs the 70MB per-entity sprawl).
   try {
     const {
       writeFullComponentsJsonl,
