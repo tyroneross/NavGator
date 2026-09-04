@@ -139,6 +139,14 @@ jobs:
           node-version: '22'
           cache: npm
 
+      # Same reason the verify job pins it: Node 22 ships npm 10, and npm 10's
+      # arborist crashes here with "Cannot read properties of null (reading
+      # 'edgesOut')" while install-plugin.sh installs the packed tarball. The
+      # identical verify:release run passes on npm 11 locally. Relying on the
+      # bundled npm is what broke this job and the audit step both.
+      - name: Use npm 11 (npm 10 arborist crashes on this install)
+        run: npm install -g npm@^11
+
       - name: Install project dependencies
         run: |
           npm ci --ignore-scripts
