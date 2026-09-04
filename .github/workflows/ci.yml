@@ -39,6 +39,15 @@ jobs:
       - name: Install web dependencies
         run: npm --prefix web ci --ignore-scripts
 
+      # npm 10 (what Node 20 and 22 ship) posts to
+      # /-/npm/v1/security/audits/quick, which npm RETIRED — it now answers
+      # 400 Bad Request, so this step failed on infrastructure rather than on
+      # any finding in this repo. npm 11 uses the bulk advisory endpoint the
+      # retirement notice points at. Pinned rather than left to the Node
+      # version, because the bundled npm is exactly what broke this.
+      - name: Use npm 11 (the retired quick-audit endpoint answers 400)
+        run: npm install -g npm@^11
+
       - name: Audit production dependencies
         run: |
           npm audit --omit=dev --audit-level=moderate
