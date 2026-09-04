@@ -20,19 +20,19 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-365 files analyzed, 1049 internal import edges.
+364 files analyzed, 1049 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
-| JavaScript | 8 | yes | 0 |
+| JavaScript | 7 | yes | 0 |
 | Python | 7 | **no** | n/a |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 358 | yes | 1049 |
+| TypeScript | 357 | yes | 1049 |
 
 What this index cannot see:
 
+- 7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.
 - 7 Python file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Python edges here means "not measured", never "not coupled".
-- 8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.
 - 8 Shell file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Shell edges here means "not measured", never "not coupled".
 - Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.
 - Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not.
@@ -64,7 +64,7 @@ them a responsibility in `docs/architecture/modules.json`.
 | `src/scanners` | 28 | Language and infrastructure scanners that turn source files into components and connections (TS/JS imports, Swift, Rust, Prisma, queues, cron, env, LLM calls). | `src/scanners/connections/import-scanner.ts`<br>`src/scanners/prompts/types.ts`<br>`src/scanners/connections/llm-call-tracer.ts` |
 | `src/storage` | 1 | Markdown projection of stored components. Pure derivative — the JSON store stays canonical. | `src/storage/markdown-view.ts` |
 | `src/temporal` | 1 | Nested git repository inside `.navgator/` that gives architecture snapshots a history without touching the parent repo's git. | `src/temporal/git-store.ts` |
-| `web` | 4 | Next.js dashboard (`navgator ui`), built and packaged separately from the CLI. Talks to stored architecture data through its own API routes, never by importing `src/`. | `web/proxy.ts` |
+| `web` | 3 | Next.js dashboard (`navgator ui`), built and packaged separately from the CLI. Talks to stored architecture data through its own API routes, never by importing `src/`. | `web/proxy.ts` |
 | `web/app` | 14 | Dashboard routes and the loopback read-only HTTP API under `web/app/api/`. | `web/app/page.tsx`<br>`web/app/api/components/route.ts`<br>`web/app/api/connections/route.ts` |
 | `web/components` | 73 | Dashboard React components, including the vendored shadcn/ui primitives in `web/components/ui/`. | `web/components/ui/button.tsx`<br>`web/components/ui/card.tsx`<br>`web/components/ui/input.tsx` |
 | `web/hooks` | 2 | Dashboard React hooks shared across components. | `web/hooks/use-mobile.ts`<br>`web/hooks/use-toast.ts` |

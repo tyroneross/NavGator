@@ -70,10 +70,10 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 365,
+    "analyzed_files": 364,
     "blind_spots": [
+      "7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "7 Python file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Python edges here means \"not measured\", never \"not coupled\".",
-      "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner is TypeScript/JavaScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
@@ -82,7 +82,7 @@
     "languages": [
       {
         "analyzed": true,
-        "files": 8,
+        "files": 7,
         "internal_edges": 0,
         "language": "JavaScript"
       },
@@ -100,7 +100,7 @@
       },
       {
         "analyzed": true,
-        "files": 358,
+        "files": 357,
         "internal_edges": 1049,
         "language": "TypeScript"
       }
@@ -5095,12 +5095,6 @@
       ],
       "module": "web",
       "type_only_imports": []
-    },
-    "web/server.cjs": {
-      "imported_by": [],
-      "imports": [],
-      "module": "web",
-      "type_only_imports": []
     }
   },
   "generator": "navgator arch-index",
@@ -6251,7 +6245,7 @@
           "module": "web/lib"
         }
       ],
-      "files": 4,
+      "files": 3,
       "id": "web",
       "key_files": [
         "web/proxy.ts"
