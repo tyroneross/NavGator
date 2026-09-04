@@ -2,11 +2,15 @@
  * NavGator Import Scanner
  * Fast regex-based file-level import graph builder.
  * Extracts import/require/export-from statements and resolves to actual file paths.
+ * Covers TS/JS (this file) and Python (delegated to `python-imports.ts`) —
+ * see the Python branch in `scanImports` below for why the two paths stay
+ * separate rather than sharing one abstraction today.
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 import { MAX_FILE_SIZE_BYTES, capLongLines, collapseWhitespaceRuns } from '../scan-limits.js';
+import { extractPythonImports, resolvePythonImport, pythonPackageHead, } from './python-imports.js';
 // Extensions to try when resolving bare imports (order matters)
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
 const INDEX_FILES = RESOLVE_EXTENSIONS.map(ext => `index${ext}`);
@@ -374,6 +378,13 @@ function buildFileComponent(file, timestamp) {
  * are emitted as `uses-package` edges from the source file component to the
  * matching npm package component. Bare specifiers with no matching known
  * package are skipped silently (no ghost nodes).
+ *
+ * Python files run through a parallel branch lower down (extraction and
+ * resolution delegated to `python-imports.ts`) using the same
+ * `buildFileComponent` / `readBoundedFile` machinery, so `imports` and
+ * `uses-package` edges come out in the identical shape either language
+ * produces them in. The TS/JS file set and the Python file set never mix —
+ * each resolves only against its own `knownFiles`.
  */
 export async function scanImports(projectRoot, sourceFiles, knownPackages) {
     const components = [];
@@ -402,8 +413,35 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
             ],
         });
     }
+    // Same source, filtered to Python instead. Kept as a fully separate list —
+    // see the "Python import graph" pass below for why it stays out of `files`
+    // and `knownFiles`.
+    let pythonFiles;
+    if (sourceFiles) {
+        pythonFiles = sourceFiles
+            .map(file => path.isAbsolute(file)
+            ? normalizeProjectPath(path.relative(projectRoot, file))
+            : file.replace(/\\/g, '/'))
+            .filter(f => f.endsWith('.py'));
+    }
+    else {
+        // Fallback: use glob (shouldn't happen in normal flow)
+        const { glob } = await import('glob');
+        pythonFiles = await glob('**/*.py', {
+            cwd: projectRoot,
+            ignore: [
+                '**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**',
+                '**/.git/**', '**/coverage/**', '**/venv/**', '**/.venv/**',
+                '**/__pycache__/**',
+            ],
+        });
+    }
     // Build a Set of known files for O(1) resolution lookups
     const knownFiles = new Set(files);
+    // Separate known-files set for Python resolution. TS/JS specifiers never
+    // resolve against Python files and vice versa — the two languages don't
+    // share a module namespace, so mixing the sets would produce wrong edges.
+    const pythonKnownFiles = new Set(pythonFiles);
     const pathAliasCache = new Map();
     const now = Date.now();
     const componentIdByFile = new Map();
@@ -418,6 +456,11 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
         }
     }
     for (const file of files) {
+        const component = buildFileComponent(file, now);
+        components.push(component);
+        componentIdByFile.set(file, component.component_id);
+    }
+    for (const file of pythonFiles) {
         const component = buildFileComponent(file, now);
         components.push(component);
         componentIdByFile.set(file, component.component_id);
@@ -506,6 +549,90 @@ export async function scanImports(projectRoot, sourceFiles, knownPackages) {
                         last_verified: now,
                     });
                 }
+            }
+        }
+    }
+    // Python import graph. A parallel branch, not a refactor of the TS/JS
+    // path above — extraction/resolution live in `python-imports.ts`, but the
+    // edge shapes below are written out by hand to match the TS/JS block
+    // exactly (`imports` connection, optional `uses-package` per package).
+    for (let i = 0; i < pythonFiles.length; i += batchSize) {
+        const batch = pythonFiles.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(file => readBoundedFile(projectRoot, file)));
+        for (const result of results) {
+            if (!result)
+                continue;
+            const { file, content } = result;
+            const specs = extractPythonImports(content);
+            const emittedPackages = new Set(); // dedupe per-file: one edge per package
+            for (const spec of specs) {
+                const resolved = resolvePythonImport(spec, file, pythonKnownFiles);
+                if (resolved) {
+                    const line = findImportLine(content, spec.specifier);
+                    connections.push({
+                        connection_id: generateConnectionId('imports'),
+                        from: {
+                            component_id: componentIdByFile.get(file) || `FILE:${file}`,
+                            location: { file, line },
+                        },
+                        to: {
+                            component_id: componentIdByFile.get(resolved) || `FILE:${resolved}`,
+                            location: { file: resolved, line: 1 },
+                        },
+                        connection_type: 'imports',
+                        code_reference: {
+                            file,
+                            symbol: spec.specifier,
+                            symbol_type: 'import',
+                            line_start: line,
+                        },
+                        detected_from: 'python-import-scanner',
+                        // No `runtime_relevance` field here: unlike TS/JS, Python has no
+                        // type-only import form for this scanner to distinguish.
+                        confidence: 0.9,
+                        timestamp: now,
+                        last_verified: now,
+                    });
+                }
+                // Third-party edge: only for absolute imports whose head isn't
+                // stdlib and matches a package the caller already knows about (e.g.
+                // parsed from requirements.txt) — same `knownPackages` contract as
+                // the TS/JS bare-import block above. No match → no edge, no ghost
+                // nodes.
+                if (packageIdByName.size === 0)
+                    continue;
+                const pkgHead = pythonPackageHead(spec);
+                if (!pkgHead)
+                    continue;
+                const targetId = packageIdByName.get(pkgHead);
+                if (!targetId)
+                    continue;
+                if (emittedPackages.has(pkgHead))
+                    continue;
+                emittedPackages.add(pkgHead);
+                const line = findImportLine(content, spec.specifier);
+                connections.push({
+                    connection_id: generateConnectionId('uses-package'),
+                    from: {
+                        component_id: componentIdByFile.get(file) || `FILE:${file}`,
+                        location: { file, line },
+                    },
+                    to: {
+                        component_id: targetId,
+                    },
+                    connection_type: 'uses-package',
+                    code_reference: {
+                        file,
+                        symbol: pkgHead,
+                        symbol_type: 'import',
+                        line_start: line,
+                    },
+                    description: `${file} uses ${pkgHead}`,
+                    detected_from: 'python-import-scanner (bare)',
+                    confidence: 0.9,
+                    timestamp: now,
+                    last_verified: now,
+                });
             }
         }
     }

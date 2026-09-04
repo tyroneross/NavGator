@@ -64,11 +64,16 @@ const IGNORED_GLOBS = [
     '**/__pycache__/**',
 ];
 /**
- * Extension to language. Only TypeScript and JavaScript are ANALYZED (the
- * import scanner is a TS/JS scanner); everything else is counted so the
- * coverage section can name what it could not see.
+ * Extension to language. The single definition site for this map — do not
+ * duplicate it. `src/scanner.ts` imports `LANGUAGE_BY_EXTENSION` and
+ * `languageOf` from here rather than keeping its own copy (it used to; see
+ * git history around the `SCAN_COVERAGE_LANGUAGE_BY_EXTENSION` removal).
+ * Counting a language here does not mean it is ANALYZED — see
+ * `ANALYZED_LANGUAGES` below, and `scanner.ts`'s
+ * `SCAN_COVERAGE_ANALYZED_LANGUAGES`, which is intentionally a *different*
+ * set (see the comment on that constant for why).
  */
-const LANGUAGE_BY_EXTENSION = {
+export const LANGUAGE_BY_EXTENSION = {
     '.ts': 'TypeScript',
     '.tsx': 'TypeScript',
     '.mts': 'TypeScript',
@@ -86,6 +91,7 @@ const LANGUAGE_BY_EXTENSION = {
     '.kt': 'Kotlin',
     '.cs': 'C#',
     '.php': 'PHP',
+    '.scala': 'Scala',
     '.c': 'C',
     '.h': 'C',
     '.cc': 'C++',
@@ -95,7 +101,16 @@ const LANGUAGE_BY_EXTENSION = {
     '.bash': 'Shell',
     '.sql': 'SQL',
 };
-const ANALYZED_LANGUAGES = new Set(['TypeScript', 'JavaScript']);
+/**
+ * Languages `arch-index`'s own graph considers ANALYZED — deliberately
+ * narrower than `scanner.ts`'s `SCAN_COVERAGE_ANALYZED_LANGUAGES`. This
+ * module builds its graph by calling only `scanImports` (TS/JS/Python); it
+ * never runs the Swift or Rust code scanners the full `scan` command runs.
+ * Adding Swift/Rust here would claim coverage `arch-index` does not have.
+ * See `src/scanner.ts`'s `SCAN_COVERAGE_ANALYZED_LANGUAGES` for the other
+ * side of this intentional divergence — do not "fix" it by merging the two.
+ */
+const ANALYZED_LANGUAGES = new Set(['TypeScript', 'JavaScript', 'Python']);
 // ---------------------------------------------------------------------------
 // Deterministic serialization
 // ---------------------------------------------------------------------------
@@ -173,7 +188,7 @@ export async function discoverSourceFiles(root) {
     }
     return globbed.filter(f => tracked.has(f));
 }
-function languageOf(file) {
+export function languageOf(file) {
     return LANGUAGE_BY_EXTENSION[path.extname(file).toLowerCase()] ?? null;
 }
 // ---------------------------------------------------------------------------
@@ -302,8 +317,8 @@ export async function buildArchitectureIndex(root) {
         if (!lang.analyzed) {
             unmeasured = true;
             blindSpots.push(`${lang.files} ${lang.language} file(s) are present but NOT analyzed. NavGator's ` +
-                `import scanner is TypeScript/JavaScript only, so zero ${lang.language} edges here ` +
-                `means "not measured", never "not coupled".`);
+                `import scanner covers ${[...ANALYZED_LANGUAGES].sort().join('/')} only, so zero ` +
+                `${lang.language} edges here means "not measured", never "not coupled".`);
         }
         else if (lang.files > 0 && lang.internal_edges === 0) {
             unmeasured = true;

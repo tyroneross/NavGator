@@ -41,6 +41,17 @@ export declare const ARCHITECTURE_MD_PATH = "ARCHITECTURE.md";
 export declare const ARCHITECTURE_INDEX_PATH = "docs/architecture/index.json";
 /** Curated input: human-written module responsibilities and boundary rules. */
 export declare const ARCHITECTURE_MODULES_PATH = "docs/architecture/modules.json";
+/**
+ * Extension to language. The single definition site for this map — do not
+ * duplicate it. `src/scanner.ts` imports `LANGUAGE_BY_EXTENSION` and
+ * `languageOf` from here rather than keeping its own copy (it used to; see
+ * git history around the `SCAN_COVERAGE_LANGUAGE_BY_EXTENSION` removal).
+ * Counting a language here does not mean it is ANALYZED — see
+ * `ANALYZED_LANGUAGES` below, and `scanner.ts`'s
+ * `SCAN_COVERAGE_ANALYZED_LANGUAGES`, which is intentionally a *different*
+ * set (see the comment on that constant for why).
+ */
+export declare const LANGUAGE_BY_EXTENSION: Record<string, string>;
 export interface CuratedModule {
     /** Stable id. Conventionally equal to `path`. */
     id: string;
@@ -159,6 +170,7 @@ export declare function stableStringify(value: unknown): string;
  * the drift this exists to remove.
  */
 export declare function discoverSourceFiles(root: string): Promise<string[]>;
+export declare function languageOf(file: string): string | null;
 /**
  * Auto-derive a module id when no curated module claims the file: the first
  * two path segments for nested files, the first for one-level-deep files,

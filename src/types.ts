@@ -550,6 +550,35 @@ export interface ScanDegradation {
 }
 
 /**
+ * Per-language row in a scan's coverage table. Mirrors the shape and wording
+ * of `CoverageReport`/`LanguageCoverage` in `src/architecture-index.ts` — the
+ * two are computed independently (the index is a committed, deterministic
+ * projection; this is the live scanner's own runtime report) but must never
+ * disagree about what "analyzed" means for a given language.
+ */
+export interface LanguageCoverage {
+  language: string;
+  files: number;
+  /** True when a registered scanner consumes this language's files. */
+  analyzed: boolean;
+  components: number;
+  internal_edges: number;
+}
+
+/**
+ * Honesty contract for a scan: which languages present in the tree were
+ * actually analyzed, and which were only counted. Absent (or `status:
+ * 'full'`) means every language present in the tree was analyzed and
+ * produced at least one internal edge — nothing here means "not measured".
+ */
+export interface ScanCoverage {
+  status: 'full' | 'partial' | 'none';
+  languages: LanguageCoverage[];
+  /** One sentence per gap, each naming the language and the file count. */
+  blind_spots: string[];
+}
+
+/**
  * Fields preserved across every top-level scan outcome, including contention.
  * Optional report types stay generic so this shared module does not depend on
  * scanner implementations that already consume `types.ts`.
@@ -570,6 +599,8 @@ export interface ArchitectureScanPayload<
   gitInfo?: GitInfo;
   stats: ArchitectureScanStats;
   degraded?: ScanDegradation;
+  /** Present only when `coverage.status !== 'full'` — see `ScanCoverage`. */
+  coverage?: ScanCoverage;
 }
 
 /**

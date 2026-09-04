@@ -113,6 +113,9 @@ export function registerScanCommand(program) {
                 if (result.degraded) {
                     jsonData.degraded = result.degraded;
                 }
+                if (result.coverage) {
+                    jsonData.coverage = result.coverage;
+                }
                 if (isAgent) {
                     console.log(wrapInEnvelope('scan', jsonData));
                 }
@@ -133,6 +136,23 @@ export function registerScanCommand(program) {
                 console.log(result.degraded.message);
                 console.log(`Restrictions: ${result.degraded.restrictions.join(', ')}`);
                 console.log(`Disabled: ${result.degraded.disabled_capabilities.join(', ')}\n`);
+            }
+            // Coverage-gap banner: a language present in the tree that no
+            // registered scanner consumes must not read as "this repo has no
+            // components there" — that is indistinguishable from a genuinely
+            // clean result otherwise. Printed only when `result.coverage` is
+            // present, which the scanner guarantees only for `status !== 'full'`.
+            if (result.coverage) {
+                console.log('!! COVERAGE GAP !!');
+                const shown = result.coverage.blind_spots.slice(0, 3);
+                for (const line of shown) {
+                    console.log(line);
+                }
+                const remaining = result.coverage.blind_spots.length - shown.length;
+                if (remaining > 0) {
+                    console.log(`  ... and ${remaining} more (see --json coverage)`);
+                }
+                console.log('');
             }
             // Group components by type
             const byType = {};

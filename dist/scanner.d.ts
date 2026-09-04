@@ -125,6 +125,27 @@ export declare function selectScanMode(fileChanges: FileChangeResult | undefined
     incremental?: boolean;
 }, now?: number): ScanModeDecision;
 /**
+ * Languages a registered scanner actually consumes, keyed to the same
+ * strings `LANGUAGE_BY_EXTENSION` (imported from `architecture-index.ts`)
+ * produces. A language absent from this set is still counted (files,
+ * components-that-happen-to-resolve) for coverage purposes, but its
+ * `internal_edges` is always reported as 0 — no scanner ever looked at it, so
+ * "zero" there means "not measured", never "not coupled".
+ *
+ * Deliberately WIDER than `architecture-index.ts`'s `ANALYZED_LANGUAGES`:
+ * the full `scan` command additionally runs the Swift and Rust code
+ * scanners (`scanSwiftCode` / `scanRustCode`, see imports above), which
+ * `arch-index` never invokes — it builds its graph from `scanImports` alone.
+ * Do not merge the two sets; doing so would make one of the two commands
+ * claim coverage it does not have.
+ *
+ * Adding a new language scanner means adding its language string here too.
+ * Nothing else in this file infers the analyzed set from scanner presence —
+ * a future scanner author must add the entry explicitly or their new
+ * language will silently keep reading as an unanalyzed blind spot.
+ */
+export declare const SCAN_COVERAGE_ANALYZED_LANGUAGES: Set<string>;
+/**
  * Run a full architecture scan
  */
 /**

@@ -2,6 +2,9 @@
  * NavGator Import Scanner
  * Fast regex-based file-level import graph builder.
  * Extracts import/require/export-from statements and resolves to actual file paths.
+ * Covers TS/JS (this file) and Python (delegated to `python-imports.ts`) —
+ * see the Python branch in `scanImports` below for why the two paths stay
+ * separate rather than sharing one abstraction today.
  */
 import { ScanResult } from '../../types.js';
 /**
@@ -22,6 +25,13 @@ export interface KnownPackage {
  * are emitted as `uses-package` edges from the source file component to the
  * matching npm package component. Bare specifiers with no matching known
  * package are skipped silently (no ghost nodes).
+ *
+ * Python files run through a parallel branch lower down (extraction and
+ * resolution delegated to `python-imports.ts`) using the same
+ * `buildFileComponent` / `readBoundedFile` machinery, so `imports` and
+ * `uses-package` edges come out in the identical shape either language
+ * produces them in. The TS/JS file set and the Python file set never mix —
+ * each resolves only against its own `knownFiles`.
  */
 export declare function scanImports(projectRoot: string, sourceFiles?: string[], knownPackages?: KnownPackage[]): Promise<ScanResult>;
 //# sourceMappingURL=import-scanner.d.ts.map

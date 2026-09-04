@@ -101,6 +101,7 @@ import { scanSwiftCode } from './scanners/swift/code-scanner.js';
 import { scanRustCode } from './scanners/rust/code-scanner.js';
 import { scanImports } from './scanners/connections/import-scanner.js';
 import { scanMarkdownContent } from './scanners/content/markdown-scanner.js';
+import { languageOf } from './architecture-index.js';
 import { storeComponents, storeConnections, migratePerEntityFiles, buildIndex, buildGraph, buildFileMap, buildSummary, savePromptScan, clearStorage, clearForFiles, loadIndex, loadAllComponents, loadAllConnections, loadReverseDeps, runIntegrityCheck, mergeByStableId, normalizeTrackedPath, partitionPriorStateForFiles, atomicWriteJSON, ensureStableIdPublic, buildReverseDepsIndex, buildDerivedManifest, createSnapshot, computeFileHashes, saveHashes, detectFileChanges, formatFileChangeSummary, } from './storage.js';
 import { getConfig, ensureStorageDirectories, getIndexPath, SCHEMA_VERSION, STABLE_ID_SCHEME_VERSION, getComponentsPath, getConnectionsPath } from './config.js';
 import { acquireScanLease } from './scan-lock.js';
@@ -348,6 +349,160 @@ export function selectScanMode(fileChanges, index, options, now = Date.now()) {
     return { mode: 'incremental', reason: 'fast-path' };
 }
 // =============================================================================
+// SCAN COVERAGE (honesty contract — ARCHITECTURE.md § Coverage and blind spots)
+// =============================================================================
+//
+// `src/architecture-index.ts` (lines ~71-104, ~383-431) already computes this
+// exact idea for the committed, deterministic index projection. This section
+// intentionally mirrors its wording and shape rather than inventing a second
+// vocabulary for the same concept, so `scan` and `arch-index` never disagree
+// about what "analyzed" means for a given language.
+//
+// The extension→language map is imported from `architecture-index.ts`
+// (`LANGUAGE_BY_EXTENSION` / `languageOf`) rather than duplicated — a former
+// version of this file kept its own `SCAN_COVERAGE_LANGUAGE_BY_EXTENSION`
+// copy, and the two had already drifted (missing `.sh`/`.bash`/`.sql` here,
+// missing `.scala` there) before this dedup. Only the extension map is
+// shared; `SCAN_COVERAGE_ANALYZED_LANGUAGES` below stays local and
+// deliberately different from `architecture-index.ts`'s `ANALYZED_LANGUAGES`
+// — see the comment on it for why the two sets must never be merged.
+/**
+ * Languages a registered scanner actually consumes, keyed to the same
+ * strings `LANGUAGE_BY_EXTENSION` (imported from `architecture-index.ts`)
+ * produces. A language absent from this set is still counted (files,
+ * components-that-happen-to-resolve) for coverage purposes, but its
+ * `internal_edges` is always reported as 0 — no scanner ever looked at it, so
+ * "zero" there means "not measured", never "not coupled".
+ *
+ * Deliberately WIDER than `architecture-index.ts`'s `ANALYZED_LANGUAGES`:
+ * the full `scan` command additionally runs the Swift and Rust code
+ * scanners (`scanSwiftCode` / `scanRustCode`, see imports above), which
+ * `arch-index` never invokes — it builds its graph from `scanImports` alone.
+ * Do not merge the two sets; doing so would make one of the two commands
+ * claim coverage it does not have.
+ *
+ * Adding a new language scanner means adding its language string here too.
+ * Nothing else in this file infers the analyzed set from scanner presence —
+ * a future scanner author must add the entry explicitly or their new
+ * language will silently keep reading as an unanalyzed blind spot.
+ */
+export const SCAN_COVERAGE_ANALYZED_LANGUAGES = new Set([
+    'TypeScript',
+    'JavaScript',
+    'Python',
+    'Swift',
+    'Rust',
+]);
+/**
+ * Computes the scan's coverage table plus the `ScanWarning`s it implies.
+ *
+ * Returns `{ coverage: undefined, warnings: [] }` when every language
+ * present in `scannableFiles` was analyzed and produced at least one
+ * internal edge (`status: 'full'`) — the caller must not attach `coverage`
+ * in that case, so a fully-covered scan stays byte-identical to a scan that
+ * predates this change.
+ */
+function computeScanCoverage(scannableFiles, components, connections) {
+    const filesByLanguage = new Map();
+    for (const file of scannableFiles) {
+        const lang = languageOf(file);
+        if (!lang)
+            continue;
+        if (!filesByLanguage.has(lang))
+            filesByLanguage.set(lang, []);
+        filesByLanguage.get(lang).push(file);
+    }
+    if (filesByLanguage.size === 0) {
+        return { coverage: undefined, warnings: [] };
+    }
+    // Component -> file, via the same fields every scanner in this repo uses
+    // for a source-file component: `source.config_files[0]` (import-scanner's
+    // `buildFileComponent`) or `metadata.file` (Swift/Rust scanners).
+    const componentFile = (c) => {
+        const cfgFile = c.source?.config_files?.[0];
+        if (typeof cfgFile === 'string' && cfgFile.length > 0)
+            return cfgFile;
+        const metaFile = c.metadata?.['file'];
+        return typeof metaFile === 'string' ? metaFile : undefined;
+    };
+    const componentsByLanguage = new Map();
+    for (const c of components) {
+        const file = componentFile(c);
+        if (!file)
+            continue;
+        const lang = languageOf(file);
+        if (!lang)
+            continue;
+        componentsByLanguage.set(lang, (componentsByLanguage.get(lang) ?? 0) + 1);
+    }
+    // Deduplicated internal `imports` edges by the origin file's language — two
+    // import statements for the same target are one edge, matching
+    // `architecture-index.ts`'s dedup so the two counts never disagree.
+    const edgesByLanguage = new Map();
+    for (const conn of connections) {
+        if (conn.connection_type !== 'imports')
+            continue;
+        const from = conn.from.location?.file ?? conn.code_reference?.file;
+        const to = conn.to.location?.file;
+        if (!from || !to || from === to)
+            continue;
+        const lang = languageOf(from);
+        if (!lang)
+            continue;
+        if (!edgesByLanguage.has(lang))
+            edgesByLanguage.set(lang, new Set());
+        edgesByLanguage.get(lang).add(`${from} ${to}`);
+    }
+    const languages = [...filesByLanguage.entries()]
+        .map(([language, files]) => {
+        const analyzed = SCAN_COVERAGE_ANALYZED_LANGUAGES.has(language);
+        return {
+            language,
+            files: files.length,
+            analyzed,
+            components: componentsByLanguage.get(language) ?? 0,
+            // Not analyzed => always 0, even if a stray edge matched by
+            // coincidence — an unanalyzed language cannot have produced a real
+            // edge, so reporting one would contradict `analyzed: false`.
+            internal_edges: analyzed ? edgesByLanguage.get(language)?.size ?? 0 : 0,
+        };
+    })
+        .sort((a, b) => a.language.localeCompare(b.language));
+    const analyzedLanguageNames = [...SCAN_COVERAGE_ANALYZED_LANGUAGES].sort().join('/');
+    const blindSpots = [];
+    let hasGap = false;
+    for (const lang of languages) {
+        if (!lang.analyzed) {
+            hasGap = true;
+            blindSpots.push(`${lang.files} ${lang.language} file(s) are present but NOT analyzed. NavGator's ` +
+                `scanners cover ${analyzedLanguageNames} only, so zero ${lang.language} edges here ` +
+                `means "not measured", never "not coupled".`);
+        }
+        else if (lang.files > 0 && lang.internal_edges === 0) {
+            hasGap = true;
+            blindSpots.push(`${lang.files} ${lang.language} file(s) were analyzed but produced zero internal ` +
+                `edges. Either those files genuinely import nothing local, or the scanner missed ` +
+                `them — this scan cannot tell the two apart, so do not read the absence as low coupling.`);
+        }
+    }
+    blindSpots.sort();
+    const totalAnalyzedEdges = languages
+        .filter((l) => l.analyzed)
+        .reduce((sum, l) => sum + l.internal_edges, 0);
+    const status = totalAnalyzedEdges === 0 ? 'none' : hasGap ? 'partial' : 'full';
+    if (status === 'full') {
+        return { coverage: undefined, warnings: [] };
+    }
+    // Each blind spot is also a `ScanWarning`, so `warnings_count` stops
+    // reading 0 on a repo NavGator did not look at — a not-looked-at repo and
+    // a genuinely clean one must never print the same numbers.
+    const warnings = blindSpots.map((message) => ({
+        type: 'low_confidence',
+        message,
+    }));
+    return { coverage: { status, languages, blind_spots: blindSpots }, warnings };
+}
+// =============================================================================
 // MAIN SCANNER
 // =============================================================================
 /**
@@ -534,7 +689,14 @@ export async function scan(projectRoot, options = {}) {
         // ==========================================================================
         // Phase 0: File Discovery & Change Detection
         // ==========================================================================
-        const discoveredSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,rs,h,m}', {
+        // Widened (coverage reporting, Chunk 2) beyond the languages any scanner
+        // consumes: go/rb/java/kt/cs/php/scala/c/cpp/cc/hpp files must be globbed
+        // and hashed too, or `computeScanCoverage` below can never count them and
+        // the "present but not analyzed" warning silently never fires for them —
+        // the same false-negative this change exists to close. None of these
+        // extensions feed a scanner; they exist in `scannableFiles` for coverage
+        // counting and change-detection hashing only.
+        const discoveredSourceFiles = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs,py,swift,rs,h,m,go,rb,java,kt,cs,php,scala,c,cpp,cc,hpp}', {
             cwd: root,
             ignore: getIgnorePatterns(root),
         });
@@ -721,13 +883,18 @@ export async function scan(projectRoot, options = {}) {
             if (options.verbose) {
                 console.log(`Scan complete (noop) in ${duration}ms`);
             }
+            // A noop still re-globs `scannableFiles` (Phase 0 runs before this
+            // short-circuit), so the coverage table can be computed from the
+            // existing graph without a fresh Phase-3 pass — a repo whose blind spot
+            // was already disclosed on the prior scan must not go quiet on a noop.
+            const noopCoverage = computeScanCoverage(scannableFiles, existingComponents, existingConnections);
             await options._beforeLeaseRelease?.();
             return {
                 status: 'noop',
                 retryable: false,
                 components: existingComponents,
                 connections: existingConnections,
-                warnings: [],
+                warnings: noopCoverage.warnings,
                 fileChanges,
                 timelineEntry: noopTimelineEntry,
                 gitInfo,
@@ -735,11 +902,12 @@ export async function scan(projectRoot, options = {}) {
                     scan_duration_ms: duration,
                     components_found: existingComponents.length,
                     connections_found: existingConnections.length,
-                    warnings_count: 0,
+                    warnings_count: noopCoverage.warnings.length,
                     files_scanned: 0,
                     files_changed: 0,
                 },
                 ...(degraded ? { degraded } : {}),
+                ...(noopCoverage.coverage ? { coverage: noopCoverage.coverage } : {}),
             };
         }
         // For full scans: clear ALL prior data up front (legacy clearFirst semantics).
@@ -1065,7 +1233,7 @@ export async function scan(projectRoot, options = {}) {
                 allConnections.push(...serviceResult.connections);
                 allWarnings.push(...serviceResult.warnings);
             }
-            // File-level import graph (TS/JS local imports)
+            // File-level import graph (TS/JS + Python local imports)
             if (options.verbose)
                 console.log('  - Scanning file imports...');
             try {
@@ -1073,16 +1241,79 @@ export async function scan(projectRoot, options = {}) {
                 // can be resolved to the package component and emitted as `uses-package`
                 // edges. Use config_files filter instead of type filter: packages can be
                 // classified as 'npm' | 'framework' | 'database' | 'service' depending
-                // on FRAMEWORK_SIGNATURES, but all originate from a package.json.
-                const knownPackages = allComponents
+                // on FRAMEWORK_SIGNATURES, but all originate from a package.json. Pip
+                // packages get the same config_files-based treatment just below, keyed
+                // on requirements.txt / pyproject.toml instead — see `scanPipPackages`
+                // in `src/scanners/packages/pip.ts` for what actually produces them.
+                const npmKnownPackages = allComponents
                     .filter(c => c.source.config_files?.some(f => f === 'package.json' || f.endsWith('/package.json')))
                     .map(c => ({ name: c.name, component_id: c.component_id }));
+                // Pip components: match the manifests `scanPipPackages` (pip.ts)
+                // actually parses into components today (requirements.txt,
+                // pyproject.toml), plus requirements-*.txt / setup.py / Pipfile for
+                // forward compatibility if that scanner grows to parse them later.
+                // `scanPipPackages` never emits a setup.cfg-sourced component (it's
+                // not referenced anywhere in pip.ts), so that manifest is deliberately
+                // left out here rather than guessed at.
+                const PIP_MANIFEST_RE = /(^|\/)(requirements(-[\w.]+)?\.txt|pyproject\.toml|setup\.py|Pipfile)$/;
+                const pipComponents = allComponents.filter(c => c.source.config_files?.some(f => PIP_MANIFEST_RE.test(f.replace(/\\/g, '/'))));
+                // A pip distribution name and the name Python code actually imports
+                // can differ (`beautifulsoup4` -> `bs4`, `Pillow` -> `PIL`, ...).
+                // Deliberately partial — only the well-known mismatches that show up
+                // constantly in real requirements.txt files. An import head that
+                // isn't a known distribution name and isn't in this map resolves to
+                // nothing, matching the TS/JS bare-import contract: no match, no
+                // ghost node.
+                const PIP_IMPORT_ALIASES = {
+                    beautifulsoup4: 'bs4',
+                    pillow: 'PIL',
+                    pyyaml: 'yaml',
+                    'python-dateutil': 'dateutil',
+                    'scikit-learn': 'sklearn',
+                    'opencv-python': 'cv2',
+                    attrs: 'attr',
+                    'msgpack-python': 'msgpack',
+                    protobuf: 'google',
+                };
+                // PyPI distribution names treat '-', '_', and '.' as equivalent
+                // (PEP 503); canonicalize before consulting the alias map so
+                // `scikit_learn`/`scikit.learn`/`scikit-learn` all match the same key.
+                const canonicalPipName = (name) => name.toLowerCase().replace(/[._]+/g, '-');
+                const pipKnownPackages = [];
+                for (const c of pipComponents) {
+                    pipKnownPackages.push({ name: c.name, component_id: c.component_id });
+                    const alias = PIP_IMPORT_ALIASES[canonicalPipName(c.name)];
+                    if (alias)
+                        pipKnownPackages.push({ name: alias, component_id: c.component_id });
+                }
+                // `scanImports`'s `knownPackages` map is one flat namespace shared by
+                // both its TS/JS and Python bare-import passes (`KnownPackage` in
+                // `src/scanners/connections/import-scanner.ts` carries no ecosystem
+                // tag). Passing one merged npm+pip list would let a pip package
+                // cross-link to a same-named npm package or vice versa (e.g. a pip
+                // `requests` resolving to an npm `requests`). Instead, call
+                // `scanImports` once per ecosystem's own file set with only that
+                // ecosystem's package list — the TS/JS call never sees a .py file and
+                // the pip call never sees a TS/JS file, so neither list's names can
+                // leak into the other's resolution. The TS/JS call's inputs
+                // (non-Python files, npm-only package list) are unchanged from
+                // before this split, so its output is unchanged too.
+                const pythonSourceFiles = sourceFiles.filter(f => f.replace(/\\/g, '/').endsWith('.py'));
+                const nonPythonSourceFiles = sourceFiles.filter(f => !f.replace(/\\/g, '/').endsWith('.py'));
                 // Import resolution needs the complete source-file universe even when
                 // only a subset of origins is dirty. Otherwise an unchanged local target
                 // is absent from knownFiles and a valid edge silently disappears. Scan
                 // against the complete universe, then retain only dirty-origin edges for
                 // the incremental delta.
-                const importResult = await scanImports(root, sourceFiles, knownPackages);
+                const tsJsImportResult = await scanImports(root, nonPythonSourceFiles, npmKnownPackages);
+                const pythonImportResult = pythonSourceFiles.length > 0
+                    ? await scanImports(root, pythonSourceFiles, pipKnownPackages)
+                    : { components: [], connections: [], warnings: [] };
+                const importResult = {
+                    components: [...tsJsImportResult.components, ...pythonImportResult.components],
+                    connections: [...tsJsImportResult.connections, ...pythonImportResult.connections],
+                    warnings: [...tsJsImportResult.warnings, ...pythonImportResult.warnings],
+                };
                 const importConnections = incWalkSet
                     ? importResult.connections.filter(connection => {
                         const origin = connection.code_reference?.file?.replace(/\\/g, '/');
@@ -2044,6 +2275,14 @@ export async function scan(projectRoot, options = {}) {
         const filesChanged = fileChanges
             ? fileChanges.added.length + fileChanges.modified.length + fileChanges.removed.length
             : scannableFiles.length;
+        // Coverage runs against `finalComponents`/`finalConnections` — the full
+        // merged state (incremental scans merge onto prior state; see
+        // `mergeByStableId` above), not just this scan's walk-set — so the report
+        // always describes the whole known graph, not only what just changed. Its
+        // warnings are pushed into `allWarnings` BEFORE `warnings_count` is read
+        // below, so a coverage gap is never silently absent from that count.
+        const scanCoverage = computeScanCoverage(scannableFiles, finalComponents, finalConnections);
+        allWarnings.push(...scanCoverage.warnings);
         if (options.verbose) {
             console.log(`\nScan complete in ${duration}ms`);
             console.log(`  Components: ${finalComponents.length}`);
@@ -2099,6 +2338,7 @@ export async function scan(projectRoot, options = {}) {
                 prompts_found: promptScanResultHolder?.prompts.length,
             },
             ...(degraded ? { degraded } : {}),
+            ...(scanCoverage.coverage ? { coverage: scanCoverage.coverage } : {}),
         };
     }
     catch (error) {
