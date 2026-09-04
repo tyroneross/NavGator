@@ -53,6 +53,43 @@ reported in the scan summary rather than applied silently.
 
 ---
 
+### CI runs `npm test` before `npm run build`, so tests read a build artifact that is not there yet
+
+**Status:** open
+**Reported:** 2026-09-04, while wiring the weekly release cut
+**Severity:** blocking (main is red, and the weekly release cut refuses to cut from a red main)
+
+`ci.yml` orders its steps `npm test` -> `npm run typecheck` -> `npm run build`.
+`web/server.cjs` is produced by `npm run build:standalone`
+(`scripts/prepare-web-runtime.mjs`) and is gitignored (`.gitignore:48`), so on a
+clean CI checkout it does not exist while the suite runs. Two failures follow:
+
+- `__tests__/architecture-index-contract.test.ts > gate A - differential: the
+  index must not hide a real importer`
+- `Error running 'navgator doctor --json'` / `--fix --yes --json`, both
+  `ENOENT: spawn failed`
+
+The suite passes locally only because a previous local build left
+`web/server.cjs` on disk. `npm run clean` deletes it, so a developer who cleans
+reproduces CI exactly. This is the classic "green locally, red in CI" shape where
+the difference is step ordering, not the environment.
+
+First observed red on `9ac95e61` (2026-09-02), so it predates the release
+wiring; runs `33697218043`, `33725662062`, and `33846092813` all fail with the
+identical signature.
+
+**Consequence:** `release-weekly-merge.yml` reads `ci.yml`'s latest conclusion on
+main as Guard 1 and will not merge the release PR while it reads `failure`. The
+open release PR (`#7`, navgator 0.10.0) therefore waits until this is fixed. The
+guard is behaving correctly; it is reporting a real red main.
+
+**Why it is not fixed here:** the two failures are separate defects sharing one
+cause, and the remedy is a choice about the test/build contract - build before
+test, or make each test provision the artifact it spawns. Either changes what
+`git diff --exit-code -- dist` asserts downstream, so it needs its own baseline
+and verification pass rather than a blind reorder inside a release-wiring change.
+
+
 ## Closed
 
 ### `npm test` registered tmp scan fixtures into the developer's real `~/.navgator`
