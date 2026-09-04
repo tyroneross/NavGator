@@ -48,10 +48,46 @@ jobs:
       - name: Use npm 11 (the retired quick-audit endpoint answers 400)
         run: npm install -g npm@^11
 
+      # `npm audit` exits non-zero for TWO unrelated reasons: it found
+      # vulnerabilities, or it could not reach the advisory service. Treating
+      # them the same makes this gate report on npm's uptime instead of on this
+      # repo — observed 2026-09-04, when the bulk endpoint answered 503 and then
+      # timed out, reddening main while nothing here had changed.
+      #
+      # A finding still FAILS. An unreachable service WARNS and continues, and
+      # says so in the job summary, because a silent skip is how a security gate
+      # rots unnoticed. The residual risk is explicit: during an npm outage this
+      # push is not audited, and the next successful run audits it.
       - name: Audit production dependencies
         run: |
-          npm audit --omit=dev --audit-level=moderate
-          npm --prefix web audit --omit=dev --audit-level=moderate
+          set -uo pipefail
+          audit_one() {
+            local label="$1"; shift
+            local out rc
+            out="$("$@" --json 2>/dev/null)"; rc=$?
+            if [ $rc -eq 0 ]; then echo "  $label: clean"; return 0; fi
+            # A real result carries a vulnerability count; a service failure does not.
+            if printf '%s' "$out" | node -e '
+              let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                try{const j=JSON.parse(s);
+                  const m=j.metadata&&j.metadata.vulnerabilities;
+                  process.exit(m&&Object.values(m).some(n=>n>0)?0:1);
+                }catch(e){process.exit(1);}});'; then
+              echo "::error::$label: npm audit found vulnerabilities at or above moderate"
+              printf '%s' "$out" | node -e '
+                let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+                  const j=JSON.parse(s);
+                  console.log(JSON.stringify(j.metadata.vulnerabilities));});'
+              return 1
+            fi
+            echo "::warning::$label: advisory service unreachable — NOT audited this run"
+            echo "  $label: advisory service unreachable (not a finding, not a pass)" >> "$GITHUB_STEP_SUMMARY"
+            return 0
+          }
+          rc=0
+          audit_one "root" npm audit --omit=dev --audit-level=moderate || rc=1
+          audit_one "web"  npm --prefix web audit --omit=dev --audit-level=moderate || rc=1
+          exit $rc
 
       - name: Test full suite
         run: npm test
