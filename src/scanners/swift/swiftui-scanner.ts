@@ -114,8 +114,23 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
   // Phase 3: Convert to architecture components/connections
   const viewNameSet = new Set(views.map(v => v.name));
 
+  // One stable id per view name. generateComponentId() appends a random
+  // suffix, so an id minted at an edge never equals the id of the pushed
+  // component; every composed-view and navigation edge below must look the
+  // id up here instead of minting a second one (endpoint-resolution audit,
+  // 2026-09-05: 16 of 1,394 Ambient Agent edges dangled for exactly this).
+  const viewIdByName = new Map<string, string>();
+  const viewIdFor = (name: string): string => {
+    let id = viewIdByName.get(name);
+    if (!id) {
+      id = generateComponentId('component', name);
+      viewIdByName.set(name, id);
+    }
+    return id;
+  };
+
   for (const view of views) {
-    const compId = generateComponentId('component', view.name);
+    const compId = viewIdFor(view.name);
 
     components.push({
       component_id: compId,
@@ -163,7 +178,7 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
             location: { file: view.file, line: view.line },
           },
           to: {
-            component_id: generateComponentId('component', childName),
+            component_id: viewIdFor(childName),
           },
           connection_type: 'imports',
           code_reference: {
@@ -185,6 +200,9 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
 
   // Navigation connections
   for (const nav of navigationLinks) {
+    // Only emit edges whose endpoints are pushed above; an unknown name would
+    // mint a component id nothing owns (the dangling-endpoint defect class).
+    if (!viewNameSet.has(nav.sourceView) || !viewNameSet.has(nav.destinationView)) continue;
     const connType = nav.type === 'sheet' || nav.type === 'fullScreenCover' || nav.type === 'popover'
       ? 'presents' as const
       : 'navigates-to' as const;
@@ -192,11 +210,11 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
     connections.push({
       connection_id: generateConnectionId(connType),
       from: {
-        component_id: generateComponentId('component', nav.sourceView),
+        component_id: viewIdFor(nav.sourceView),
         location: { file: nav.file, line: nav.line },
       },
       to: {
-        component_id: generateComponentId('component', nav.destinationView),
+        component_id: viewIdFor(nav.destinationView),
       },
       connection_type: connType,
       code_reference: {

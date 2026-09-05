@@ -70,7 +70,7 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 371,
+    "analyzed_files": 374,
     "blind_spots": [
       "7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "7 Python file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
@@ -78,7 +78,7 @@
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1050,
+    "internal_edges": 1057,
     "languages": [
       {
         "analyzed": true,
@@ -100,8 +100,8 @@
       },
       {
         "analyzed": true,
-        "files": 357,
-        "internal_edges": 1050,
+        "files": 360,
+        "internal_edges": 1057,
         "language": "TypeScript"
       }
     ],
@@ -870,6 +870,14 @@
       "module": "src/__tests__",
       "type_only_imports": []
     },
+    "src/__tests__/python-imports.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/connections/python-imports.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
     "src/__tests__/queue-scanner.test.ts": {
       "imported_by": [],
       "imports": [
@@ -994,6 +1002,18 @@
       ],
       "module": "src/__tests__",
       "type_only_imports": []
+    },
+    "src/__tests__/scan-coverage.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/impact.ts",
+        "src/scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
     },
     "src/__tests__/scan-degradation.test.ts": {
       "imported_by": [],
@@ -1335,7 +1355,8 @@
         "src/audit/spc.ts",
         "src/audit/verifiers.ts",
         "src/storage.ts",
-        "src/types.ts"
+        "src/types.ts",
+        "src/version.ts"
       ],
       "module": "src/audit",
       "type_only_imports": [
@@ -1356,9 +1377,13 @@
         "src/__tests__/audit-spc.test.ts",
         "src/audit/index.ts"
       ],
-      "imports": [],
+      "imports": [
+        "src/types.ts"
+      ],
       "module": "src/audit",
-      "type_only_imports": []
+      "type_only_imports": [
+        "src/types.ts"
+      ]
     },
     "src/audit/verifiers.ts": {
       "imported_by": [
@@ -2495,6 +2520,7 @@
     "src/impact.ts": {
       "imported_by": [
         "src/__tests__/impact.test.ts",
+        "src/__tests__/scan-coverage.test.ts",
         "src/cli/commands/impact.ts",
         "src/explore-report.ts",
         "src/index.ts",
@@ -2969,6 +2995,7 @@
         "src/__tests__/multi-stack-discovery.test.ts",
         "src/__tests__/remote/scan-remote.test.ts",
         "src/__tests__/scan-boundaries.test.ts",
+        "src/__tests__/scan-coverage.test.ts",
         "src/__tests__/scan-degradation.test.ts",
         "src/__tests__/scanner-audit.test.ts",
         "src/__tests__/scanner-characterization.test.ts",
@@ -3059,6 +3086,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/scanners/connections/python-imports.ts",
         "src/scanners/scan-limits.ts",
         "src/types.ts"
       ],
@@ -3087,6 +3115,15 @@
       "imports": [
         "src/types.ts"
       ],
+      "module": "src/scanners",
+      "type_only_imports": []
+    },
+    "src/scanners/connections/python-imports.ts": {
+      "imported_by": [
+        "src/__tests__/python-imports.test.ts",
+        "src/scanners/connections/import-scanner.ts"
+      ],
+      "imports": [],
       "module": "src/scanners",
       "type_only_imports": []
     },
@@ -3502,6 +3539,7 @@
         "src/__tests__/mjs-frontend-fetch.test.ts",
         "src/__tests__/per-entity-files-gate.test.ts",
         "src/__tests__/resolve.test.ts",
+        "src/__tests__/scan-coverage.test.ts",
         "src/__tests__/scanner-audit.test.ts",
         "src/__tests__/scanner-diff-guard.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
@@ -3512,6 +3550,7 @@
         "src/agent-output.ts",
         "src/architecture-insights.ts",
         "src/audit/index.ts",
+        "src/audit/spc.ts",
         "src/audit/verifiers.ts",
         "src/classify.ts",
         "src/cli/commands/arch-diff.ts",
@@ -3616,6 +3655,7 @@
     "src/version.ts": {
       "imported_by": [
         "src/__tests__/release-contract.test.ts",
+        "src/audit/index.ts",
         "src/cli/index.ts",
         "src/mcp/server.ts",
         "src/memory/mirror.ts"
@@ -5144,7 +5184,7 @@
   "generator": "navgator arch-index",
   "hotspots": [
     {
-      "dependents": 99,
+      "dependents": 101,
       "file": "src/types.ts",
       "module": "src"
     },
@@ -5179,7 +5219,7 @@
       "module": "web/lib"
     },
     {
-      "dependents": 24,
+      "dependents": 25,
       "file": "src/scanner.ts",
       "module": "src"
     },
@@ -5306,7 +5346,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 113,
+      "edges": 116,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5366,7 +5406,7 @@
       "to": "src/remote"
     },
     {
-      "edges": 32,
+      "edges": 33,
       "from": "src/__tests__",
       "to": "src/scanners"
     },
@@ -5391,7 +5431,7 @@
       "to": "web/lib"
     },
     {
-      "edges": 3,
+      "edges": 5,
       "from": "src/audit",
       "to": "src"
     },
@@ -5586,7 +5626,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 113,
+          "edges": 116,
           "module": "src/__tests__"
         },
         {
@@ -5611,6 +5651,10 @@
         },
         {
           "edges": 5,
+          "module": "src/audit"
+        },
+        {
+          "edges": 5,
           "module": "src/memory"
         },
         {
@@ -5620,10 +5664,6 @@
         {
           "edges": 4,
           "module": "src/freshness"
-        },
-        {
-          "edges": 3,
-          "module": "src/audit"
         },
         {
           "edges": 3,
@@ -5707,7 +5747,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 113,
+          "edges": 116,
           "module": "src"
         },
         {
@@ -5715,7 +5755,7 @@
           "module": "src/cli"
         },
         {
-          "edges": 32,
+          "edges": 33,
           "module": "src/scanners"
         },
         {
@@ -5775,7 +5815,7 @@
           "module": "web"
         }
       ],
-      "files": 102,
+      "files": 104,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"
@@ -5797,7 +5837,7 @@
       ],
       "depends_on": [
         {
-          "edges": 3,
+          "edges": 5,
           "module": "src"
         }
       ],
@@ -6200,7 +6240,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 32,
+          "edges": 33,
           "module": "src/__tests__"
         },
         {
@@ -6218,7 +6258,7 @@
           "module": "src"
         }
       ],
-      "files": 28,
+      "files": 29,
       "id": "src/scanners",
       "key_files": [
         "src/scanners/connections/import-scanner.ts",

@@ -90,6 +90,7 @@ import {
   ScanDegradation,
   ScanCoverage,
   LanguageCoverage,
+  generateComponentId,
 } from './types.js';
 import { getGitInfo } from './git.js';
 import { enrichFromCache } from './enrich/external-resolver.js';
@@ -164,6 +165,129 @@ import { runAudit, updateEwmaForAudit, type AuditOptions } from './audit/index.j
  * Strip internal scratch fields (prefixed with `__`) before persisting
  * an AuditReport on a TimelineEntry.
  */
+/**
+ * Name a synthesized file-node the same way the import-scanner names its
+ * internal-module components (`buildFileComponent` /`componentNameFromFile`),
+ * so a Swift/Rust file-node and a TypeScript module component read alike in
+ * the graph. Kept local to scanner.ts rather than exported from the import
+ * scanner because the two callers must stay independently changeable.
+ */
+function endpointNodeName(file: string): string {
+  const normalized = file.replace(/\\/g, '/');
+  const withoutExtension = normalized.replace(/\.[^.]+$/, '');
+  const segments = withoutExtension.split('/').filter(Boolean);
+  if (segments[0] === 'src' || segments[0] === 'app' || segments[0] === 'lib') segments.shift();
+  if (segments[segments.length - 1] === 'index' && segments.length > 1) segments.pop();
+  return segments.join('/') || path.basename(withoutExtension);
+}
+
+function endpointNodeLayer(file: string): 'frontend' | 'backend' | 'database' | 'queue' | 'infra' | 'external' {
+  const normalized = file.replace(/\\/g, '/').toLowerCase();
+  if (/(^|\/)(ui|components|views|pages|frontend|web)(\/|$)/.test(normalized)) return 'frontend';
+  if (/(^|\/)(db|database|prisma|drizzle|migrations)(\/|$)/.test(normalized)) return 'database';
+  if (/(^|\/)(queue|queues|jobs|workers)(\/|$)/.test(normalized)) return 'queue';
+  if (/(^|\/)(infra|infrastructure|terraform|k8s|docker)(\/|$)/.test(normalized)) return 'infra';
+  return 'backend';
+}
+
+/**
+ * Canonical form for a repo-relative file path used as a `FILE:` endpoint or
+ * a component's config_files entry (Run 4 fix2 #4): forward slashes, no
+ * leading `./`, no duplicated separators. `FILE:./src/a.ts`, `FILE:src//a.ts`
+ * and a component claiming `src/a.ts` must all meet on the same key.
+ */
+export function normalizeEndpointPath(p: string): string {
+  let s = p.replace(/\\/g, '/');
+  s = s.replace(/\/{2,}/g, '/');
+  while (s.startsWith('./')) s = s.slice(2);
+  s = s.replace(/\/\.\//g, '/');
+  return s;
+}
+
+/**
+ * (C) Resolve FILE: prefixed connection endpoints to real component IDs so
+ * trace can follow imports from route files instead of dead-ending.
+ *
+ * (C2) Synthesize a file-node for every FILE: endpoint that survived (C).
+ * A surviving FILE: ref names a real source file that no scanner claimed as
+ * a component — Swift and Rust files, and TypeScript files the import
+ * scanner never walked (scripts/, _archive/, tests/). Storing such an edge
+ * leaves it dangling: `runIntegrityCheck` (storage.ts) exempts FILE: ids
+ * unconditionally, so the graph reports "ok" while trace dead-ends and the
+ * audit counts the edge as hallucinated. One file-node per file, created
+ * once, reused by every endpoint naming that file; only for paths that exist
+ * on disk (a component built on a phantom path would fail integrity check
+ * rule (2) and promote every later incremental scan to full).
+ *
+ * Mutates `components` (pushes file-nodes) and the endpoint ids in
+ * `connections`. Paths are normalized on both sides (fix2 #4).
+ */
+export function resolveFileEndpoints(
+  components: ArchitectureComponent[],
+  connections: ArchitectureConnection[],
+  root: string
+): void {
+  const compByFile = new Map<string, string>(); // normalized file path → component_id
+  for (const comp of components) {
+    for (const f of comp.source?.config_files || []) {
+      const key = normalizeEndpointPath(f);
+      if (!compByFile.has(key)) compByFile.set(key, comp.component_id);
+    }
+  }
+  const fileNodeByPath = new Map<string, string>();
+  const resolve = (ref: { component_id: string } | undefined): void => {
+    const id = ref?.component_id;
+    if (!ref || !id?.startsWith('FILE:')) return;
+    const filePath = normalizeEndpointPath(id.slice(5));
+    const claimed = compByFile.get(filePath);
+    if (claimed) {
+      ref.component_id = claimed;
+      return;
+    }
+    let nodeId = fileNodeByPath.get(filePath);
+    if (!nodeId) {
+      if (!fs.existsSync(path.join(root, filePath))) return;
+      const node = buildEndpointFileComponent(filePath, Date.now());
+      components.push(node);
+      compByFile.set(filePath, node.component_id);
+      fileNodeByPath.set(filePath, node.component_id);
+      nodeId = node.component_id;
+    }
+    ref.component_id = nodeId;
+  };
+  for (const conn of connections) {
+    resolve(conn.from);
+    resolve(conn.to);
+  }
+}
+
+/**
+ * Build the file-node that backs a `FILE:` connection endpoint no scanner
+ * claimed. Structurally identical to the import-scanner's internal-module
+ * component (same type/shape/config_files contract) so downstream consumers —
+ * dedup, stable_id, integrity check, trace — treat it as an ordinary component.
+ */
+function buildEndpointFileComponent(file: string, timestamp: number): ArchitectureComponent {
+  return {
+    component_id: generateComponentId('component', endpointNodeName(file)),
+    name: endpointNodeName(file),
+    type: 'component',
+    role: {
+      purpose: `Source file at ${file}`,
+      layer: endpointNodeLayer(file),
+      critical: false,
+    },
+    source: { detection_method: 'auto', config_files: [file], confidence: 0.6 },
+    connects_to: [],
+    connected_from: [],
+    status: 'active',
+    tags: ['file-node'],
+    metadata: { file, kind: 'source-file', detected_from: 'endpoint-resolver' },
+    timestamp,
+    last_updated: timestamp,
+  };
+}
+
 function stripInternals(report: AuditReport): AuditReport {
   const { ...clean } = report as AuditReport & Record<string, unknown>;
   for (const k of Object.keys(clean)) {
@@ -1941,6 +2065,30 @@ export async function scan(
   }
   const uniqueComponents = Array.from(componentMap.values());
 
+  // Dedup drops the losing component, but scanners have already put its
+  // component_id on edges — that is exactly the orphan class described above,
+  // and it is still live: the Swift code scanner and the SwiftUI scanner both
+  // emit a `component` named e.g. `ChatView` with no config_files, so they
+  // share a dedup key and one is discarded along with every edge pointing at
+  // it. Remap those endpoints onto the survivor rather than leaving them
+  // dangling; the two components describe the same Swift type.
+  const droppedToSurvivor = new Map<string, string>();
+  for (const component of allComponents) {
+    const primaryFile = component.source?.config_files?.[0] ?? '';
+    const survivor = componentMap.get(`${component.type}|${component.name}|${primaryFile}`);
+    if (survivor && survivor.component_id !== component.component_id) {
+      droppedToSurvivor.set(component.component_id, survivor.component_id);
+    }
+  }
+  if (droppedToSurvivor.size > 0) {
+    for (const conn of allConnections) {
+      const from = droppedToSurvivor.get(conn.from?.component_id ?? '');
+      if (from) conn.from.component_id = from;
+      const to = droppedToSurvivor.get(conn.to?.component_id ?? '');
+      if (to) conn.to.component_id = to;
+    }
+  }
+
   // Deduplicate connections by composite key (within current scan)
   // Keeps highest confidence when duplicates found (e.g., regex + AST detect same call)
   const connectionMap = new Map<string, ArchitectureConnection>();
@@ -1953,30 +2101,11 @@ export async function scan(
   }
   const uniqueConnections = Array.from(connectionMap.values());
 
-  // (C) Resolve FILE: prefixed connection targets to real component IDs
-  // This enables trace to follow imports from route files instead of dead-ending
-  const compByFile = new Map<string, string>(); // file path → component_id
-  for (const comp of uniqueComponents) {
-    for (const f of comp.source.config_files || []) {
-      compByFile.set(f, comp.component_id);
-    }
-  }
-  for (const conn of uniqueConnections) {
-    if (conn.to.component_id?.startsWith('FILE:')) {
-      const filePath = conn.to.component_id.slice(5);
-      const realId = compByFile.get(filePath);
-      if (realId) {
-        conn.to.component_id = realId;
-      }
-    }
-    if (conn.from.component_id?.startsWith('FILE:')) {
-      const filePath = conn.from.component_id.slice(5);
-      const realId = compByFile.get(filePath);
-      if (realId) {
-        conn.from.component_id = realId;
-      }
-    }
-  }
+  // (C) + (C2): resolve FILE: endpoints to claimed components, then synthesize
+  // one file-node per surviving on-disk path. Extracted to
+  // `resolveFileEndpoints` (Run 4 fix2 #4) so path aliases are normalized in
+  // one place and the behaviour is unit-testable without a full scan.
+  resolveFileEndpoints(uniqueComponents, uniqueConnections, root);
 
   // Snapshot previous state before overwriting (for change tracking)
   // Also load the pre-scan snapshot for diff computation
@@ -2246,6 +2375,9 @@ export async function scan(
         priorEwma: priorIndex?.ewma as never,
         priorAuditCount: priorIndex?.audit_history_count ?? 0,
         forceCochran: !!priorIndex?.pending_drift_breach,
+        // Run 4 fix2 #1: `navgator scan --scip` must reach the imports oracle;
+        // this line was lost in a concurrent edit of the (C) block.
+        scip: options.scip === true,
       };
 
       const r = await runAudit(

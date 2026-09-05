@@ -1,62 +1,92 @@
 /**
- * NavGator audit SPC — Run 2 / D5
+ * NavGator audit SPC — Run 2 / D5, rewritten in Run 4 (2026-09-05).
  *
- * EWMA control chart for slow drift detection across scans.
+ * One state object per stratum persisted on `index.json.ewma[stratum]`.
+ * Three detectors run on every Phase II point:
  *
- * Reference:
- *   - Hawkins & Wu, 2014 — EWMA chart performance for small mean shifts.
- *   - Roberts 1959 — Original EWMA proposal.
+ *   Shewhart p-chart (or u-chart)  — catches the single catastrophic scan
+ *   EWMA (λ=0.2, L=2.7)            — catches the slow slide
+ *   tabular CUSUM (k=0.5σ, h=5σ)   — NIST: better than Shewhart for shifts ≤ 2σ
+ *
+ * Run rules: Western Electric Rule 1 (beyond 3σ) and Rule 4 (8 on one side)
+ * only — the full set false-alarms ~1 in 53 points, which on per-commit
+ * scanning is an alarm every other day (research packet §3.5, source [26]).
+ *
+ * Phase I / Phase II (packet §3.1, protocol step 12): limits are NOT computed
+ * from the first few scans. The series is `provisional` until PHASE1_SUBGROUPS
+ * points have accumulated; provisional series cannot breach. At freeze,
+ * p̄ = ΣD_i / Σn_i (NIST §6.3.3.1, source [3]) floored at P_FLOOR so an all-zero
+ * Phase I can never produce zero-width limits (Run 4 defect 1: atomize-ai
+ * `connection-services` breached on its first non-zero point because eight
+ * zeros gave mean 0, variance 0).
+ *
+ * Re-baseline (protocol step 15): a NavGator version change is a
+ * measurement-system change. When `version` differs from the stored one the
+ * series resets to provisional and records `rebaselined_from`.
+ *
+ * Sources (packet "Sources" numbering):
+ *   [3]  NIST §6.3.3.1 p-chart: UCL/LCL = p̄ ± 3√(p̄(1−p̄)/n)
+ *   [28] u-chart: ū ± 3√(ū/n_i)
+ *   [5]  NIST §6.3.2.3 tabular CUSUM: S_hi = max(0, S_hi + x − μ₀ − k), S_lo = max(0, S_lo + μ₀ − k − x)
+ *   [6]  NIST §6.3.2.4 EWMA: σ²_ewma = (λ/(2−λ))·σ²; λ 0.2–0.3; L from Lucas & Saccucci
+ *   [26] Western Electric rules and their combined false-alarm rate
+ *   Hawkins & Wu 2014 for λ=0.2, L=2.7 (small-shift ARL optimum) — retained from Run 2.
  */
+import type { EwmaStateSnapshot } from '../types.js';
+/** Phase I length before limits are frozen (Montgomery convention ~25–30; packet §3.1). */
+export declare const PHASE1_SUBGROUPS = 25;
+/** Prior floor for p̄ / ū: max(observed, 0.01). Prevents zero-width limits. */
+export declare const P_FLOOR = 0.01;
 /**
- * EWMA state, persisted on `index.json.ewma[stratum]`.
- *
- *   z_i = λ x_i + (1-λ) z_{i-1}
- *   limits: μ ± L σ √(λ / (2-λ)) · √(1 - (1-λ)^{2i})   (with stabilization term)
- *
- * λ=0.2 and L=2.7 are Hawkins-Wu (2014) defaults that maximize ARL₁ for
- * shifts of ~0.5σ to 1σ — the small-shift regime that dominates "graph drift"
- * (e.g. defect rate creeping from 0.02 to 0.04).
+ * EWMA / chart state. Field names `mean`, `variance`, `n`, `points`,
+ * `breach_pending` keep their Run 2 meaning; everything else is Run 4 and
+ * optional (see EwmaStateSnapshot in types.ts).
  */
-export interface EwmaState {
-    /** Smoothing factor (0,1]. Default 0.2. */
-    lambda: number;
-    /** Control-limit width in σ. Default 2.7. */
-    L: number;
-    /** Target mean (process expectation; updates as new clean obs arrive). */
-    mean: number;
-    /** Population variance estimate (running). */
-    variance: number;
-    /** Number of observations seen. */
-    n: number;
-    /** Most recent z values (last 50 for plotting). */
-    points: number[];
-    /** True if the last update breached UCL/LCL. */
-    breach_pending?: boolean;
+export type EwmaState = EwmaStateSnapshot;
+export interface ChartObservation {
+    /** Observed rate for this subgroup (defects / inspected, or defects per edge). */
+    x: number;
+    /** Inspected units n_i (sample size for p-chart; edges for u-chart). */
+    n?: number;
+    /** Defect count (defaults to round(x·n)). */
+    defects?: number;
 }
-/** Initial state for a new stratum. mean=0 and variance=0 are placeholders;
- *  the first 5 observations are treated as warm-up (we never breach during
- *  warm-up). */
-export declare function newEwmaState(lambda?: number, L?: number): EwmaState;
+export interface UpdateOptions {
+    /** NavGator version producing the point; a change triggers re-baseline. */
+    version?: string;
+    /** 'p' (default) for defect fraction, 'u' for defects per edge. */
+    kind?: 'p' | 'u';
+    /** Prior floor for the centre line. */
+    floor?: number;
+    /** Phase I length override (tests). */
+    phase1?: number;
+}
 export interface UpdateResult {
     state: EwmaState;
-    /** True if z breached UCL/LCL on this update. */
+    /** True when at least one signal fired on this update. */
     breach: boolean;
-    /** EWMA statistic. */
+    /** EWMA statistic as a deviation from the centre line (legacy `points` convention). */
     z: number;
-    /** Upper control limit. */
+    /** Shewhart limits used for this point (0 while provisional). */
     ucl: number;
-    /** Lower control limit. */
     lcl: number;
+    /** Run 4 additions. */
+    phase: 'provisional' | 'frozen';
+    center: number;
+    signals: string[];
+    ewma_ucl: number;
+    ewma_lcl: number;
 }
+/** Initial state for a new stratum. */
+export declare function newEwmaState(lambda?: number, L?: number): EwmaState;
 /**
- * Update EWMA with a new observation (e.g., this run's defect rate for one stratum).
- *
- * Strategy:
- *   - During warm-up (first 5 obs), accumulate sample mean+variance, no breach reporting.
- *   - After warm-up, mean and variance are frozen (process target locked).
- *     z is then the EWMA of (x - mean) deviations; limits are symmetric around 0.
- *
- * Returns a NEW state (immutable update).
+ * Legacy entry point (Run 2 signature). Treats `x` as a rate observed on a
+ * subgroup of unknown size; σ then comes from the Phase I sample variance of
+ * x floored at the binomial σ for n=LEGACY_N. Prefer `updateChart`.
  */
 export declare function updateEwma(prev: EwmaState, x: number): UpdateResult;
+/**
+ * Update one stratum's chart with a new subgroup. Returns a NEW state.
+ */
+export declare function updateChart(prev: EwmaState, obs: ChartObservation, opts?: UpdateOptions): UpdateResult;
 //# sourceMappingURL=spc.d.ts.map

@@ -6,6 +6,48 @@ Track issues with known repro and clear remediation paths. Closed issues move to
 
 ## Open
 
+### SwiftUI navigation and composed-view edges still name components that do not exist
+
+**Status:** open (narrowed from 98.7% of all Swift edges to 16 edges)
+**Reported:** 2026-09-05, while making Swift/Rust connection endpoints resolvable
+**Severity:** signal-quality (trace dead-ends; the SQC audit scores them as hallucinated)
+
+**Pre-fix state.** On the RossLabs Ambient Agent repo (Swift + Rust), 1,493 of
+1,512 stored connections — 98.74% — had a `from` or `to` `component_id` that
+named no component in the graph. The SQC audit's verdict on that scan was
+`reject`: 63 defects in 187 sampled units, with `HALLUCINATED_EDGE` failing
+62 of 62.
+
+Two mechanisms produced it. First, scanners built endpoint ids by calling
+`generateComponentId()` at the edge; that generator appends a random suffix
+(`src/types.ts:725-729`), so the id at the edge never equalled the id of the
+component that was pushed. Second, the Swift conformance pass pointed edges at
+`FILE:<path>`, and `scanner.ts`'s resolver only bound a `FILE:` ref when some
+other scanner happened to claim that file as a component — which never happens
+for a `.swift` file. `runIntegrityCheck` (`src/storage.ts`) exempts `FILE:` ids
+unconditionally, so the graph reported healthy while every one of those edges
+dead-ended.
+
+**Fix.** Scanners now resolve type endpoints through a find-or-create keyed on
+name+type (`swift/code-scanner.ts`), Rust's `addComponent` returns the canonical
+id rather than letting callers reuse a discarded one (`rust/code-scanner.ts`),
+and `scanner.ts` synthesizes one file-node per surviving `FILE:` endpoint whose
+path exists on disk. Same repo after: 16 of 1,394 unresolved (1.15%), audit
+verdict `accept`, 0 defects in 237 sampled, `HALLUCINATED_EDGE` 0 of 62. On the
+Atomize AI repo the census went 33 of 8,283 to 0.
+
+**What is still open.** All 16 remaining dangling edges come from
+`src/scanners/swift/swiftui-scanner.ts`, which was outside the fix's file
+ownership: lines 166, 194 and 199 still call
+`generateComponentId('component', <viewName>)` at the edge for composed-view
+`imports` (11), `presents` (4) and `navigates-to` (1). The views themselves are
+pushed as components a few lines earlier, so the fix is to resolve those three
+endpoints against the id already emitted for that view name — the same
+find-or-create pattern applied everywhere else — rather than regenerating one.
+That would take the Swift census to 0.
+
+---
+
 ### The scan indexes `web/runtime/`, a gitignored build artifact
 
 **Status:** open

@@ -44,6 +44,7 @@ import { registerArchDiffCommand } from './commands/arch-diff.js';
 import { registerArchIndexCommand } from './commands/arch-index.js';
 import { registerDoctorCommand } from './commands/doctor.js';
 import { registerDeepMapCommand } from './commands/deep-map.js';
+import { registerAuditReportCommand } from './commands/audit-report.js';
 
 const NAVGATOR_LOGO = `
   _   _             ____       _
@@ -118,6 +119,7 @@ registerArchDiffCommand(program);
 registerArchIndexCommand(program);
 registerDoctorCommand(program);
 registerDeepMapCommand(program);
+registerAuditReportCommand(program);
 
 // =============================================================================
 // PARSE AND RUN

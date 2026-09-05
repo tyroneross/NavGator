@@ -20,14 +20,14 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-371 files analyzed, 1050 internal import edges.
+374 files analyzed, 1057 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
 | JavaScript | 7 | yes | 0 |
 | Python | 7 | yes | 0 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 357 | yes | 1050 |
+| TypeScript | 360 | yes | 1057 |
 
 What this index cannot see:
 
@@ -48,7 +48,7 @@ them a responsibility in `docs/architecture/modules.json`.
 | `.` | 1 | Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them. | - |
 | `scripts` | 12 | Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers. | - |
 | `src` | 37 | Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system. | `src/types.ts`<br>`src/config.ts`<br>`src/storage.ts` |
-| `src/__tests__` | 102 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
+| `src/__tests__` | 104 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
 | `src/audit` | 4 | Dependency-free statistical sampling and process-control math used to audit scan accuracy. | `src/audit/sampler.ts`<br>`src/audit/spc.ts`<br>`src/audit/verifiers.ts` |
 | `src/cli` | 30 | The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`. | `src/cli/exit-codes.ts`<br>`src/cli/commands/helpers.ts`<br>`src/cli/commands/portfolio.ts` |
 | `src/deep-map` | 9 | Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph. | `src/deep-map/types.ts`<br>`src/deep-map/store.ts`<br>`src/deep-map/filter.ts` |
@@ -61,7 +61,7 @@ them a responsibility in `docs/architecture/modules.json`.
 | `src/parsers` | 1 | SCIP overlay: shells out to scip-typescript for compiler-accurate cross-file edges the regex scanner cannot resolve. | `src/parsers/scip-runner.ts` |
 | `src/portfolio` | 4 | Cross-repo sweep: runs the single-repo scan pipeline over a folder of repositories and joins the results into one dependency map. | `src/portfolio/types.ts`<br>`src/portfolio/scan.ts`<br>`src/portfolio/cross-repo.ts` |
 | `src/remote` | 3 | Shallow-clones a GitHub URL into a cache and scans it. This is the untrusted-input path — every scanner cap in `src/scanners/scan-limits.ts` exists because of it. | `src/remote/clone.ts`<br>`src/remote/github-url.ts`<br>`src/remote/scan-remote.ts` |
-| `src/scanners` | 28 | Language and infrastructure scanners that turn source files into components and connections (TS/JS imports, Swift, Rust, Prisma, queues, cron, env, LLM calls). | `src/scanners/connections/import-scanner.ts`<br>`src/scanners/prompts/types.ts`<br>`src/scanners/connections/llm-call-tracer.ts` |
+| `src/scanners` | 29 | Language and infrastructure scanners that turn source files into components and connections (TS/JS imports, Swift, Rust, Prisma, queues, cron, env, LLM calls). | `src/scanners/connections/import-scanner.ts`<br>`src/scanners/prompts/types.ts`<br>`src/scanners/connections/llm-call-tracer.ts` |
 | `src/storage` | 1 | Markdown projection of stored components. Pure derivative — the JSON store stays canonical. | `src/storage/markdown-view.ts` |
 | `src/temporal` | 1 | Nested git repository inside `.navgator/` that gives architecture snapshots a history without touching the parent repo's git. | `src/temporal/git-store.ts` |
 | `web` | 3 | Next.js dashboard (`navgator ui`), built and packaged separately from the CLI. Talks to stored architecture data through its own API routes, never by importing `src/`. | `web/proxy.ts` |
@@ -76,8 +76,8 @@ Read as "the module on the left imports from the modules on the right"; the numb
 many file-level import edges cross that pair.
 
 - `src` imports `src/scanners` (28), `src/memory` (5), `src/portfolio` (4), `src/enrich` (3), `src/git-aware` (3), `src/freshness` (2), `src/remote` (2), `src/audit` (1), `src/metrics` (1), `src/parsers` (1), `src/storage` (1), `src/temporal` (1)
-- `src/__tests__` imports `src` (113), `src/cli` (34), `src/scanners` (32), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/audit` (3), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
-- `src/audit` imports `src` (3)
+- `src/__tests__` imports `src` (116), `src/cli` (34), `src/scanners` (33), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/audit` (3), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
+- `src/audit` imports `src` (5)
 - `src/cli` imports `src` (100), `src/deep-map` (8), `src/freshness` (3), `src/memory` (3), `src/portfolio` (3), `src/enrich` (2), `src/git-aware` (2), `src/scanners` (2), `src/remote` (1), `src/temporal` (1)
 - `src/deep-map` imports `src` (18), `src/metrics` (3)
 - `src/enrich` imports `src` (2)
@@ -103,14 +103,14 @@ Highest-fan-in files. Changing one of these can affect every file listed as its 
 
 | File | Module | Direct dependents |
 |---|---|---:|
-| `src/types.ts` | `src` | 99 |
+| `src/types.ts` | `src` | 101 |
 | `web/lib/utils.ts` | `web/lib` | 57 |
 | `src/config.ts` | `src` | 44 |
 | `src/storage.ts` | `src` | 38 |
 | `src/agent-output.ts` | `src` | 28 |
 | `src/cli/exit-codes.ts` | `src/cli` | 27 |
 | `web/lib/types.ts` | `web/lib` | 26 |
-| `src/scanner.ts` | `src` | 24 |
+| `src/scanner.ts` | `src` | 25 |
 | `src/__tests__/helpers.ts` | `src/__tests__` | 19 |
 | `src/projects.ts` | `src` | 19 |
 | `src/cli/commands/helpers.ts` | `src/cli` | 17 |

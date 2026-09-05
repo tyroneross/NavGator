@@ -192,10 +192,26 @@ export function neymanAllocate(n, strataSizes, strataStdDevs) {
         return [];
     const denom = strataSizes.reduce((acc, N_h, i) => acc + N_h * (strataStdDevs[i] ?? 0), 0);
     if (denom <= 0) {
-        // All-zero variance → equal split, capped by stratum size.
+        // All-zero variance → equal split, capped by stratum size, then
+        // (Run 4 fix2 #5) redistribute whatever the caps left unused to strata
+        // with room, so Σ n_h = min(n, Σ N_h). n=50, sizes [1,100] → [1,49].
         const base = Math.floor(n / strataSizes.length);
         const rem = n - base * strataSizes.length;
-        return strataSizes.map((N_h, i) => Math.min(N_h, base + (i < rem ? 1 : 0)));
+        const alloc = strataSizes.map((N_h, i) => Math.min(N_h, base + (i < rem ? 1 : 0)));
+        let remaining = n - alloc.reduce((a, b) => a + b, 0);
+        while (remaining > 0) {
+            let gave = false;
+            for (let i = 0; i < alloc.length && remaining > 0; i++) {
+                if ((alloc[i] ?? 0) < (strataSizes[i] ?? 0)) {
+                    alloc[i] = (alloc[i] ?? 0) + 1;
+                    remaining--;
+                    gave = true;
+                }
+            }
+            if (!gave)
+                break; // every stratum exhausted
+        }
+        return alloc;
     }
     // Real-valued allocation
     const real = strataSizes.map((N_h, i) => (n * (N_h * (strataStdDevs[i] ?? 0))) / denom);
@@ -292,6 +308,144 @@ export function selectAuditSample(items, totalN, strataKey, priorRates, rand = M
         const picked = sampleWithoutReplacement(have, want, rand);
         samples.push(...picked);
         byStratum[label] = { sampled: picked.length, total: have.length };
+    }
+    return { samples, byStratum };
+}
+/**
+ * Wilson score interval (NIST §7.2.4, source [7]):
+ *
+ *        p̂ + z²/(2n) ± z·sqrt( p̂(1−p̂)/n + z²/(4n²) )
+ *   CI = ------------------------------------------------
+ *                        1 + z²/n
+ *
+ * Lower limit cannot be negative (NIST's stated advantage over Wald).
+ */
+export function wilsonInterval(x, n, z = Z.Z_95) {
+    if (n <= 0)
+        return { lower: 0, upper: 1, method: 'wilson' };
+    const p = x / n;
+    const z2 = z * z;
+    const denom = 1 + z2 / n;
+    const centre = p + z2 / (2 * n);
+    const half = z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n));
+    return {
+        lower: Math.max(0, (centre - half) / denom),
+        upper: Math.min(1, (centre + half) / denom),
+        method: 'wilson',
+    };
+}
+/**
+ * Clopper-Pearson "exact" interval (NIST §7.2.4, source [7]), solved by
+ * bisection on the binomial CDF:
+ *   Σ_{k≤x}   C(n,k) p_U^k (1−p_U)^(n−k) = α/2
+ *   Σ_{k≤x−1} C(n,k) p_L^k (1−p_L)^(n−k) = 1 − α/2
+ * Closed forms at the boundaries: x=0 → p_U = 1 − (α/2)^(1/n); x=n → p_L = (α/2)^(1/n).
+ */
+export function clopperPearsonInterval(x, n, alpha = 0.05) {
+    if (n <= 0)
+        return { lower: 0, upper: 1, method: 'clopper-pearson' };
+    const a2 = alpha / 2;
+    const solve = (f, target) => {
+        // f is monotone decreasing in p (a CDF in p); find p with f(p) = target.
+        let lo = 0;
+        let hi = 1;
+        for (let i = 0; i < 60; i++) {
+            const mid = (lo + hi) / 2;
+            if (f(mid) > target)
+                lo = mid;
+            else
+                hi = mid;
+        }
+        return (lo + hi) / 2;
+    };
+    const lower = x <= 0 ? 0 : x >= n ? Math.pow(a2, 1 / n) : solve((p) => binomialCDF(n, p, x - 1), 1 - a2);
+    const upper = x >= n ? 1 : x <= 0 ? 1 - Math.pow(a2, 1 / n) : solve((p) => binomialCDF(n, p, x), a2);
+    return { lower, upper, method: 'clopper-pearson' };
+}
+/**
+ * Default reporting interval (protocol step 9, sources [7][17]): Wilson,
+ * except at x=0 or x=n where Clopper-Pearson is the honest exact bound.
+ */
+export function proportionInterval(x, n) {
+    if (n <= 0)
+        return { lower: 0, upper: 1, method: 'wilson' };
+    if (x <= 0 || x >= n)
+        return clopperPearsonInterval(x, n);
+    return wilsonInterval(x, n);
+}
+/**
+ * c=0 plan size (packet §1.2, sources [1][2][16]):  n = ⌈ ln β / ln(1 − LTPD) ⌉.
+ * LTPD 5%, β 10% → 45. The hypergeometric solution for N ≥ 3,000 is also 45,
+ * so no finite-population correction is applied.
+ */
+export function zeroAcceptanceN(ltpd = 0.05, beta = 0.10) {
+    if (ltpd <= 0 || ltpd >= 1 || beta <= 0 || beta >= 1) {
+        throw new Error('zeroAcceptanceN: require 0 < ltpd < 1 and 0 < beta < 1');
+    }
+    return Math.ceil(Math.log(beta) / Math.log(1 - ltpd));
+}
+/** Zero defects in n → one-sided upper bound at confidence `conf`: 1 − (1−conf)^(1/n). n=45 → 0.0644 (packet §1.3). */
+export function zeroDefectUpperBound(n, conf = 0.95) {
+    if (n <= 0)
+        return 1;
+    return 1 - Math.pow(1 - conf, 1 / n);
+}
+/** Producer's risk of a c=0 plan at true rate p: 1 − (1−p)^n. n=45, p=0.01 → 0.364 (packet §1.4). */
+export function producersRisk(n, p) {
+    return 1 - Math.pow(1 - p, n);
+}
+/**
+ * Neyman allocation with a per-stratum floor (protocol step 8):
+ *   n_h = min(N_h, max(floor, n · N_h σ_h / Σ N_i σ_i))
+ * Strata with N_h < floor are sampled in full and flagged `pooled` so their
+ * chart series is aggregated under `__pooled`. The floor is applied AFTER
+ * Neyman so the total may exceed `n`; that overrun is the price of keeping
+ * small heuristic strata estimable.
+ */
+export function neymanAllocateWithFloor(n, strataSizes, strataStdDevs, floor = 30) {
+    const base = neymanAllocate(n, strataSizes, strataStdDevs);
+    const alloc = base.map((a, i) => {
+        const N = strataSizes[i] ?? 0;
+        return Math.min(N, Math.max(floor, a));
+    });
+    const pooled = strataSizes.map((N) => N < floor);
+    return { alloc, pooled };
+}
+/**
+ * Stratified sample with floor + pooling flags (Run 4). Same contract as
+ * selectAuditSample plus `byStratum[label].pooled`.
+ */
+export function selectStratifiedSample(items, totalN, strataKey, opts = {}) {
+    const rand = opts.rand ?? Math.random;
+    const floor = opts.floor ?? 30;
+    const pool = opts.exclude && opts.idOf ? items.filter((it) => !opts.exclude.has(opts.idOf(it))) : items;
+    if (pool.length === 0 || totalN <= 0)
+        return { samples: [], byStratum: {} };
+    const buckets = new Map();
+    for (const item of pool) {
+        const key = strataKey(item);
+        let arr = buckets.get(key);
+        if (!arr) {
+            arr = [];
+            buckets.set(key, arr);
+        }
+        arr.push(item);
+    }
+    const labels = [...buckets.keys()];
+    const sizes = labels.map((l) => buckets.get(l).length);
+    const stdDevs = labels.map((l) => {
+        const p = Math.max(0, Math.min(1, opts.priorRates?.[l] ?? 0.5));
+        return Math.sqrt(p * (1 - p));
+    });
+    const { alloc, pooled } = neymanAllocateWithFloor(Math.min(totalN, pool.length), sizes, stdDevs, floor);
+    const samples = [];
+    const byStratum = {};
+    for (let i = 0; i < labels.length; i++) {
+        const label = labels[i];
+        const have = buckets.get(label);
+        const picked = sampleWithoutReplacement(have, alloc[i] ?? 0, rand);
+        samples.push(...picked);
+        byStratum[label] = { sampled: picked.length, total: have.length, pooled: pooled[i] ?? false };
     }
     return { samples, byStratum };
 }

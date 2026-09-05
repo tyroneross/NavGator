@@ -391,32 +391,52 @@ If an incremental scan fails its integrity check, NavGator automatically promote
 
 The mode used for any given scan appears in `.navgator/architecture/timeline.json` under `scan_type`.
 
-#### Audit (Run 2 — SQC self-measurement)
+#### Audit (Run 2 — SQC self-measurement; Run 4 — accuracy against reality)
 
-After every scan, NavGator runs a statistical-quality-control audit on its own output. The audit samples a fraction of the just-stored components and connections, runs five deterministic verifiers, optionally requests an LLM-judge spot-check, and tracks defect-rate drift across runs via an EWMA control chart. **Audit failures never fail the scan** — they only update per-stratum EWMA state. The next scan auto-promotes to a tighter inspection if any stratum breaches its control limits.
+After every scan, NavGator audits its own output. Run 4 (2026-09-05) turned this from an internal-consistency check into an accuracy-versus-reality measurement with sound statistics. The design follows the research packet *Statistical Quality Control for Verifying and Monitoring an Automated Architecture Map* (NIST/SEMATECH e-Handbook §6.2, §6.3, §7.2.4; ISSTA 2024 *Total Recall?*). **Audit failures never fail the scan.**
 
-| Plan | When picked | What it does |
-|------|-------------|--------------|
-| `AQL` (default) | first three audits, or via `--audit-plan=aql` | MIL-STD-105E single-sampling table at AQL=2.5%. Sample size scales with population (e.g. n=80 c=5 for ~1k facts). |
-| `SPRT` | history ≥ 3 audits | Wald 1945 sequential probability ratio test with α=β=0.05, p₀=1%, p₁=5%. Continues sampling until logLR escapes the bounds A=19 / B=0.0526. |
-| `Cochran` | prior run breached EWMA, or `--audit-plan=cochran` | Cochran's formula with FPC at 95% CI, ±5% margin. Tightest inspection. |
+**Census, not sample.** Invariants that can be counted exactly over the whole population are never sampled: unresolved connection endpoints (either `component_id` absent from the graph) and dedup collisions. `audit.census.unresolved_endpoints` carries `bad`, `total`, `rate`, a 95% interval, and breakdowns `by_type` and `by_top_dir`. The census series is charted as a u-chart (`__census-unresolved`) because the map grows with the repo.
+
+**Oracles.** Independent verifiers compare the stored map to sources of truth the scanner never read, reporting precision and recall with 95% intervals under `audit.oracles[]`:
+
+| Oracle | Truth frame | Strength | Recall |
+|---|---|---|---|
+| `npm` | root `package.json` dependencies ∪ devDependencies | independent | exact |
+| `prisma` | models in the Prisma schema via `@prisma/internals` getDMMF from the target's `node_modules`; regex `model X {` + `@@map` fallback | independent / weak | exact |
+| `cron` | `vercel.json` `crons[].path` | independent | exact |
+| `queue` | `new Queue('…')` / `new Bull('…')` literals from an independent source walk | weak (same evidence class as the scanner) | exact over the frame |
+| `imports-scip` | scip-typescript cross-file references (only with `scan --scip` or `audit-report --scip`) | independent | bound; `frame_coverage` reported next to it |
+
+An oracle whose manifest exists and parses but is empty (no dependencies, no crons) keeps strength `independent` with `truth_count: 0`; every map component of that stratum is then a false positive. Strength `none` is reserved for a missing or unreadable manifest.
+
+`database` components that are client libraries or hosted services (`@prisma/client`, `ioredis`, `pg`, `redis`, `prisma`, Supabase, …) are counted as prisma false positives with the note `client-library-misclassified`. The prisma oracle imports `@prisma/internals` from the audited repo's `node_modules` only with `--trust-target-deps` (or `NAVGATOR_TRUST_TARGET_DEPS=1`), because that executes code from the audited repo; the default is the regex oracle marked `weak`. The SCIP oracle's timeout is `--scip-timeout <ms>` / `NAVGATOR_SCIP_TIMEOUT_MS` (default 120000); a timeout is reported as strength `none` with the reason.
+
+**The c=0 screen.** Each audit draws a simple random sample of n=45 components and n=45 connections (LTPD 5%, consumer's risk 10%: n = ⌈ln 0.10 / ln 0.95⌉) and rejects on any defect across both. Because 90 units are inspected together, the OC arithmetic uses the combined count: zero defects licenses *95% one-sided confidence that the true error rate is ≤ 3.3%* (= 1 − 0.05^(1/90)), and **producer's risk is brutal**: a map that is truly 99% correct fails the combined screen 59% of the time (36% for one population of 45 alone; both figures are stored under `audit.screen` and `audit.screen.per_population`). `audit.verdict` is therefore this screen's verdict for every plan, and it is triage, never a hard gate. Inspected facts that carry no checkable evidence are reported as `unverifiable` and excluded from every rate.
+
+**Precision sample.** A stratified sample sized for interval width, not for a pass/fail: the founding audit (first audit, or any `Cochran` run) takes ~370 connections and 200 components (±3 pp at p≈0.90, FPC-adjusted); routine audits take ~137 per population (±5 pp). Allocation is Neyman (`n_h ∝ N_h·√(p_h(1−p_h))`) with a floor of n_h ≥ 30 per stratum; strata with N_h < 30 are sampled in full, flagged `pooled: true`, and charted together under `__pooled`. Every rate in `by_stratum` carries a Wilson 95% interval (Clopper-Pearson at 0 or n). `sampled` counts distinct facts inspected: the same connection checked by HALLUCINATED_EDGE and WRONG_ENDPOINT is one fact.
+
+| Plan | When picked | Effect |
+|------|-------------|--------|
+| `AQL` (default) | first three audits, or `--audit-plan=aql` | routine precision sample (founding on the first audit) |
+| `SPRT` | history ≥ 3 audits | Wald SPRT (α=β=0.05, p₀=1%, p₁=5%) with **continuation batches** drawn until a decision or the founding-sample cap; the decision lands on `audit.sprt.verdict` (`accept` / `reject` / `inconclusive` at the cap) next to batches, observations, cap and log LR. Approximation, documented: the observation stream is the stratified, floor-oversampled sample of components and connections treated as one Bernoulli sequence; the floor over-represents small heuristic strata, so the observed rate is biased upward and the SPRT leans toward `reject`. |
+| `Cochran` | prior run breached a chart, or `--audit-plan=cochran` | founding sizes (±3 pp) |
 
 Six defect classes:
 
 | Class | Verifier | LLM? |
 |-------|----------|------|
-| HALLUCINATED_COMPONENT | filesystem + symbol existence on `source.config_files` | no |
-| HALLUCINATED_EDGE | both endpoint component_ids resolve in graph | no |
+| HALLUCINATED_COMPONENT | filesystem existence on `source.config_files`; for code-derived type components (Swift/Rust types, modules, impls) that record their declaring file under `metadata.file`, the type name must appear in that file; a component with neither is `unverifiable`, never clean | no |
+| HALLUCINATED_EDGE | both endpoint component_ids resolve in graph (sampled view; the census counts it exactly) | no |
 | WRONG_ENDPOINT | grep target name/symbol in connection's source file | no |
 | STALE_REFERENCE | re-hash file vs `hashes.json` | no |
-| DEDUP_COLLISION | scan all components for duplicate `(type, name, primary-config)` triples (regression check on Run 1.7 fix) | no |
-| MISSED_EDGE | "list all outgoing edges, set-diff against graph" — emits a structured payload an MCP-side LLM judge can consume | yes (CLI-mode skips) |
+| DEDUP_COLLISION | whole-population scan for duplicate `(type, name, primary-config)` triples | no |
+| MISSED_EDGE | "list all outgoing edges, set-diff against graph" — structured payload for an MCP-side LLM judge | yes (CLI-mode skips) |
 
-In CLI mode the LLM-judge verifier is skipped and `audit.llm_skipped: true` is set. In MCP mode the audit emits a structured payload (`audit.defect_evidence` carries up to 20 sample failures) for the running model.
+Strata: `package`, `infra`, `connection-imports`, `connection-services`, `connection-llm`, `connection-prisma`, `__other`, plus `__pooled` and `__census-unresolved` on the charts.
 
-Per-stratum strata: `package`, `infra`, `connection-imports`, `connection-services`, `connection-llm`, `connection-prisma`, `__other`. Stratified sample selection uses Neyman optimal allocation (more samples → higher-variance strata).
+**Control charts with phases.** Per stratum, `index.json.ewma[stratum]` now holds a p-chart (u-chart for the census) plus EWMA (λ=0.2, L=2.7, σ_ewma = σ√(λ/(2−λ))) plus a standardised tabular CUSUM (k=0.5σ, h=5σ). Limits are **not** computed from the first few scans: a series is `provisional` until 25 subgroups have accumulated and cannot breach; at freeze, p̄ = ΣD_i/Σn_i floored at 0.01 so an all-zero Phase I can never produce zero-width limits (the defect that made atomize-ai's `connection-services` breach on its first non-zero point). Run rules are Western Electric 1 (beyond 3σ) and 4 (8 on one side) only — the full set false-alarms about 1 in 53 points. A non-zero low-side breach is a real signal (the scan silently missed part of the repo) unless the centre is the floor prior, in which case low-side signals are suppressed. Each series records the NavGator `version` that produced it; a version change is a measurement-system change and re-baselines the series to provisional, annotated with `rebaselined_from`. On breach, `pending_drift_breach` is set on the index and the next `--auto` scan promotes to `mode='full' + audit-plan='cochran'`.
 
-EWMA control chart (Hawkins-Wu defaults λ=0.2, L=2.7) tracks defect-rate drift per stratum across runs. On breach, `pending_drift_breach` is set on the index, and the next `--auto` scan promotes to `mode='full' + audit-plan='cochran'`.
+**Self-test.** `navgator audit-report --self-test` clones the stored graph in memory, plants K=10 defects per class for the **five deterministic classes** (HALLUCINATED_COMPONENT: nonexistent config file; HALLUCINATED_EDGE: unresolved endpoint; WRONG_ENDPOINT: symbol and target name absent from the file; STALE_REFERENCE: altered file hash; DEDUP_COLLISION: duplicate triple), runs the real audit with the planted facts guaranteed to be inspected, and reports per-class instrument recall. **MISSED_EDGE is untestable in CLI mode** (LLM-only verifier) and is reported as such, not as a pass. The vitest suite also proves the self-test *fails* when a verifier is stubbed out (mutation check). Sampling power — the chance a random draw reaches a given defect — is reported separately; the self-test measures the instrument, not the sample.
 
 Flags:
 
@@ -424,18 +444,22 @@ Flags:
 |------|---------|
 | `--no-audit` | Skip the audit pass entirely |
 | `--audit-plan <plan>` | Override plan auto-pick: `aql` \| `sprt` \| `cochran` |
+| `--scip` | Also runs the SCIP imports oracle inside the audit |
 
-Audit output appears on the timeline entry under `audit`:
+`navgator audit-report [--md|--json] [--last N] [--oracles] [--scip] [--scip-timeout <ms>] [--trust-target-deps] [--self-test --k 10 --plan aql]` prints the last N audits with intervals, the screen and its caveat, the census, oracle precision/recall, and per-stratum chart state (phase, centre, limits, last points, signals, version).
+
+Audit output appears on the timeline entry under `audit` (existing fields keep their meaning; Run 4 fields are additive):
 
 ```json
 {
-  "plan": "AQL",
-  "n": 80, "c": 5, "sampled": 156, "defects": 0,
-  "defect_rate": 0,
-  "by_class": { "HALLUCINATED_COMPONENT": { "sampled": 40, "defects": 0 }, ... },
-  "by_stratum": { "package": { "sampled": 18, "defects": 0, "defect_rate": 0 }, ... },
-  "verdict": "accept",
-  "llm_skipped": true
+  "plan": "AQL", "n": 337, "c": 0, "sampled": 372, "defects": 0, "defect_rate": 0,
+  "by_class": { "HALLUCINATED_COMPONENT": { "sampled": 200, "defects": 0 }, ... },
+  "by_stratum": { "connection-imports": { "sampled": 137, "defects": 0, "defect_rate": 0, "n_total": 3654, "ci": { "lower": 0, "upper": 0.0266, "method": "clopper-pearson" } }, ... },
+  "verdict": "accept", "llm_skipped": true, "navgator_version": "0.9.1",
+  "screen": { "n": 45, "c": 0, "ltpd": 0.05, "consumer_risk": 0.1, "defects": 0, "verdict": "accept", "upper_bound_95": 0.0644, "producers_risk_at_1pct": 0.364 },
+  "precision": { "kind": "routine", "margin": 0.05, "n_components": 133, "n_connections": 137, "floor": 30, "pooled_strata": ["connection-llm"] },
+  "census": { "unresolved_endpoints": { "bad": 195, "total": 8463, "rate": 0.023, "by_type": {...}, "by_top_dir": {...} }, "dedup_collisions": 0 },
+  "oracles": [ { "oracle": "npm", "oracle_strength": "independent", "truth_count": 134, "map_count": 131, "tp": 124, "fp": 1, "fn": 10, "precision": 0.992, "recall": 0.925, ... } ]
 }
 ```
 

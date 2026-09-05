@@ -94,5 +94,73 @@ export declare function selectAuditSample<T>(items: ReadonlyArray<T>, totalN: nu
         total: number;
     }>;
 };
+export interface ProportionInterval {
+    lower: number;
+    upper: number;
+    method: 'wilson' | 'clopper-pearson';
+}
+/**
+ * Wilson score interval (NIST §7.2.4, source [7]):
+ *
+ *        p̂ + z²/(2n) ± z·sqrt( p̂(1−p̂)/n + z²/(4n²) )
+ *   CI = ------------------------------------------------
+ *                        1 + z²/n
+ *
+ * Lower limit cannot be negative (NIST's stated advantage over Wald).
+ */
+export declare function wilsonInterval(x: number, n: number, z?: number): ProportionInterval;
+/**
+ * Clopper-Pearson "exact" interval (NIST §7.2.4, source [7]), solved by
+ * bisection on the binomial CDF:
+ *   Σ_{k≤x}   C(n,k) p_U^k (1−p_U)^(n−k) = α/2
+ *   Σ_{k≤x−1} C(n,k) p_L^k (1−p_L)^(n−k) = 1 − α/2
+ * Closed forms at the boundaries: x=0 → p_U = 1 − (α/2)^(1/n); x=n → p_L = (α/2)^(1/n).
+ */
+export declare function clopperPearsonInterval(x: number, n: number, alpha?: number): ProportionInterval;
+/**
+ * Default reporting interval (protocol step 9, sources [7][17]): Wilson,
+ * except at x=0 or x=n where Clopper-Pearson is the honest exact bound.
+ */
+export declare function proportionInterval(x: number, n: number): ProportionInterval;
+/**
+ * c=0 plan size (packet §1.2, sources [1][2][16]):  n = ⌈ ln β / ln(1 − LTPD) ⌉.
+ * LTPD 5%, β 10% → 45. The hypergeometric solution for N ≥ 3,000 is also 45,
+ * so no finite-population correction is applied.
+ */
+export declare function zeroAcceptanceN(ltpd?: number, beta?: number): number;
+/** Zero defects in n → one-sided upper bound at confidence `conf`: 1 − (1−conf)^(1/n). n=45 → 0.0644 (packet §1.3). */
+export declare function zeroDefectUpperBound(n: number, conf?: number): number;
+/** Producer's risk of a c=0 plan at true rate p: 1 − (1−p)^n. n=45, p=0.01 → 0.364 (packet §1.4). */
+export declare function producersRisk(n: number, p: number): number;
+/**
+ * Neyman allocation with a per-stratum floor (protocol step 8):
+ *   n_h = min(N_h, max(floor, n · N_h σ_h / Σ N_i σ_i))
+ * Strata with N_h < floor are sampled in full and flagged `pooled` so their
+ * chart series is aggregated under `__pooled`. The floor is applied AFTER
+ * Neyman so the total may exceed `n`; that overrun is the price of keeping
+ * small heuristic strata estimable.
+ */
+export declare function neymanAllocateWithFloor(n: number, strataSizes: ReadonlyArray<number>, strataStdDevs: ReadonlyArray<number>, floor?: number): {
+    alloc: number[];
+    pooled: boolean[];
+};
+/**
+ * Stratified sample with floor + pooling flags (Run 4). Same contract as
+ * selectAuditSample plus `byStratum[label].pooled`.
+ */
+export declare function selectStratifiedSample<T>(items: ReadonlyArray<T>, totalN: number, strataKey: (item: T) => string, opts?: {
+    floor?: number;
+    priorRates?: Record<string, number>;
+    rand?: () => number;
+    exclude?: Set<string>;
+    idOf?: (item: T) => string;
+}): {
+    samples: T[];
+    byStratum: Record<string, {
+        sampled: number;
+        total: number;
+        pooled: boolean;
+    }>;
+};
 export {};
 //# sourceMappingURL=sampler.d.ts.map

@@ -436,6 +436,31 @@ export interface EwmaStateSnapshot {
   n: number;
   points: number[];
   breach_pending?: boolean;
+  // ---- Run 4 (SQC accuracy, 2026-09-05) — additive, all optional ----
+  /** Chart kind: p-chart (defect fraction, varying n) or u-chart (defects per edge). */
+  kind?: 'p' | 'u';
+  /** NavGator version that produced this series; a change re-baselines (protocol step 15). */
+  version?: string;
+  /** Phase I (limits not yet frozen; cannot breach) vs Phase II (frozen limits). */
+  phase?: 'provisional' | 'frozen';
+  /** Phase I accumulators: Σ defects and Σ inspected units (NIST §6.3.3.1 p̄ = ΣD_i / Σn_i). */
+  phase1_defects?: number;
+  phase1_units?: number;
+  /** Frozen centre line (p̄ or ū), floored at the prior when the observed rate is lower. */
+  center?: number;
+  /** True when `center` came from the floor rather than the data (low-side signals suppressed). */
+  floor_active?: boolean;
+  /** Standardised tabular CUSUM state (NIST §6.3.2.3): k=0.5σ, h=5σ in σ units. */
+  cusum?: { s_hi: number; s_lo: number; k: number; h: number };
+  /** Signed run length for Western Electric Rule 4 (8 consecutive on one side). */
+  run_side?: number;
+  /** Last observation (rate, inspected units, and the Shewhart limits used). */
+  last?: { x: number; n: number; ucl: number; lcl: number; ewma: number; ewma_ucl: number; ewma_lcl: number };
+  /** Signals raised on the most recent update (e.g. 'rule1-high', 'ewma-low', 'cusum-high', 'rule4-high'). */
+  signals?: string[];
+  /** Set when the series was reset because the NavGator version changed. */
+  rebaselined_from?: string;
+  rebaselined_at?: number;
 }
 
 /**
@@ -453,6 +478,10 @@ export interface AuditSampleEvidence {
   id: string;
   ok: boolean;
   reason?: string;
+  /** Run 4: defect class of the verifier that produced this row (optional, additive). */
+  class?: AuditDefectClass;
+  /** Run 4 F5: the fact carried no evidence the verifier could check (ok stays true; counted separately). */
+  unverifiable?: boolean;
 }
 
 /**
@@ -465,13 +494,114 @@ export interface AuditReport {
   sampled: number;
   defects: number;
   defect_rate: number;
-  by_class: Partial<Record<AuditDefectClass, { sampled: number; defects: number }>>;
-  by_stratum: Record<string, { sampled: number; defects: number; defect_rate: number }>;
+  by_class: Partial<Record<AuditDefectClass, { sampled: number; defects: number; unverifiable?: number }>>;
+  by_stratum: Record<string, AuditStratumStats>;
   llm_skipped?: boolean;
-  verdict: 'accept' | 'reject' | 'continue';
+  /** 'inconclusive' (Run 4): SPRT reached the founding-sample cap without a verdict. */
+  verdict: 'accept' | 'reject' | 'continue' | 'inconclusive';
   drift_breach?: boolean;
   timestamp: number;
   defect_evidence?: AuditSampleEvidence[];
+  // ---- Run 4 (SQC accuracy, 2026-09-05) — additive, all optional ----
+  /** NavGator version that produced this audit (measurement-system identity). */
+  navgator_version?: string;
+  /** c=0 go/no-go screen (research packet §1.3–1.4): triage only, never a gate. */
+  screen?: AuditScreen;
+  /** Precision-sample design actually used (protocol step 8). */
+  precision?: AuditPrecisionDesign;
+  /** SPRT continuation bookkeeping (Run 4 fixes "continue with no further batch"). `verdict` is the SPRT decision; the report-level `verdict` is always the c=0 screen. */
+  sprt?: { batches: number; observations: number; cap: number; log_lr: number; verdict?: 'accept' | 'reject' | 'inconclusive' };
+  /** Run 4 F5: distinct inspected facts that carried no checkable evidence (excluded from rates). */
+  unverifiable?: number;
+  /** Exact, whole-population counts — never sampled (Run 4 defect 5). */
+  census?: AuditCensus;
+  /** Independent oracle precision/recall against manifests the scanner never read. */
+  oracles?: AuditOracleResult[];
+}
+
+/** Run 4: per-stratum stats with a 95% interval. */
+export interface AuditStratumStats {
+  sampled: number;
+  defects: number;
+  defect_rate: number;
+  /** Stratum population size N_h. */
+  n_total?: number;
+  /** 95% interval on defect_rate (Wilson; Clopper-Pearson at 0 or n). */
+  ci?: ProportionInterval;
+  /** True when N_h < floor so the stratum is charted under `__pooled`. */
+  pooled?: boolean;
+}
+
+export interface ProportionInterval {
+  lower: number;
+  upper: number;
+  method: 'wilson' | 'clopper-pearson';
+}
+
+export interface AuditScreen {
+  /** Sample size per population (components and connections each). */
+  n: number;
+  c: 0;
+  ltpd: number;
+  consumer_risk: number;
+  components_sampled: number;
+  connections_sampled: number;
+  defects: number;
+  verdict: 'accept' | 'reject';
+  /** 95% one-sided upper bound on the true error rate when defects = 0, at the COMBINED inspected count: 1 − 0.05^(1/inspected). */
+  upper_bound_95: number;
+  /** Probability this combined screen rejects a map that is truly 99% correct: 1 − 0.99^inspected (F1). */
+  producers_risk_at_1pct: number;
+  /** Evaluable units actually inspected across both populations (components + connections, minus unverifiable). */
+  inspected?: number;
+  /** Inspected units that carried no checkable evidence (F5). */
+  unverifiable?: number;
+  /** The same two figures for one population of n=45 on its own (the research packet's per-population statement). */
+  per_population?: { n: number; upper_bound_95: number; producers_risk_at_1pct: number };
+}
+
+export interface AuditPrecisionDesign {
+  /** 'founding' (±3pp) on the first audit or Cochran; 'routine' (±5pp) otherwise. */
+  kind: 'founding' | 'routine';
+  margin: number;
+  n_components: number;
+  n_connections: number;
+  floor: number;
+  /** Strata whose N_h < floor and are therefore pooled for charting. */
+  pooled_strata: string[];
+}
+
+export interface AuditCensus {
+  unresolved_endpoints: {
+    bad: number;
+    total: number;
+    rate: number;
+    ci?: ProportionInterval;
+    by_type: Record<string, { bad: number; total: number }>;
+    by_top_dir: Record<string, { bad: number; total: number }>;
+  };
+  dedup_collisions: number;
+}
+
+export interface AuditOracleResult {
+  /** Oracle id: 'npm' | 'prisma' | 'cron' | 'queue' | 'imports-scip'. */
+  oracle: string;
+  stratum: string;
+  oracle_strength: 'independent' | 'weak' | 'none';
+  truth_count: number;
+  map_count: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number | null;
+  recall: number | null;
+  precision_ci: ProportionInterval | null;
+  recall_ci: ProportionInterval | null;
+  fp_samples: string[];
+  fn_samples: string[];
+  /** Fraction of the truth frame the oracle could actually enumerate (SCIP: documents indexed / TS files). */
+  frame_coverage?: number;
+  notes: string[];
 }
 
 /**

@@ -11,12 +11,38 @@
  * NavGator ignore list above.
  */
 export declare function excludeGitIgnoredFiles(root: string, files: string[]): string[];
-import { FileChangeResult, ArchitectureScanOutcome } from './types.js';
+import { ArchitectureComponent, ArchitectureConnection, FileChangeResult, ArchitectureScanOutcome } from './types.js';
 import { FieldUsageReport } from './scanners/infrastructure/field-usage-analyzer.js';
 import { TypeSpecReport } from './scanners/infrastructure/typespec-validator.js';
 import { PromptScanResult } from './scanners/prompts/index.js';
 import { type ScanLease } from './scan-lock.js';
 import { TimelineEntry, ArchitectureIndex } from './types.js';
+/**
+ * Canonical form for a repo-relative file path used as a `FILE:` endpoint or
+ * a component's config_files entry (Run 4 fix2 #4): forward slashes, no
+ * leading `./`, no duplicated separators. `FILE:./src/a.ts`, `FILE:src//a.ts`
+ * and a component claiming `src/a.ts` must all meet on the same key.
+ */
+export declare function normalizeEndpointPath(p: string): string;
+/**
+ * (C) Resolve FILE: prefixed connection endpoints to real component IDs so
+ * trace can follow imports from route files instead of dead-ending.
+ *
+ * (C2) Synthesize a file-node for every FILE: endpoint that survived (C).
+ * A surviving FILE: ref names a real source file that no scanner claimed as
+ * a component — Swift and Rust files, and TypeScript files the import
+ * scanner never walked (scripts/, _archive/, tests/). Storing such an edge
+ * leaves it dangling: `runIntegrityCheck` (storage.ts) exempts FILE: ids
+ * unconditionally, so the graph reports "ok" while trace dead-ends and the
+ * audit counts the edge as hallucinated. One file-node per file, created
+ * once, reused by every endpoint naming that file; only for paths that exist
+ * on disk (a component built on a phantom path would fail integrity check
+ * rule (2) and promote every later incremental scan to full).
+ *
+ * Mutates `components` (pushes file-nodes) and the endpoint ids in
+ * `connections`. Paths are normalized on both sides (fix2 #4).
+ */
+export declare function resolveFileEndpoints(components: ArchitectureComponent[], connections: ArchitectureConnection[], root: string): void;
 /**
  * Mode the scanner runs in.
  * - 'auto': default. Inspect index + file changes; pick full or incremental.

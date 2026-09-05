@@ -71,6 +71,8 @@ interface ActorIsolationHit {
   file: string;
   line: number;
   snippet: string;
+  /** Enclosing type declaration (class/struct/enum/actor/extension) for Task sites; absent at file scope. */
+  ownerType?: string;
 }
 
 // =============================================================================
@@ -246,6 +248,55 @@ export async function scanSwiftCode(
     return { components, connections, warnings, projectMeta: {} };
   }
 
+  /**
+   * Find-or-create the `component` node for a Swift type, keyed on name+type.
+   *
+   * Every pass below that references a Swift type by name (conformance, state
+   * observation, actor isolation) must route through this. Calling
+   * `generateComponentId('component', name)` at the reference site cannot
+   * work: the generator appends a random suffix (types.ts:725-729), so the id
+   * computed at the edge never equals the id of the component that was pushed
+   * — which is why `conforms-to`, `observes` and `other` edges all dangled.
+   *
+   * Creating one component per type also keeps the scan-level dedup in
+   * scanner.ts (keyed `type|name|first-config-file`) from dropping a second
+   * same-named component and orphaning the edges that pointed at it.
+   */
+  const typeComponents = new Map<string, ArchitectureComponent>();
+  const findOrCreateTypeComponent = (
+    name: string,
+    opts: { purpose: string; file: string; line: number; tags: string[]; metadata?: Record<string, unknown> }
+  ): ArchitectureComponent => {
+    let comp = typeComponents.get(name) ?? components.find(c => c.name === name && c.type === 'component');
+    if (!comp) {
+      comp = {
+        component_id: generateComponentId('component', name),
+        name,
+        type: 'component',
+        role: { purpose: opts.purpose, layer: 'backend', critical: false },
+        source: { detection_method: 'auto', config_files: [], confidence: 0.85 },
+        connects_to: [],
+        connected_from: [],
+        status: 'active',
+        tags: ['swift', ...opts.tags],
+        metadata: { file: opts.file, line: opts.line, ...(opts.metadata ?? {}) },
+        timestamp,
+        last_updated: timestamp,
+      };
+      components.push(comp);
+    } else {
+      // Merge: a type can surface in several passes (a conforming type that is
+      // also an actor). Union the tags and fill metadata gaps rather than
+      // pushing a duplicate the scan-level dedup would later drop.
+      for (const t of ['swift', ...opts.tags]) {
+        if (!comp.tags.includes(t)) comp.tags.push(t);
+      }
+      comp.metadata = { file: opts.file, line: opts.line, ...(comp.metadata ?? {}), ...(opts.metadata ?? {}) };
+    }
+    typeComponents.set(name, comp);
+    return comp;
+  };
+
   // ---- String-keyed runtime deps ----
   const stringKeys = scanStringKeys(files);
   const fragileKeys = buildFragileKeys(stringKeys);
@@ -323,14 +374,22 @@ export async function scanSwiftCode(
     });
 
     for (const conf of conformers) {
+      // The conforming type IS the source of this edge, so push it as a real
+      // component instead of pointing the edge at `FILE:${conf.file}`. The
+      // FILE: form only resolved when some other scanner happened to claim
+      // that file as a component, which never happens for a .swift file — so
+      // every conforms-to edge dangled (1,225 of them on the Ambient Agent
+      // repo). find-or-create keys on name+type so a type that also appears
+      // in the actor pass below merges instead of duplicating.
+      const conformerComp = findOrCreateTypeComponent(conf.typeName, {
+        purpose: `Swift type: ${conf.typeName}`,
+        file: conf.file,
+        line: conf.line,
+        tags: ['type', 'protocol-conformer'],
+      });
       connections.push({
         connection_id: generateConnectionId('conforms-to'),
-        // FILE: form, not a fresh generateComponentId('other', conf.typeName) —
-        // no component is ever pushed for the conforming type itself in this
-        // pass, so that id was never a real endpoint (fact-checker finding).
-        // scanner.ts:1578-1592 resolves FILE: refs where possible and
-        // runIntegrityCheck exempts them unconditionally otherwise.
-        from: { component_id: `FILE:${conf.file}`, location: { file: conf.file, line: conf.line } },
+        from: { component_id: conformerComp.component_id, location: { file: conf.file, line: conf.line } },
         to: { component_id: compId },
         connection_type: 'conforms-to',
         code_reference: {
@@ -361,8 +420,27 @@ export async function scanSwiftCode(
       if (con.ownerType !== pub.ownerType) continue;
       connections.push({
         connection_id: generateConnectionId('observes'),
-        from: { component_id: generateComponentId('component', con.ownerType), location: { file: con.file, line: con.line } },
-        to: { component_id: generateComponentId('component', pub.ownerType), location: { file: pub.file, line: pub.line } },
+        // Both ends resolve through find-or-create. Freshly generating the id
+        // here produced a different random suffix on each of the two calls, so
+        // neither endpoint matched any pushed component.
+        from: {
+          component_id: findOrCreateTypeComponent(con.ownerType, {
+            purpose: `Swift observable type: ${con.ownerType}`,
+            file: con.file,
+            line: con.line,
+            tags: ['type', 'state-observation'],
+          }).component_id,
+          location: { file: con.file, line: con.line },
+        },
+        to: {
+          component_id: findOrCreateTypeComponent(pub.ownerType, {
+            purpose: `Swift observable type: ${pub.ownerType}`,
+            file: pub.file,
+            line: pub.line,
+            tags: ['type', 'state-observation'],
+          }).component_id,
+          location: { file: pub.file, line: pub.line },
+        },
         connection_type: 'observes',
         code_reference: {
           file: con.file,
@@ -386,23 +464,19 @@ export async function scanSwiftCode(
 
   for (const hit of actorHits) {
     if (hit.type === 'actor-declaration') {
-      // Create component for actor declaration
-      const compId = generateComponentId('component', hit.name);
+      // find-or-create, not an unconditional push: the conformance pass above
+      // may already have created this type's component. Two components with
+      // the same type+name and no config_files collide on scanner.ts's dedup
+      // key, one gets dropped, and every edge that named the dropped id is
+      // orphaned — the exact failure documented at scanner.ts's dedup block.
+      const compId = findOrCreateTypeComponent(hit.name, {
+        purpose: `Actor: ${hit.name}`,
+        file: hit.file,
+        line: hit.line,
+        tags: ['actor-isolation', 'actor-declaration'],
+        metadata: { actorType: 'actor' },
+      }).component_id;
       actorComponents.set(hit.name, compId);
-      components.push({
-        component_id: compId,
-        name: hit.name,
-        type: 'component',
-        role: { purpose: `Actor: ${hit.name}`, layer: 'backend', critical: false },
-        source: { detection_method: 'auto', config_files: [], confidence: 0.9 },
-        connects_to: [],
-        connected_from: [],
-        status: 'active',
-        tags: ['swift', 'actor-isolation', 'actor-declaration'],
-        metadata: { actorType: 'actor', file: hit.file, line: hit.line },
-        timestamp,
-        last_updated: timestamp,
-      });
 
       connections.push({
         connection_id: generateConnectionId('other'),
@@ -425,33 +499,15 @@ export async function scanSwiftCode(
     } else if (hit.type === 'main-actor') {
       // Look up by name+type (not a freshly generated id — generateComponentId()
       // appends a random suffix, so a lookup keyed on a fresh call can never
-      // match a previously pushed component; same pattern as the LLM-calls
-      // fix above). Without this, repeat @MainActor hits for the same name
-      // always pushed a duplicate component instead of merging tags.
-      let comp = components.find(c => c.name === hit.name && c.type === 'component');
-      let compId: string;
-      if (!comp) {
-        compId = generateComponentId('component', hit.name);
-        comp = {
-          component_id: compId,
-          name: hit.name,
-          type: 'component',
-          role: { purpose: `@MainActor: ${hit.name}`, layer: 'backend', critical: false },
-          source: { detection_method: 'auto', config_files: [], confidence: 0.9 },
-          connects_to: [],
-          connected_from: [],
-          status: 'active',
-          tags: ['swift', 'actor-isolation', 'main-actor'],
-          metadata: { actorType: '@MainActor', file: hit.file, line: hit.line },
-          timestamp,
-          last_updated: timestamp,
-        };
-        components.push(comp);
-      } else {
-        compId = comp.component_id;
-        if (!comp.tags.includes('actor-isolation')) comp.tags.push('actor-isolation');
-        if (!comp.tags.includes('main-actor')) comp.tags.push('main-actor');
-      }
+      // match a previously pushed component). Shared find-or-create now owns
+      // that merge for every pass in this scanner.
+      const compId = findOrCreateTypeComponent(hit.name, {
+        purpose: `@MainActor: ${hit.name}`,
+        file: hit.file,
+        line: hit.line,
+        tags: ['actor-isolation', 'main-actor'],
+        metadata: { actorType: '@MainActor' },
+      }).component_id;
 
       connections.push({
         connection_id: generateConnectionId('other'),
@@ -472,8 +528,14 @@ export async function scanSwiftCode(
         last_verified: timestamp,
       });
     } else if (hit.type === 'nonisolated') {
-      // Create connection for nonisolated member
-      const compId = generateComponentId('component', hit.name);
+      // Was a fresh generateComponentId() — an id no component ever carried,
+      // so the self-edge below dangled on both ends.
+      const compId = findOrCreateTypeComponent(hit.name, {
+        purpose: `Swift type: ${hit.name}`,
+        file: hit.file,
+        line: hit.line,
+        tags: ['actor-isolation', 'nonisolated'],
+      }).component_id;
       connections.push({
         connection_id: generateConnectionId('other'),
         from: { component_id: compId, location: { file: hit.file, line: hit.line } },
@@ -493,8 +555,27 @@ export async function scanSwiftCode(
         last_verified: timestamp,
       });
     } else if (hit.type === 'task-modifier' || hit.type === 'task-spawn') {
-      // Create connection for task spawning
-      const compId = generateComponentId('component', hit.name);
+      // Run 4 fix2 #2a: a Task site is not a component. Attach it to the
+      // ENCLOSING TYPE's component (recorded under metadata.spawns[]) and emit
+      // the edge from that owner; with no enclosing type, use the file node
+      // that scanner.ts (C2) synthesizes for `FILE:<path>`. Never mint a
+      // `task_spawn_<path>:<line>` component — the audit adjudicated eight of
+      // those as scanner naming bugs, not hallucinations.
+      let compId: string;
+      if (hit.ownerType) {
+        const owner = findOrCreateTypeComponent(hit.ownerType, {
+          purpose: `Swift type: ${hit.ownerType}`,
+          file: hit.file,
+          line: hit.line,
+          tags: ['actor-isolation', hit.type],
+        });
+        const md = (owner.metadata ??= {}) as Record<string, unknown>;
+        const spawns = (md['spawns'] ??= []) as Array<{ kind: string; file: string; line: number; symbol: string }>;
+        spawns.push({ kind: hit.type, file: hit.file, line: hit.line, symbol: hit.name });
+        compId = owner.component_id;
+      } else {
+        compId = `FILE:${hit.file}`;
+      }
       connections.push({
         connection_id: generateConnectionId('other'),
         from: { component_id: compId, location: { file: hit.file, line: hit.line } },
@@ -1198,28 +1279,33 @@ function scanActorIsolation(files: SwiftFileInfo[]): ActorIsolationHit[] {
       }
 
       // Match: .task { } (SwiftUI view modifier)
+      // Run 4 fix2 #2a: `name` is the nearest declared symbol (the edge's
+      // code_reference.symbol, which must appear in the file) or the literal
+      // `task` / `Task` token — never a `<path>:<line>` pseudo-name.
       const taskModifierMatch = line.match(/\.task\s*\{/);
       if (taskModifierMatch) {
-        const name = extractNearestSymbol(file.lines, i) || `task_${file.relativePath}:${i + 1}`;
+        const name = extractNearestSymbol(file.lines, i) || 'task';
         hits.push({
           type: 'task-modifier',
           name,
           file: file.relativePath,
           line: i + 1,
           snippet: trimmed,
+          ownerType: extractEnclosingType(file.lines, i),
         });
       }
 
       // Match: Task { } or Task.detached { }
       const taskSpawnMatch = line.match(/Task\s*(?:\.detached\s*)?\{/);
       if (taskSpawnMatch) {
-        const name = extractNearestSymbol(file.lines, i) || `task_spawn_${file.relativePath}:${i + 1}`;
+        const name = extractNearestSymbol(file.lines, i) || 'Task';
         hits.push({
           type: 'task-spawn',
           name,
           file: file.relativePath,
           line: i + 1,
           snippet: trimmed,
+          ownerType: extractEnclosingType(file.lines, i),
         });
       }
     }
@@ -1381,6 +1467,30 @@ function buildProjectMetadata(
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+/**
+ * Nearest enclosing type declaration above `lineIndex`: the closest preceding
+ * `class|struct|enum|actor|extension Name` whose brace block is still open at
+ * the hit (tracked by counting braces between the declaration and the hit).
+ * Returns undefined for file-scope Task sites.
+ */
+function extractEnclosingType(lines: string[], lineIndex: number): string | undefined {
+  const decl = /^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|private|internal|fileprivate|open|final|indirect)\s+)*(?:class|struct|enum|actor|extension)\s+([A-Za-z_][\w]*)/;
+  for (let j = lineIndex - 1; j >= 0; j--) {
+    const m = lines[j].match(decl);
+    if (!m) continue;
+    // Is this declaration's block still open at the hit line?
+    let depth = 0;
+    for (let k = j; k < lineIndex; k++) {
+      for (const ch of lines[k]) {
+        if (ch === '{') depth++;
+        else if (ch === '}') depth--;
+      }
+    }
+    if (depth > 0) return m[1];
+  }
+  return undefined;
+}
 
 function extractNearestSymbol(lines: string[], lineIndex: number): string | undefined {
   // Look backwards for func/var/let/class/struct declaration

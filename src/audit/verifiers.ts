@@ -41,12 +41,16 @@ export interface SampleEvidence {
   ok: boolean;
   /** When ok=false, machine-readable reason. */
   reason?: string;
+  /** Run 4 F5: no evidence to check — not clean, not a defect. Excluded from rates. */
+  unverifiable?: boolean;
 }
 
 export interface VerifierOutcome {
   class: DefectClass;
   sampledCount: number;
   defectCount: number;
+  /** Run 4 F5: facts that could not be checked (reported separately, never as ok). */
+  unverifiableCount?: number;
   samples: SampleEvidence[];
   /** Set on MISSED_EDGE in CLI mode. */
   llm_skipped?: boolean;
@@ -157,6 +161,45 @@ async function sha256File(absPath: string): Promise<string | null> {
 // V1 — HALLUCINATED_COMPONENT
 // ============================================================================
 
+/**
+ * Run 4 F5: evidence files for a component. `source.config_files` first; for
+ * code-derived type components (Swift/Rust type, module, impl, SwiftUI view)
+ * the scanners record the declaring file under `metadata.file` (or
+ * `metadata.files[]` / `metadata.conformers[].file`) with `config_files: []`.
+ * Returns the files plus whether they came from metadata (→ the type name
+ * must appear in the file, symbol-in-file like WRONG_ENDPOINT).
+ */
+function evidenceFiles(comp: ArchitectureComponent): { files: string[]; fromMetadata: boolean } {
+  const cfg = comp.source?.config_files ?? [];
+  if (cfg.length > 0) return { files: cfg, fromMetadata: false };
+  const md = (comp.metadata ?? {}) as Record<string, unknown>;
+  const out: string[] = [];
+  if (typeof md['file'] === 'string') out.push(md['file']);
+  if (Array.isArray(md['files'])) for (const f of md['files']) if (typeof f === 'string') out.push(f);
+  if (Array.isArray(md['conformers'])) {
+    for (const c of md['conformers']) {
+      const f = (c as { file?: unknown })?.file;
+      if (typeof f === 'string') out.push(f);
+    }
+  }
+  return { files: [...new Set(out)], fromMetadata: true };
+}
+
+/**
+ * Run 4 fix2 #2b: the symbol to look for in a metadata-sourced evidence file.
+ * `metadata.symbol` or `code_reference.symbol` when present; otherwise the
+ * component name only if it is an identifier. Never a substring after a colon
+ * (`task_spawn_App/X.swift:81` used to be searched as "81").
+ */
+function evidenceSymbol(comp: ArchitectureComponent): string | null {
+  const md = (comp.metadata ?? {}) as Record<string, unknown>;
+  if (typeof md['symbol'] === 'string' && md['symbol'].length > 1) return md['symbol'];
+  const cr = (comp as { code_reference?: { symbol?: string } }).code_reference?.symbol;
+  if (typeof cr === 'string' && cr.length > 1) return cr;
+  if (isIdentifierLike(comp.name)) return comp.name;
+  return null;
+}
+
 export async function verifyHallucinatedComponent(
   samples: ReadonlyArray<ArchitectureComponent>,
   ctx: VerifierContext
@@ -164,29 +207,56 @@ export async function verifyHallucinatedComponent(
   const evidence: SampleEvidence[] = [];
 
   for (const comp of samples) {
-    const configFiles = comp.source?.config_files ?? [];
+    const { files: configFiles, fromMetadata } = evidenceFiles(comp);
     if (configFiles.length === 0) {
-      // No config_files claim → can't verify, mark as ok.
-      evidence.push({ id: comp.component_id, ok: true });
+      // Run 4 F5: no evidence at all. Previously marked ok; now reported as
+      // unverifiable so ~545 Swift/Rust aggregate components cannot pass as clean.
+      evidence.push({ id: comp.component_id, ok: true, unverifiable: true, reason: 'no config_files or metadata.file to check' });
       continue;
     }
 
-    // At least one config file must exist on disk.
-    let anyExists = false;
+    // At least one evidence file must exist on disk.
+    let firstExisting: string | null = null;
     for (const rel of configFiles) {
       const abs = path.isAbsolute(rel) ? rel : path.join(ctx.projectRoot, rel);
       if (await fileExists(abs)) {
-        anyExists = true;
+        firstExisting = rel;
         break;
       }
     }
 
-    if (!anyExists) {
+    if (firstExisting === null) {
       evidence.push({
         id: comp.component_id,
         ok: false,
-        reason: `none of ${configFiles.length} config_files exist on disk`,
+        reason: `none of ${configFiles.length} ${fromMetadata ? 'metadata' : 'config'} files exist on disk`,
       });
+      continue;
+    }
+
+    // Run 4 F5: a type component must be declared in the file it names.
+    if (fromMetadata) {
+      const name = evidenceSymbol(comp);
+      if (name === null) {
+        evidence.push({
+          id: comp.component_id,
+          ok: true,
+          unverifiable: true,
+          reason: `name "${comp.name}" is not an identifier and no metadata.symbol / code_reference.symbol is recorded`,
+        });
+        continue;
+      }
+      const abs = path.isAbsolute(firstExisting) ? firstExisting : path.join(ctx.projectRoot, firstExisting);
+      const content = await readFileSafe(abs);
+      if (content === null) {
+        evidence.push({ id: comp.component_id, ok: true, unverifiable: true, reason: `could not read ${firstExisting}` });
+        continue;
+      }
+      if (!symbolAppearsIn(content, name)) {
+        evidence.push({ id: comp.component_id, ok: false, reason: `type name "${name}" not found in ${firstExisting}` });
+        continue;
+      }
+      evidence.push({ id: comp.component_id, ok: true });
       continue;
     }
 
@@ -217,6 +287,7 @@ export async function verifyHallucinatedComponent(
     class: 'HALLUCINATED_COMPONENT',
     sampledCount: samples.length,
     defectCount: evidence.filter((e) => !e.ok).length,
+    unverifiableCount: evidence.filter((e) => e.unverifiable).length,
     samples: evidence,
   };
 }

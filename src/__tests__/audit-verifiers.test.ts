@@ -78,6 +78,59 @@ function ctxFor(overrides: Partial<VerifierContext> = {}): VerifierContext {
 // ============================================================================
 
 describe('verifyHallucinatedComponent', () => {
+  // Run 4 F5 — type components carry the declaring file under metadata.file with config_files: [].
+  it('F5: metadata.file present and type name declared there → clean', async () => {
+    fs.writeFileSync(path.join(workDir, 'Foo.swift'), 'struct Foo: Codable {}\n');
+    const comp = makeComponent({ component_id: 'COMP_swift_Foo', name: 'Foo', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Foo.swift', line: 1 } });
+    const out = await verifyHallucinatedComponent([comp], ctxFor());
+    expect(out.defectCount).toBe(0);
+    expect(out.unverifiableCount).toBe(0);
+    expect(out.samples[0]!.ok).toBe(true);
+  });
+
+  it('F5: metadata.file present but the type name is absent from it → defect', async () => {
+    fs.writeFileSync(path.join(workDir, 'Bar.swift'), 'struct Bar {}\n');
+    const comp = makeComponent({ component_id: 'COMP_swift_Baz', name: 'Baz', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Bar.swift', line: 1 } });
+    const out = await verifyHallucinatedComponent([comp], ctxFor());
+    expect(out.defectCount).toBe(1);
+    expect(out.samples[0]!.reason).toContain('type name "Baz" not found');
+  });
+
+  it('F5: metadata.file names a file that does not exist → defect', async () => {
+    const comp = makeComponent({ component_id: 'COMP_swift_Gone', name: 'Gone', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Missing.swift', line: 1 } });
+    const out = await verifyHallucinatedComponent([comp], ctxFor());
+    expect(out.defectCount).toBe(1);
+  });
+
+  it('F5: no config_files and no metadata file → unverifiable, not ok-as-clean (old behaviour: ok with no evidence)', async () => {
+    const comp = makeComponent({ component_id: 'COMP_swift_Agg', name: 'protocol:Thing', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: {} });
+    const out = await verifyHallucinatedComponent([comp], ctxFor());
+    expect(out.defectCount).toBe(0);
+    expect(out.unverifiableCount).toBe(1);
+    expect(out.samples[0]!.unverifiable).toBe(true);
+  });
+
+  it('fix2 #2b: a non-identifier name with no metadata.symbol is unverifiable, never a defect (was searched as "81")', async () => {
+    fs.writeFileSync(path.join(workDir, 'Conf.swift'), 'extension Conf: Thing {}\n');
+    const proto = makeComponent({ component_id: 'COMP_proto', name: 'protocol:Thing', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { conformers: [{ type: 'Conf', file: 'Conf.swift', line: 1 }] } });
+    const spawn = makeComponent({ component_id: 'COMP_spawn', name: 'task_spawn_App/Conf.swift:81', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Conf.swift', line: 81 } });
+    const out = await verifyHallucinatedComponent([proto, spawn], ctxFor());
+    expect(out.defectCount).toBe(0);
+    expect(out.unverifiableCount).toBe(2);
+    expect(out.samples[1]!.reason).toContain('not an identifier');
+  });
+
+  it('fix2 #2b: metadata.symbol is the evidence symbol when present', async () => {
+    fs.writeFileSync(path.join(workDir, 'Conf.swift'), 'extension Conf: Thing {}\n');
+    const ok = makeComponent({ component_id: 'COMP_sym_ok', name: 'protocol:Thing', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Conf.swift', symbol: 'Thing' } });
+    const bad = makeComponent({ component_id: 'COMP_sym_bad', name: 'protocol:Other', type: 'component', source: { detection_method: 'auto', config_files: [], confidence: 0.85 }, metadata: { file: 'Conf.swift', symbol: 'Other' } });
+    const out = await verifyHallucinatedComponent([ok, bad], ctxFor());
+    expect(out.samples[0]!.ok).toBe(true);
+    expect(out.samples[0]!.unverifiable).toBeUndefined();
+    expect(out.samples[1]!.ok).toBe(false);
+    expect(out.samples[1]!.reason).toContain('"Other" not found');
+  });
+
   it('positive case: config file does not exist on disk → defect', async () => {
     const comp = makeComponent({ component_id: 'COMP_npm_ghost', source: { detection_method: 'auto', config_files: ['does-not-exist.json'], confidence: 1 } });
     const out = await verifyHallucinatedComponent([comp], ctxFor());

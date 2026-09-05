@@ -20,11 +20,15 @@ export interface SampleEvidence {
     ok: boolean;
     /** When ok=false, machine-readable reason. */
     reason?: string;
+    /** Run 4 F5: no evidence to check — not clean, not a defect. Excluded from rates. */
+    unverifiable?: boolean;
 }
 export interface VerifierOutcome {
     class: DefectClass;
     sampledCount: number;
     defectCount: number;
+    /** Run 4 F5: facts that could not be checked (reported separately, never as ok). */
+    unverifiableCount?: number;
     samples: SampleEvidence[];
     /** Set on MISSED_EDGE in CLI mode. */
     llm_skipped?: boolean;

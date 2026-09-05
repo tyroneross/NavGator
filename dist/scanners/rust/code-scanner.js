@@ -80,14 +80,25 @@ export async function scanRustCode(projectRoot, walkSet) {
         return { components, connections, warnings, projectMeta: {} };
     }
     // Track which component ids we've already emitted (dedupe by name+type).
-    const emitted = new Set();
+    //
+    // addComponent RETURNS the canonical id. Callers must use the return value,
+    // never the `component_id` they passed in: on the second call for the same
+    // type+name the passed id is a fresh `generateComponentId()` (random suffix,
+    // types.ts:725-729) that is discarded here, so an edge built from it named a
+    // component that does not exist. Every repeat trait impl produced exactly
+    // that dangling `conforms-to` edge.
+    const emitted = new Map(); // `${type}:${name}` -> component_id
     const addComponent = (comp) => {
         const key = `${comp.type}:${comp.name}`;
-        if (emitted.has(key))
-            return;
-        emitted.add(key);
+        const existing = emitted.get(key);
+        if (existing)
+            return existing;
+        emitted.set(key, comp.component_id);
         components.push(comp);
+        return comp.component_id;
     };
+    /** Canonical id for an already-emitted component, or undefined. */
+    const idFor = (type, name) => emitted.get(`${type}:${name}`);
     // ---- Type declarations (struct / enum / trait) ----
     const typeDecls = scanTypeDecls(files);
     for (const t of typeDecls) {
@@ -142,9 +153,8 @@ export async function scanRustCode(projectRoot, walkSet) {
     for (const impl of impls) {
         // Ensure the trait exists as a component (external traits like Serialize won't
         // have a local declaration but are still meaningful conformance targets).
-        const traitCompId = generateComponentId('other', impl.traitName);
-        addComponent({
-            component_id: traitCompId,
+        const traitCompId = addComponent({
+            component_id: generateComponentId('other', impl.traitName),
             name: impl.traitName,
             type: 'other',
             role: {
@@ -160,10 +170,28 @@ export async function scanRustCode(projectRoot, walkSet) {
             timestamp,
             last_updated: timestamp,
         });
+        // Resolve (don't regenerate) the implementing type. The type-decl pass
+        // above already emitted most of these; `impl Trait for Foo` where Foo is
+        // declared in another crate or behind a macro is the exception, so create
+        // it here rather than leaving the edge's source dangling.
+        const implCompId = idFor('component', impl.typeName) ?? addComponent({
+            component_id: generateComponentId('component', impl.typeName),
+            name: impl.typeName,
+            type: 'component',
+            role: { purpose: `Rust type: ${impl.typeName}`, layer: 'backend', critical: false },
+            source: { detection_method: 'auto', config_files: [], confidence: 0.75 },
+            connects_to: [],
+            connected_from: [],
+            status: 'active',
+            tags: ['rust', 'type', 'trait-impl'],
+            metadata: { file: impl.file, line: impl.line },
+            timestamp,
+            last_updated: timestamp,
+        });
         connections.push({
             connection_id: generateConnectionId('conforms-to'),
             from: {
-                component_id: generateComponentId('component', impl.typeName),
+                component_id: implCompId,
                 location: { file: impl.file, line: impl.line },
             },
             to: { component_id: traitCompId },
@@ -192,13 +220,24 @@ export async function scanRustCode(projectRoot, walkSet) {
             const targetName = targetSegs[0];
             if (!targetName)
                 continue;
+            // Target: resolve the module component the module pass emitted. Calling
+            // generateComponentId() again here produced a different random suffix, so
+            // the edge pointed at a `mod:` id no component carried. If the module was
+            // never declared locally (a re-export, or `crate::` reaching a path this
+            // scan did not walk), skip rather than invent a component for it.
+            const targetModId = idFor('other', `mod:${targetName}`);
+            if (!targetModId)
+                continue;
             connections.push({
                 connection_id: generateConnectionId('imports'),
+                // FILE: form so scanner.ts's endpoint resolver binds this to the
+                // file's component — no `file:` component is ever pushed here, so the
+                // generated id was never a real endpoint.
                 from: {
-                    component_id: generateComponentId('other', `file:${u.file}`),
+                    component_id: `FILE:${u.file}`,
                     location: { file: u.file, line: u.line },
                 },
-                to: { component_id: generateComponentId('other', `mod:${targetName}`) },
+                to: { component_id: targetModId },
                 connection_type: 'imports',
                 code_reference: {
                     file: u.file,
@@ -221,9 +260,11 @@ export async function scanRustCode(projectRoot, walkSet) {
             const llmMatch = LLM_CRATE_PATTERNS.find(p => p.pattern.test(u.head));
             const targetType = llmMatch ? 'llm' : 'cargo';
             const targetName = llmMatch ? llmMatch.provider : u.head;
-            const targetCompId = generateComponentId(targetType, targetName);
-            addComponent({
-                component_id: targetCompId,
+            // Use addComponent's return: on the 2nd+ use of the same crate the id
+            // generated here is discarded by the dedupe, so an edge built from it
+            // would dangle.
+            const targetCompId = addComponent({
+                component_id: generateComponentId(targetType, targetName),
                 name: targetName,
                 type: targetType,
                 role: {
@@ -242,7 +283,7 @@ export async function scanRustCode(projectRoot, walkSet) {
             connections.push({
                 connection_id: generateConnectionId(llmMatch ? 'service-call' : 'uses-package'),
                 from: {
-                    component_id: generateComponentId('other', `file:${u.file}`),
+                    component_id: `FILE:${u.file}`,
                     location: { file: u.file, line: u.line },
                 },
                 to: { component_id: targetCompId },
@@ -265,9 +306,10 @@ export async function scanRustCode(projectRoot, walkSet) {
     // ---- LLM API calls (URL literals) → service-call ----
     const llmCalls = scanLLMCalls(files);
     for (const call of llmCalls) {
-        const compId = generateComponentId('llm', call.provider);
-        addComponent({
-            component_id: compId,
+        // Same as above — the 2nd+ call to the same provider must reuse the
+        // canonical id addComponent returns, not the freshly generated one.
+        const compId = addComponent({
+            component_id: generateComponentId('llm', call.provider),
             name: call.provider,
             type: 'llm',
             role: { purpose: `${call.provider} LLM API`, layer: 'external', critical: true },
@@ -282,7 +324,7 @@ export async function scanRustCode(projectRoot, walkSet) {
         connections.push({
             connection_id: generateConnectionId('service-call'),
             from: {
-                component_id: generateComponentId('other', `file:${call.file}`),
+                component_id: `FILE:${call.file}`,
                 location: { file: call.file, line: call.line },
             },
             to: { component_id: compId },
