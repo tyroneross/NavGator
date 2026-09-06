@@ -20,14 +20,14 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-374 files analyzed, 1057 internal import edges.
+386 files analyzed, 1098 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
 | JavaScript | 7 | yes | 0 |
 | Python | 7 | yes | 0 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 360 | yes | 1057 |
+| TypeScript | 372 | yes | 1098 |
 
 What this index cannot see:
 
@@ -48,9 +48,9 @@ them a responsibility in `docs/architecture/modules.json`.
 | `.` | 1 | Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them. | - |
 | `scripts` | 12 | Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers. | - |
 | `src` | 37 | Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system. | `src/types.ts`<br>`src/config.ts`<br>`src/storage.ts` |
-| `src/__tests__` | 104 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
-| `src/audit` | 4 | Dependency-free statistical sampling and process-control math used to audit scan accuracy. | `src/audit/sampler.ts`<br>`src/audit/spc.ts`<br>`src/audit/verifiers.ts` |
-| `src/cli` | 30 | The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`. | `src/cli/exit-codes.ts`<br>`src/cli/commands/helpers.ts`<br>`src/cli/commands/portfolio.ts` |
+| `src/__tests__` | 107 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
+| `src/audit` | 12 | Dependency-free statistical sampling and process-control math used to audit scan accuracy. | `src/audit/oracles/common.ts`<br>`src/audit/sampler.ts`<br>`src/audit/index.ts` |
+| `src/cli` | 31 | The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`. | `src/cli/exit-codes.ts`<br>`src/cli/commands/helpers.ts`<br>`src/cli/commands/portfolio.ts` |
 | `src/deep-map` | 9 | Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph. | `src/deep-map/types.ts`<br>`src/deep-map/store.ts`<br>`src/deep-map/filter.ts` |
 | `src/enrich` | 4 | External-boundary enrichment: resolves npm/pip/cargo identities and versions against registries, cached machine-wide in `~/.navgator/`. | `src/enrich/cache.ts`<br>`src/enrich/external-enrichment.types.ts`<br>`src/enrich/external-resolver.ts` |
 | `src/freshness` | 5 | Concurrency-safe dirty ledger and drainer that decide whether stored architecture data is stale enough to rescan. | `src/freshness/paths.ts`<br>`src/freshness/dirty-ledger.ts`<br>`src/freshness/drainer.ts` |
@@ -76,9 +76,9 @@ Read as "the module on the left imports from the modules on the right"; the numb
 many file-level import edges cross that pair.
 
 - `src` imports `src/scanners` (28), `src/memory` (5), `src/portfolio` (4), `src/enrich` (3), `src/git-aware` (3), `src/freshness` (2), `src/remote` (2), `src/audit` (1), `src/metrics` (1), `src/parsers` (1), `src/storage` (1), `src/temporal` (1)
-- `src/__tests__` imports `src` (116), `src/cli` (34), `src/scanners` (33), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/audit` (3), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
-- `src/audit` imports `src` (5)
-- `src/cli` imports `src` (100), `src/deep-map` (8), `src/freshness` (3), `src/memory` (3), `src/portfolio` (3), `src/enrich` (2), `src/git-aware` (2), `src/scanners` (2), `src/remote` (1), `src/temporal` (1)
+- `src/__tests__` imports `src` (120), `src/cli` (34), `src/scanners` (33), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/audit` (7), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
+- `src/audit` imports `src` (8), `src/parsers` (1)
+- `src/cli` imports `src` (105), `src/deep-map` (8), `src/audit` (4), `src/freshness` (3), `src/memory` (3), `src/portfolio` (3), `src/enrich` (2), `src/git-aware` (2), `src/scanners` (2), `src/remote` (1), `src/temporal` (1)
 - `src/deep-map` imports `src` (18), `src/metrics` (3)
 - `src/enrich` imports `src` (2)
 - `src/freshness` imports `src` (4)
@@ -103,17 +103,17 @@ Highest-fan-in files. Changing one of these can affect every file listed as its 
 
 | File | Module | Direct dependents |
 |---|---|---:|
-| `src/types.ts` | `src` | 101 |
+| `src/types.ts` | `src` | 107 |
 | `web/lib/utils.ts` | `web/lib` | 57 |
-| `src/config.ts` | `src` | 44 |
-| `src/storage.ts` | `src` | 38 |
+| `src/config.ts` | `src` | 46 |
+| `src/storage.ts` | `src` | 39 |
 | `src/agent-output.ts` | `src` | 28 |
-| `src/cli/exit-codes.ts` | `src/cli` | 27 |
+| `src/cli/exit-codes.ts` | `src/cli` | 28 |
+| `src/scanner.ts` | `src` | 26 |
 | `web/lib/types.ts` | `web/lib` | 26 |
-| `src/scanner.ts` | `src` | 25 |
 | `src/__tests__/helpers.ts` | `src/__tests__` | 19 |
 | `src/projects.ts` | `src` | 19 |
-| `src/cli/commands/helpers.ts` | `src/cli` | 17 |
+| `src/cli/commands/helpers.ts` | `src/cli` | 18 |
 | `web/components/ui/button.tsx` | `web/components` | 17 |
 | `web/lib/api-client.ts` | `web/lib` | 15 |
 | `src/deep-map/types.ts` | `src/deep-map` | 12 |

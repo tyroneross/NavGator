@@ -70,7 +70,7 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 374,
+    "analyzed_files": 386,
     "blind_spots": [
       "7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "7 Python file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
@@ -78,7 +78,7 @@
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1057,
+    "internal_edges": 1098,
     "languages": [
       {
         "analyzed": true,
@@ -100,8 +100,8 @@
       },
       {
         "analyzed": true,
-        "files": 360,
-        "internal_edges": 1057,
+        "files": 372,
+        "internal_edges": 1098,
         "language": "TypeScript"
       }
     ],
@@ -245,6 +245,18 @@
       "module": "src/__tests__",
       "type_only_imports": []
     },
+    "src/__tests__/audit-oracles.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/audit/oracles/index.ts",
+        "src/audit/oracles/prisma.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
     "src/__tests__/audit-sampler.test.ts": {
       "imported_by": [],
       "imports": [
@@ -252,6 +264,19 @@
       ],
       "module": "src/__tests__",
       "type_only_imports": []
+    },
+    "src/__tests__/audit-selftest.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/audit/index.ts",
+        "src/audit/self-test.ts",
+        "src/config.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
     },
     "src/__tests__/audit-spc.test.ts": {
       "imported_by": [],
@@ -1058,6 +1083,14 @@
         "src/types.ts"
       ]
     },
+    "src/__tests__/scanner-endpoint-resolution.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanner.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
     "src/__tests__/scanner-full-scan-diff.test.ts": {
       "imported_by": [],
       "imports": [
@@ -1348,9 +1381,12 @@
     },
     "src/audit/index.ts": {
       "imported_by": [
+        "src/__tests__/audit-selftest.test.ts",
+        "src/audit/self-test.ts",
         "src/scanner.ts"
       ],
       "imports": [
+        "src/audit/oracles/index.ts",
         "src/audit/sampler.ts",
         "src/audit/spc.ts",
         "src/audit/verifiers.ts",
@@ -1363,19 +1399,130 @@
         "src/types.ts"
       ]
     },
+    "src/audit/oracles/common.ts": {
+      "imported_by": [
+        "src/audit/oracles/cron.ts",
+        "src/audit/oracles/imports-scip.ts",
+        "src/audit/oracles/index.ts",
+        "src/audit/oracles/npm.ts",
+        "src/audit/oracles/prisma.ts",
+        "src/audit/oracles/queue.ts"
+      ],
+      "imports": [
+        "src/audit/sampler.ts",
+        "src/types.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
+    "src/audit/oracles/cron.ts": {
+      "imported_by": [
+        "src/audit/oracles/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/oracles/imports-scip.ts": {
+      "imported_by": [
+        "src/audit/oracles/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts",
+        "src/parsers/scip-runner.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/oracles/index.ts": {
+      "imported_by": [
+        "src/__tests__/audit-oracles.test.ts",
+        "src/audit/index.ts",
+        "src/cli/commands/audit-report.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts",
+        "src/audit/oracles/cron.ts",
+        "src/audit/oracles/imports-scip.ts",
+        "src/audit/oracles/npm.ts",
+        "src/audit/oracles/prisma.ts",
+        "src/audit/oracles/queue.ts",
+        "src/audit/sampler.ts",
+        "src/types.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/oracles/npm.ts": {
+      "imported_by": [
+        "src/audit/oracles/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/oracles/prisma.ts": {
+      "imported_by": [
+        "src/__tests__/audit-oracles.test.ts",
+        "src/audit/oracles/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
+    "src/audit/oracles/queue.ts": {
+      "imported_by": [
+        "src/audit/oracles/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/common.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": []
+    },
     "src/audit/sampler.ts": {
       "imported_by": [
         "src/__tests__/audit-sampler.test.ts",
-        "src/audit/index.ts"
+        "src/audit/index.ts",
+        "src/audit/oracles/common.ts",
+        "src/audit/oracles/index.ts",
+        "src/audit/self-test.ts",
+        "src/cli/commands/audit-report.ts"
       ],
       "imports": [],
       "module": "src/audit",
       "type_only_imports": []
     },
+    "src/audit/self-test.ts": {
+      "imported_by": [
+        "src/__tests__/audit-selftest.test.ts",
+        "src/cli/commands/audit-report.ts"
+      ],
+      "imports": [
+        "src/audit/index.ts",
+        "src/audit/sampler.ts",
+        "src/audit/verifiers.ts",
+        "src/types.ts"
+      ],
+      "module": "src/audit",
+      "type_only_imports": [
+        "src/audit/verifiers.ts",
+        "src/types.ts"
+      ]
+    },
     "src/audit/spc.ts": {
       "imported_by": [
         "src/__tests__/audit-spc.test.ts",
-        "src/audit/index.ts"
+        "src/audit/index.ts",
+        "src/cli/commands/audit-report.ts"
       ],
       "imports": [
         "src/types.ts"
@@ -1388,7 +1535,8 @@
     "src/audit/verifiers.ts": {
       "imported_by": [
         "src/__tests__/audit-verifiers.test.ts",
-        "src/audit/index.ts"
+        "src/audit/index.ts",
+        "src/audit/self-test.ts"
       ],
       "imports": [
         "src/types.ts"
@@ -1438,6 +1586,28 @@
       ],
       "module": "src/cli",
       "type_only_imports": []
+    },
+    "src/cli/commands/audit-report.ts": {
+      "imported_by": [
+        "src/cli/index.ts"
+      ],
+      "imports": [
+        "src/audit/oracles/index.ts",
+        "src/audit/sampler.ts",
+        "src/audit/self-test.ts",
+        "src/audit/spc.ts",
+        "src/cli/commands/helpers.ts",
+        "src/cli/exit-codes.ts",
+        "src/config.ts",
+        "src/diff.ts",
+        "src/storage.ts",
+        "src/types.ts",
+        "src/version.ts"
+      ],
+      "module": "src/cli",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
     },
     "src/cli/commands/connections.ts": {
       "imported_by": [
@@ -1598,6 +1768,7 @@
     "src/cli/commands/helpers.ts": {
       "imported_by": [
         "src/__tests__/data-availability-boundary.test.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/connections.ts",
         "src/cli/commands/coverage.ts",
         "src/cli/commands/dead.ts",
@@ -1884,6 +2055,7 @@
       "imported_by": [
         "src/cli/commands/arch-diff.ts",
         "src/cli/commands/arch-index.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/connections.ts",
         "src/cli/commands/coverage.ts",
         "src/cli/commands/dead.ts",
@@ -1919,6 +2091,7 @@
       "imports": [
         "src/cli/commands/arch-diff.ts",
         "src/cli/commands/arch-index.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/connections.ts",
         "src/cli/commands/coverage.ts",
         "src/cli/commands/dead.ts",
@@ -1966,6 +2139,7 @@
     },
     "src/config.ts": {
       "imported_by": [
+        "src/__tests__/audit-selftest.test.ts",
         "src/__tests__/auto-refresh.test.ts",
         "src/__tests__/consolidated-readers.test.ts",
         "src/__tests__/deep-map-core.test.ts",
@@ -1977,6 +2151,7 @@
         "src/__tests__/portfolio/scan.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
         "src/agent-output.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/connections.ts",
         "src/cli/commands/coverage.ts",
         "src/cli/commands/dead.ts",
@@ -2221,6 +2396,7 @@
     "src/diff.ts": {
       "imported_by": [
         "src/__tests__/scan-boundaries.test.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/misc.ts",
         "src/cli/commands/status.ts",
         "src/git-aware/canonical.ts",
@@ -2722,6 +2898,7 @@
       "imported_by": [
         "src/__tests__/scan-degradation.test.ts",
         "src/__tests__/scip-new-catches.test.ts",
+        "src/audit/oracles/imports-scip.ts",
         "src/scanner.ts"
       ],
       "imports": [],
@@ -3000,6 +3177,7 @@
         "src/__tests__/scanner-audit.test.ts",
         "src/__tests__/scanner-characterization.test.ts",
         "src/__tests__/scanner-diff-guard.test.ts",
+        "src/__tests__/scanner-endpoint-resolution.test.ts",
         "src/__tests__/scanner-full-scan-diff.test.ts",
         "src/__tests__/scanner-ignore.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
@@ -3429,6 +3607,7 @@
         "src/__tests__/scanner-incremental.test.ts",
         "src/__tests__/setup.test.ts",
         "src/audit/index.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/connections.ts",
         "src/cli/commands/coverage.ts",
         "src/cli/commands/dead.ts",
@@ -3523,6 +3702,8 @@
         "src/__tests__/agent-output.test.ts",
         "src/__tests__/architecture-index.test.ts",
         "src/__tests__/architecture-insights-stack.test.ts",
+        "src/__tests__/audit-oracles.test.ts",
+        "src/__tests__/audit-selftest.test.ts",
         "src/__tests__/audit-verifiers.test.ts",
         "src/__tests__/auto-refresh.test.ts",
         "src/__tests__/bare-imports.test.ts",
@@ -3550,10 +3731,14 @@
         "src/agent-output.ts",
         "src/architecture-insights.ts",
         "src/audit/index.ts",
+        "src/audit/oracles/common.ts",
+        "src/audit/oracles/index.ts",
+        "src/audit/self-test.ts",
         "src/audit/spc.ts",
         "src/audit/verifiers.ts",
         "src/classify.ts",
         "src/cli/commands/arch-diff.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/commands/diagram.ts",
         "src/cli/commands/find.ts",
         "src/cli/commands/subgraph.ts",
@@ -3656,6 +3841,7 @@
       "imported_by": [
         "src/__tests__/release-contract.test.ts",
         "src/audit/index.ts",
+        "src/cli/commands/audit-report.ts",
         "src/cli/index.ts",
         "src/mcp/server.ts",
         "src/memory/mirror.ts"
@@ -5184,7 +5370,7 @@
   "generator": "navgator arch-index",
   "hotspots": [
     {
-      "dependents": 101,
+      "dependents": 107,
       "file": "src/types.ts",
       "module": "src"
     },
@@ -5194,12 +5380,12 @@
       "module": "web/lib"
     },
     {
-      "dependents": 44,
+      "dependents": 46,
       "file": "src/config.ts",
       "module": "src"
     },
     {
-      "dependents": 38,
+      "dependents": 39,
       "file": "src/storage.ts",
       "module": "src"
     },
@@ -5209,19 +5395,19 @@
       "module": "src"
     },
     {
-      "dependents": 27,
+      "dependents": 28,
       "file": "src/cli/exit-codes.ts",
       "module": "src/cli"
     },
     {
       "dependents": 26,
-      "file": "web/lib/types.ts",
-      "module": "web/lib"
-    },
-    {
-      "dependents": 25,
       "file": "src/scanner.ts",
       "module": "src"
+    },
+    {
+      "dependents": 26,
+      "file": "web/lib/types.ts",
+      "module": "web/lib"
     },
     {
       "dependents": 19,
@@ -5234,7 +5420,7 @@
       "module": "src"
     },
     {
-      "dependents": 17,
+      "dependents": 18,
       "file": "src/cli/commands/helpers.ts",
       "module": "src/cli"
     },
@@ -5346,12 +5532,12 @@
       "to": "src/temporal"
     },
     {
-      "edges": 116,
+      "edges": 120,
       "from": "src/__tests__",
       "to": "src"
     },
     {
-      "edges": 3,
+      "edges": 7,
       "from": "src/__tests__",
       "to": "src/audit"
     },
@@ -5431,14 +5617,24 @@
       "to": "web/lib"
     },
     {
-      "edges": 5,
+      "edges": 8,
       "from": "src/audit",
       "to": "src"
     },
     {
-      "edges": 100,
+      "edges": 1,
+      "from": "src/audit",
+      "to": "src/parsers"
+    },
+    {
+      "edges": 105,
       "from": "src/cli",
       "to": "src"
+    },
+    {
+      "edges": 4,
+      "from": "src/cli",
+      "to": "src/audit"
     },
     {
       "edges": 8,
@@ -5626,11 +5822,11 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 116,
+          "edges": 120,
           "module": "src/__tests__"
         },
         {
-          "edges": 100,
+          "edges": 105,
           "module": "src/cli"
         },
         {
@@ -5646,12 +5842,12 @@
           "module": "src/mcp"
         },
         {
-          "edges": 7,
-          "module": "src/git-aware"
+          "edges": 8,
+          "module": "src/audit"
         },
         {
-          "edges": 5,
-          "module": "src/audit"
+          "edges": 7,
+          "module": "src/git-aware"
         },
         {
           "edges": 5,
@@ -5747,7 +5943,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 116,
+          "edges": 120,
           "module": "src"
         },
         {
@@ -5776,6 +5972,10 @@
         },
         {
           "edges": 7,
+          "module": "src/audit"
+        },
+        {
+          "edges": 7,
           "module": "src/git-aware"
         },
         {
@@ -5789,10 +5989,6 @@
         {
           "edges": 5,
           "module": "src/remote"
-        },
-        {
-          "edges": 3,
-          "module": "src/audit"
         },
         {
           "edges": 3,
@@ -5815,7 +6011,7 @@
           "module": "web"
         }
       ],
-      "files": 104,
+      "files": 107,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"
@@ -5827,8 +6023,12 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 3,
+          "edges": 7,
           "module": "src/__tests__"
+        },
+        {
+          "edges": 4,
+          "module": "src/cli"
         },
         {
           "edges": 1,
@@ -5837,16 +6037,20 @@
       ],
       "depends_on": [
         {
-          "edges": 5,
+          "edges": 8,
           "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/parsers"
         }
       ],
-      "files": 4,
+      "files": 12,
       "id": "src/audit",
       "key_files": [
+        "src/audit/oracles/common.ts",
         "src/audit/sampler.ts",
-        "src/audit/spc.ts",
-        "src/audit/verifiers.ts"
+        "src/audit/index.ts"
       ],
       "path": "src/audit",
       "responsibility": "Dependency-free statistical sampling and process-control math used to audit scan accuracy."
@@ -5861,12 +6065,16 @@
       ],
       "depends_on": [
         {
-          "edges": 100,
+          "edges": 105,
           "module": "src"
         },
         {
           "edges": 8,
           "module": "src/deep-map"
+        },
+        {
+          "edges": 4,
+          "module": "src/audit"
         },
         {
           "edges": 3,
@@ -5901,7 +6109,7 @@
           "module": "src/temporal"
         }
       ],
-      "files": 30,
+      "files": 31,
       "id": "src/cli",
       "key_files": [
         "src/cli/exit-codes.ts",
@@ -6145,6 +6353,10 @@
         {
           "edges": 1,
           "module": "src"
+        },
+        {
+          "edges": 1,
+          "module": "src/audit"
         }
       ],
       "depends_on": [],
