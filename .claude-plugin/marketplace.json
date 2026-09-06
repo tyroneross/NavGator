@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Architecture connection tracker — know your stack before you change it",
-    "version": "0.9.1"
+    "version": "0.10.0"
   },
   "plugins": [
     {
