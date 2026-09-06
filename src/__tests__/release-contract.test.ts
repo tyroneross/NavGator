@@ -366,7 +366,11 @@ describe('release contract', () => {
     }
     expect(ci).toContain("node-version: ['20.19.0', '22']");
     expect(publish).toContain('Verify tag matches package version');
-    expect(publish).toContain('EXPECTED_TAG="v${PACKAGE_VERSION}"');
+    // release-please cuts `navgator-v<version>`, not `v<version>`. A publish
+    // workflow that filters or verifies the bare `v*` shape is unreachable by
+    // the only thing that creates release tags.
+    expect(publish).toContain('EXPECTED_TAG="navgator-v${PACKAGE_VERSION}"');
+    expect(publish).toContain("- 'navgator-v*'");
     expect(publish).toContain("node-version: ${{ env.PUBLISH_NODE_VERSION }}");
     expect(publish).toContain('npm pack --json --ignore-scripts');
     expect(publish).toContain('NAVGATOR_RELEASE_TARBALL: ${{ steps.artifact.outputs.file }}');
@@ -376,6 +380,29 @@ describe('release contract', () => {
     expect(publish).toContain('needs: build');
     expect(publish.match(/npm publish .*--ignore-scripts/g)).toHaveLength(2);
     expect(publish).not.toContain('BUILD_NODE_VERSION');
+  });
+
+  it('never gives npm a placeholder npmjs credential that masks a failed OIDC exchange', () => {
+    const publish = text('.github/workflows/publish.yml');
+
+    // setup-node's `registry-url` writes `_authToken=${NODE_AUTH_TOKEN}` and
+    // exports the placeholder NODE_AUTH_TOKEN=XXXXX-XXXXX-XXXXX-XXXXX. That
+    // non-empty value walks npm past its ENEEDAUTH guard, so a failed trusted-
+    // publisher exchange PUTs with a garbage token and npmjs answers E404 --
+    // which reads as "package missing" and hides the real fault. OIDC does not
+    // need it: npm takes the registry from the `--registry` publish flag.
+    expect(publish).not.toContain("registry-url: 'https://registry.npmjs.org'");
+    expect(publish).toContain('--registry https://registry.npmjs.org');
+
+    // The GitHub Packages leg is token-authenticated and still needs its own
+    // registry-url, so the assertion above must stay npmjs-specific.
+    expect(publish).toContain("registry-url: 'https://npm.pkg.github.com'");
+
+    // npm swallows every OIDC exchange failure at log.verbose, so the workflow
+    // owns the only surface that names why a trusted publish was refused.
+    expect(publish).toContain('Diagnose npm trusted-publisher binding');
+    expect(publish).toContain('/-/npm/v1/oidc/token/exchange/package/');
+    expect(publish).toContain('audience=npm:registry.npmjs.org');
   });
 
   it('keeps Codex installation messaging truthful and runtime-backed', () => {

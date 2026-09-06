@@ -2,8 +2,15 @@ name: Publish packages
 
 on:
   push:
+    # release-please-config.json sets package-name "@tyroneross/navgator" with
+    # include-v-in-tag, so release-please cuts `navgator-v<version>` tags -- it
+    # dropped the bare `v<version>` format at v0.9.1. A `v*` filter therefore
+    # matched nothing release-please creates, and this trigger was dead. The
+    # release-please bridge dispatches this workflow explicitly, so the dead
+    # trigger never surfaced; it would have surfaced the first time someone
+    # pushed a release tag by hand and got no publish.
     tags:
-      - 'v*'
+      - 'navgator-v*'
   workflow_dispatch:
 
 env:
@@ -64,7 +71,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
         run: |
-          EXPECTED_TAG="v${PACKAGE_VERSION}"
+          EXPECTED_TAG="navgator-v${PACKAGE_VERSION}"
           if [ "$RELEASE_TAG" != "$EXPECTED_TAG" ]; then
             echo "Release tag $RELEASE_TAG does not match package version $PACKAGE_VERSION (expected $EXPECTED_TAG)." >&2
             exit 1
@@ -132,13 +139,29 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.PUBLISH_NODE_VERSION }}
-          # registry-url is required for npm to run the OIDC exchange against
-          # npmjs (without it npm skips OIDC entirely → ENEEDAUTH). The
-          # placeholder token setup-node writes does NOT block OIDC: npm still
-          # exchanges the id-token and signs provenance. A remaining E404 at the
-          # PUT is a trusted-publisher BINDING mismatch on npmjs, not a workflow
-          # problem (repo/org/workflow fields are case-sensitive + unvalidated).
-          registry-url: 'https://registry.npmjs.org'
+          # DELIBERATELY NO registry-url. Two claims in the comment that used to
+          # sit here were wrong, and together they turned an auth failure into a
+          # "the package does not exist" red herring:
+          #
+          # 1. registry-url is NOT required for the OIDC exchange. npm resolves
+          #    the registry with `npmFetch.pickRegistry(resolved, opts)`
+          #    (npm 11.19.0, lib/commands/publish.js:145-147), and the
+          #    `--registry https://registry.npmjs.org` flag on the publish step
+          #    below already sets opts.registry. The .npmrc plays no part.
+          # 2. The placeholder token setup-node writes is NOT harmless. With
+          #    registry-url set, setup-node writes
+          #    `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` and exports
+          #    NODE_AUTH_TOKEN=XXXXX-XXXXX-XXXXX-XXXXX. That is a NON-EMPTY
+          #    credential, so publish.js's `noCreds` guard (line 150) passes and
+          #    npm PUTs with a garbage token. npmjs answers E404 for an
+          #    unauthorized write, which reads as "package missing" and buries
+          #    the real fault.
+          #
+          # Without it, a failed OIDC exchange surfaces honestly as ENEEDAUTH,
+          # and the diagnostic step below names why the exchange failed.
+          # Provenance is unaffected either way: package.json sets
+          # publishConfig.provenance, so npm signs regardless of OIDC. "Signed
+          # provenance" is NOT evidence that trusted publishing authenticated.
 
       # Node 24's bundled npm (11.16.0) already satisfies trusted publishing
       # (needs >= 11.5.1) and ships sigstore for automatic provenance. A global
@@ -153,6 +176,52 @@ jobs:
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Diagnose npm trusted-publisher binding
+        # npm's OIDC helper swallows every exchange failure at log.verbose/silly
+        # and returns undefined (npm 11.19.0, lib/utils/oidc.js), so a broken
+        # trusted-publisher binding is invisible at the default loglevel. This
+        # step makes the same two calls npm makes and prints what npmjs actually
+        # answered, plus the exact claims npmjs matches the binding against.
+        # Diagnostic only: it never uses the exchanged token to publish, and
+        # never prints the id-token or the exchanged token.
+        if: steps.npmjs.outputs.exists != 'true'
+        continue-on-error: true
+        env:
+          NPM_PACKAGE: '@tyroneross/navgator'
+        run: |
+          set -uo pipefail
+          ID_TOKEN=$(curl -sS \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm:registry.npmjs.org" \
+            | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write((JSON.parse(d).value)||''))")
+          if [ -z "${ID_TOKEN}" ]; then
+            echo "No GitHub OIDC id-token issued. Check that the job grants permissions.id-token: write."
+            exit 0
+          fi
+          echo "Claims npmjs matches the trusted publisher against:"
+          ID_TOKEN="${ID_TOKEN}" node -e '
+            const p = JSON.parse(Buffer.from(process.env.ID_TOKEN.split(".")[1], "base64url").toString("utf8"));
+            for (const k of ["repository", "repository_owner", "repository_visibility", "workflow_ref", "job_workflow_ref", "ref", "event_name"]) {
+              console.log(`  ${k} = ${p[k]}`);
+            }
+          '
+          # npm escapes the scope separator only, and lowercases the escape
+          # (npm-package-arg escapedName): @scope%2fname, not %40scope%2Fname.
+          ESCAPED="${NPM_PACKAGE/\//%2f}"
+          echo "POST /-/npm/v1/oidc/token/exchange/package/${ESCAPED}"
+          STATUS=$(curl -sS -o /tmp/npm-oidc-exchange.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer ${ID_TOKEN}" \
+            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/${ESCAPED}")
+          echo "  HTTP ${STATUS}"
+          if [ "${STATUS}" = "200" ]; then
+            echo "  Exchange succeeded. The trusted-publisher binding is valid. (Token withheld from the log.)"
+          else
+            echo "  npmjs rejected the exchange. Response body:"
+            sed -e 's/^/    /' /tmp/npm-oidc-exchange.json
+            echo "  Fix at npmjs.com > @tyroneross/navgator > Settings > Trusted Publisher."
+            echo "  Every field is case-sensitive and unvalidated; match the claims printed above."
           fi
 
       - name: Publish to npmjs (OIDC trusted publishing)
