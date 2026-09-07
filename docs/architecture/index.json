@@ -70,9 +70,9 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 390,
+    "analyzed_files": 392,
     "blind_spots": [
-      "7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
+      "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
@@ -81,7 +81,7 @@
     "languages": [
       {
         "analyzed": true,
-        "files": 7,
+        "files": 8,
         "internal_edges": 0,
         "language": "JavaScript"
       },
@@ -99,7 +99,7 @@
       },
       {
         "analyzed": true,
-        "files": 372,
+        "files": 373,
         "internal_edges": 1098,
         "language": "TypeScript"
       }
@@ -107,6 +107,12 @@
     "status": "partial"
   },
   "files": {
+    "scripts/artifact-guard.mjs": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
     "scripts/bench-scan.mjs": {
       "imported_by": [],
       "imports": [],
@@ -261,6 +267,12 @@
         "src/__tests__/helpers.ts",
         "src/architecture-insights.ts"
       ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/artifact-guard.test.ts": {
+      "imported_by": [],
+      "imports": [],
       "module": "src/__tests__",
       "type_only_imports": []
     },
@@ -5839,7 +5851,7 @@
       "curated": true,
       "dependents": [],
       "depends_on": [],
-      "files": 16,
+      "files": 17,
       "id": "scripts",
       "key_files": [
         "scripts/registry_lag.py"
@@ -6040,7 +6052,7 @@
           "module": "web"
         }
       ],
-      "files": 107,
+      "files": 108,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"

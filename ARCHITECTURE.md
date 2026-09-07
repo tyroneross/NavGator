@@ -20,18 +20,18 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-390 files analyzed, 1099 internal import edges.
+392 files analyzed, 1099 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
-| JavaScript | 7 | yes | 0 |
+| JavaScript | 8 | yes | 0 |
 | Python | 11 | yes | 1 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 372 | yes | 1098 |
+| TypeScript | 373 | yes | 1098 |
 
 What this index cannot see:
 
-- 7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.
+- 8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.
 - 8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means "not measured", never "not coupled".
 - Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.
 - Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not.
@@ -45,9 +45,9 @@ them a responsibility in `docs/architecture/modules.json`.
 | Module | Files | Responsibility | Start reading at |
 |---|---:|---|---|
 | `.` | 1 | Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them. | - |
-| `scripts` | 16 | Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers. | `scripts/registry_lag.py` |
+| `scripts` | 17 | Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers. | `scripts/registry_lag.py` |
 | `src` | 37 | Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system. | `src/types.ts`<br>`src/config.ts`<br>`src/storage.ts` |
-| `src/__tests__` | 107 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
+| `src/__tests__` | 108 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
 | `src/audit` | 12 | Dependency-free statistical sampling and process-control math used to audit scan accuracy. | `src/audit/oracles/common.ts`<br>`src/audit/sampler.ts`<br>`src/audit/index.ts` |
 | `src/cli` | 31 | The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`. | `src/cli/exit-codes.ts`<br>`src/cli/commands/helpers.ts`<br>`src/cli/commands/portfolio.ts` |
 | `src/deep-map` | 9 | Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph. | `src/deep-map/types.ts`<br>`src/deep-map/store.ts`<br>`src/deep-map/filter.ts` |

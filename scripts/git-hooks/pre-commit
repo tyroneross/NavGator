@@ -1,0 +1,26 @@
+#!/bin/sh
+# navgator:artifact-guard-pre-commit
+# SPDX-FileCopyrightText: 2025-2026 Tyrone Ross, Jr <46267523+tyroneross@users.noreply.github.com>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Drift-prevention pre-commit. `dist/`, `ARCHITECTURE.md`, and
+# `docs/architecture/index.json` are committed on purpose and gated by CI; this
+# regenerates and re-stages them at commit time so the gate convicts nothing the
+# commit path did not already fix. Rationale and the observed failures it
+# prevents: scripts/artifact-guard.mjs.
+#
+# Set NAVGATOR_ARTIFACT_ADVISORY=1 to warn instead of regenerate/block.
+#
+# Installed (chained, coexisting with other pre-commit segments) by:
+#   npm run hooks:install
+# Auto-installed by the `prepare` lifecycle on `npm install`.
+#
+# This file is the SINGLE SOURCE the installer extracts the marked segment from.
+# Edit the segment here, then re-run `npm run hooks:install` to re-sync.
+# --- BEGIN navgator artifact-guard pre-commit ---
+NG_AG_TOP="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -n "$NG_AG_TOP" ] && [ -f "$NG_AG_TOP/scripts/artifact-guard.mjs" ]; then
+  node "$NG_AG_TOP/scripts/artifact-guard.mjs" --staged || exit 1
+fi
+# --- END navgator artifact-guard pre-commit ---
+exit 0

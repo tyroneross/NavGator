@@ -669,6 +669,48 @@ npm run architecture          # navgator arch-index --write
 npm run architecture:check    # navgator arch-index --check
 ```
 
+You should rarely need to run either by hand — see the artifact guard below.
+
+## Contributing: the artifact guard
+
+Three generated artifacts are committed on purpose, because a fresh clone (and
+any agent dispatched into one) must find them without running a build or a scan
+first: `dist/`, `ARCHITECTURE.md`, and `docs/architecture/index.json`. CI gates
+all three and fails on any difference.
+
+Regenerating them is wired into the commit path, so the gate convicts nothing
+the commit path did not already fix. `scripts/artifact-guard.mjs` runs as a
+`pre-commit` hook: when a commit's staged files feed one of those artifacts, it
+regenerates the artifact and stages the result alongside your change.
+
+```bash
+npm run hooks:install                     # install / re-sync the hook (chained, non-destructive)
+npm run artifact-guard -- --list          # what is guarded, and why
+npm run artifact-guard                    # read-only freshness check
+npm run artifact-guard -- --regen dist    # regenerate one artifact by hand
+node scripts/artifact-guard.mjs --hook-status
+```
+
+The `prepare` lifecycle installs the hook on `npm install`, so a fresh clone is
+covered without a separate step. The hook chains into any pre-commit hook you
+already have rather than replacing it.
+
+Notes worth knowing:
+
+- **It regenerates from the staged index in a throwaway worktree, not from your
+  working tree.** A colleague's — or a concurrent agent's — unstaged edit or
+  untracked file therefore cannot be compiled into `dist` and shipped inside
+  your commit. Cost is roughly 1.5s for a docs change and 6s when `src/` changed.
+- **The architecture index watches every staged file, not just `src/`.**
+  `arch-index` counts 25 file extensions across the whole tree, so a
+  `scripts/*.py` change moves it. This is not hypothetical: commit `85e5b5e`
+  touched no `src/` file at all and still drifted the index.
+- **It needs dependencies installed.** If neither this checkout nor the
+  repository's main worktree has `node_modules`, the guard warns and lets the
+  commit through; CI stays the backstop.
+- `NAVGATOR_ARTIFACT_ADVISORY=1 git commit …` downgrades the guard to a warning
+  for one commit. Fix the drift before CI sees it.
+
 ### `navgator registry-log`
 
 The project registry (`~/.navgator/projects.json`) has readers and writers living in two separate processes — the CLI/MCP process and the dashboard — so a lost update in one is invisible to the other. This command shows the append-only journal of every read and write of that registry, including any detected lost-update conflicts. Records carry a content digest and an entry-count delta rather than the registry payload itself, and the journal file rotates by size, so it can't grow unbounded.
