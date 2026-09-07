@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/tyroneross/NavGator/compare/navgator-v0.10.0...navgator-v0.10.1) (2026-09-07)
+
+
+### Features
+
+* **release:** detect a stalled cadence and a registry that never got the release ([85e5b5e](https://github.com/tyroneross/NavGator/commit/85e5b5ef178a055b593ba187661519367c9428ad))
+
 ## [0.10.0](https://github.com/tyroneross/NavGator/compare/navgator-v0.9.1...navgator-v0.10.0) (2026-09-06)
 
 
