@@ -70,15 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 386,
+    "analyzed_files": 390,
     "blind_spots": [
       "7 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
-      "7 Python file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1098,
+    "internal_edges": 1099,
     "languages": [
       {
         "analyzed": true,
@@ -88,8 +87,8 @@
       },
       {
         "analyzed": true,
-        "files": 7,
-        "internal_edges": 0,
+        "files": 11,
+        "internal_edges": 1,
         "language": "Python"
       },
       {
@@ -144,6 +143,20 @@
       "module": "scripts",
       "type_only_imports": []
     },
+    "scripts/registry_lag.py": {
+      "imported_by": [
+        "scripts/test_registry_lag.py"
+      ],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/release_staleness.py": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
     "scripts/test_bridge_preflight.py": {
       "imported_by": [],
       "imports": [],
@@ -157,6 +170,20 @@
       "type_only_imports": []
     },
     "scripts/test_plugin_manifest.py": {
+      "imported_by": [],
+      "imports": [],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/test_registry_lag.py": {
+      "imported_by": [],
+      "imports": [
+        "scripts/registry_lag.py"
+      ],
+      "module": "scripts",
+      "type_only_imports": []
+    },
+    "scripts/test_release_staleness.py": {
       "imported_by": [],
       "imports": [],
       "module": "scripts",
@@ -5812,9 +5839,11 @@
       "curated": true,
       "dependents": [],
       "depends_on": [],
-      "files": 12,
+      "files": 16,
       "id": "scripts",
-      "key_files": [],
+      "key_files": [
+        "scripts/registry_lag.py"
+      ],
       "path": "scripts",
       "responsibility": "Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers."
     },
