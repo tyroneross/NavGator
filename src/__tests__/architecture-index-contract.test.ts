@@ -78,6 +78,20 @@ const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
  * explaining a text-match over-report instead of silently tolerating it.
  */
 function specifiersOf(file: string, source: string): { code: string[]; nonCode: string[] } {
+  // The index covers scripts/*.py since 85e5b5e, and the TS parser sees no
+  // import in Python source, so `import registry_lag` in a sibling test read
+  // as an invented edge. Read top-level-statement imports line by line; a
+  // module name resolves to a sibling `<name>.py`.
+  if (file.endsWith('.py')) {
+    const code: string[] = [];
+    const stmt = /^\s*(?:from\s+([\w.]+)\s+import\b|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))/gm;
+    let match: RegExpExecArray | null;
+    while ((match = stmt.exec(source)) !== null) {
+      const names = match[1] ? [match[1]] : match[2].split(',');
+      for (const name of names) code.push(`./${name.trim().replace(/\./g, '/')}.py`);
+    }
+    return { code, nonCode: [] };
+  }
   const kind = file.endsWith('.tsx') || file.endsWith('.jsx') ? ts.ScriptKind.TSX : undefined;
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
 
