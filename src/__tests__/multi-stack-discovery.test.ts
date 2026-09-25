@@ -189,6 +189,25 @@ describe('discoverStackRoots', () => {
     expect(incremental.timelineEntry?.scan_type).toBe('full');
   }, 30000);
 
+  it('runs Rust code analysis when the Cargo workspace is below a wrapper directory', async () => {
+    // Swift app at the root, Rust engine in a subdirectory: the Ambient Agent
+    // layout. The Rust scanner used to gate on `Cargo.toml` at the root only.
+    fs.writeFileSync(
+      path.join(tmp, 'Package.swift'),
+      '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "App")\n'
+    );
+    const crateRoot = path.join(tmp, 'engine-rs');
+    fs.mkdirSync(path.join(crateRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(crateRoot, 'Cargo.toml'), '[package]\nname = "engine"\nversion = "0.1.0"\n');
+    fs.writeFileSync(path.join(crateRoot, 'src', 'lib.rs'), 'pub struct EngineCore {}\n');
+
+    const result = await scan(tmp, { mode: 'full', noAudit: true });
+
+    expect(result.components.some(c =>
+      c.name === 'EngineCore' && (c.metadata as Record<string, unknown>)?.file === 'engine-rs/src/lib.rs'
+    )).toBe(true);
+  }, 30000);
+
   it('falls back to root when nothing matches anywhere', () => {
     fs.mkdirSync(path.join(tmp, 'docs'));
     const out = discoverStackRoots(tmp, false);

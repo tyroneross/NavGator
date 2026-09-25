@@ -1650,7 +1650,15 @@ export async function scan(projectRoot, options = {}) {
                 }
             }
             // Rust code analysis (modules, types, trait impls, use graph, LLM calls)
-            if (detectCargo(root)) {
+            //
+            // Gate on ANY discovered stack root, the same way the Swift scanner above
+            // gates on `swiftStackRoots`. Gating on `detectCargo(root)` alone skipped
+            // the Rust scanner entirely for the common app layout where the Cargo
+            // workspace lives in a subdirectory (`engine-rs/Cargo.toml` beside a root
+            // `Package.swift`): the Cargo packages were still read in Phase 1, so every
+            // crate node existed with zero edges and every .rs file produced nothing.
+            // `scanRustCode` globs `**/*.rs` from `root`, so one call covers every root.
+            if (stackRoots.some(sr => detectCargo(sr.path))) {
                 if (options.verbose)
                     console.log('  - Scanning Rust code connections...');
                 try {
