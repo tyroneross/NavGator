@@ -111,4 +111,17 @@ describe('scanSwiftCode file graph', () => {
     expect(out).not.toMatch(/Foo|Baz|Qux|Zed|Multi|Raw/);
     expect(out.split('\n')).toHaveLength(src.split('\n').length);
   });
+
+  it('resolves a name declared twice to the strictly nearer declaration, and skips a tie', async () => {
+    writeFixture('docs/evidence/render.swift', 'final class SessionStore { }\n');        // stub copy elsewhere
+    writeFixture('Sources/Demo/Feature/A/State.swift', 'struct Model {}\n');
+    writeFixture('Sources/Demo/Feature/B/State.swift', 'struct Model {}\n');
+    writeFixture('Sources/Demo/Feature/Use.swift', 'let m = Model()\n');               // tie: A and B equally near
+    const result = await scanSwiftCode(tmp);
+    const refs = result.connections
+      .filter(c => c.connection_type === 'references')
+      .map(c => `${c.from.component_id.slice(5)} -> ${c.to.location?.file}`);
+    expect(refs).toContain('Sources/Demo/RootView.swift -> Sources/Demo/SessionStore.swift');
+    expect(refs.some(r => r.startsWith('Sources/Demo/Feature/Use.swift'))).toBe(false);
+  });
 });

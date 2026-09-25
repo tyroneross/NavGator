@@ -890,22 +890,34 @@ export async function scanSwiftCode(
   // two files of one module naming each other's types is ordinary Swift, not
   // an import cycle.
   //
-  // A name declared in more than one file (nested `CodingKeys`, per-feature
-  // `State`) is skipped: which declaration a use means is not decidable from
-  // text, and guessing would invent coupling.
+  // A name declared in more than one file resolves only when one
+  // declaration is strictly nearer the using file by shared directory
+  // prefix: Swift resolves names within the module being compiled, and a
+  // copy in another tree (a stub under docs/, a second app target) is not
+  // what this file sees. A file that declares the name itself uses its own
+  // declaration. Otherwise (two `State`s in sibling folders) it is skipped:
+  // guessing would invent coupling.
   const declarations = scanTypeDeclarations(files);
-  const componentByName = new Map<string, string>();
+  // name → node, and the file that node was recorded in: with a name
+  // declared in two places, the node is the target only when it is the
+  // declaration the use resolved to.
+  const componentByName = new Map<string, { id: string; file?: string }>();
   for (const c of components) {
-    if (c.type === 'component' && !componentByName.has(c.name)) componentByName.set(c.name, c.component_id);
+    if (c.type !== 'component' || componentByName.has(c.name)) continue;
+    const f = (c.metadata as Record<string, unknown> | undefined)?.['file'];
+    componentByName.set(c.name, { id: c.component_id, file: typeof f === 'string' ? f : undefined });
   }
   for (const file of files) {
     const seenTargets = new Set<string>();
     for (const ref of scanTypeIdentifiers(file)) {
       const declFiles = declarations.get(ref.name);
-      if (!declFiles || declFiles.size !== 1) continue;
-      const declFile = [...declFiles][0];
-      if (declFile === file.relativePath) continue;
-      const target = componentByName.get(ref.name) ?? `FILE:${declFile}`;
+      if (!declFiles) continue;
+      const declFile = nearestDeclaration(file.relativePath, declFiles);
+      if (!declFile || declFile === file.relativePath) continue;
+      const node = componentByName.get(ref.name);
+      const target = node && (declarations.get(ref.name)!.size === 1 || node.file === declFile)
+        ? node.id
+        : `FILE:${declFile}`;
       if (seenTargets.has(target)) continue;
       seenTargets.add(target);
       connections.push({
@@ -1420,6 +1432,33 @@ export function stripSwiftNonCode(src: string): string {
     }
   }
   return out;
+}
+
+/** Number of leading directory segments two repo-relative paths share. */
+function sharedDirDepth(a: string, b: string): number {
+  const da = a.split('/').slice(0, -1);
+  const db = b.split('/').slice(0, -1);
+  let n = 0;
+  while (n < da.length && n < db.length && da[n] === db[n]) n++;
+  return n;
+}
+
+/**
+ * The declaration a use in `file` means: the only one, the file's own, or the
+ * one strictly nearest by shared directory prefix. Undefined on a tie.
+ */
+function nearestDeclaration(file: string, declFiles: Set<string>): string | undefined {
+  if (declFiles.size === 1) return [...declFiles][0];
+  if (declFiles.has(file)) return file;
+  let best: string | undefined;
+  let bestDepth = -1;
+  let tied = false;
+  for (const d of declFiles) {
+    const depth = sharedDirDepth(file, d);
+    if (depth > bestDepth) { best = d; bestDepth = depth; tied = false; }
+    else if (depth === bestDepth) tied = true;
+  }
+  return tied ? undefined : best;
 }
 
 /** name → files that declare a type (struct/class/enum/actor/protocol/typealias) of that name. */
