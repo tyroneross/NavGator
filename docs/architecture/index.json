@@ -70,14 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 393,
+    "analyzed_files": 394,
     "blind_spots": [
       "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1102,
+    "internal_edges": 1107,
     "languages": [
       {
         "analyzed": true,
@@ -99,8 +99,8 @@
       },
       {
         "analyzed": true,
-        "files": 374,
-        "internal_edges": 1101,
+        "files": 375,
+        "internal_edges": 1106,
         "language": "TypeScript"
       }
     ],
@@ -1361,6 +1361,20 @@
       "module": "src/__tests__",
       "type_only_imports": []
     },
+    "src/__tests__/xcode-target-membership.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/entry-points.ts",
+        "src/rules.ts",
+        "src/scanner.ts",
+        "src/scanners/xcode/pbxproj-parser.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
     "src/agent-output.ts": {
       "imported_by": [
         "src/__tests__/agent-output.test.ts",
@@ -2519,6 +2533,7 @@
     "src/entry-points.ts": {
       "imported_by": [
         "src/__tests__/entry-points.test.ts",
+        "src/__tests__/xcode-target-membership.test.ts",
         "src/rules.ts"
       ],
       "imports": [
@@ -3171,6 +3186,7 @@
         "src/__tests__/deep-map-core.test.ts",
         "src/__tests__/deep-map-packets.test.ts",
         "src/__tests__/rules.test.ts",
+        "src/__tests__/xcode-target-membership.test.ts",
         "src/agent-output.ts",
         "src/cli/commands/rules.ts",
         "src/deep-map/escalate.ts",
@@ -3232,6 +3248,7 @@
         "src/__tests__/scanner-full-scan-diff.test.ts",
         "src/__tests__/scanner-ignore.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
+        "src/__tests__/xcode-target-membership.test.ts",
         "src/cli/commands/freshness.ts",
         "src/cli/commands/misc.ts",
         "src/cli/commands/prompts.ts",
@@ -3612,6 +3629,7 @@
     },
     "src/scanners/xcode/pbxproj-parser.ts": {
       "imported_by": [
+        "src/__tests__/xcode-target-membership.test.ts",
         "src/scanner.ts"
       ],
       "imports": [
@@ -3780,6 +3798,7 @@
         "src/__tests__/trace-file-nodes.test.ts",
         "src/__tests__/trace.test.ts",
         "src/__tests__/web-coverage-route.test.ts",
+        "src/__tests__/xcode-target-membership.test.ts",
         "src/agent-output.ts",
         "src/architecture-insights.ts",
         "src/audit/index.ts",
@@ -5422,7 +5441,7 @@
   "generator": "navgator arch-index",
   "hotspots": [
     {
-      "dependents": 107,
+      "dependents": 108,
       "file": "src/types.ts",
       "module": "src"
     },
@@ -5452,7 +5471,7 @@
       "module": "src/cli"
     },
     {
-      "dependents": 27,
+      "dependents": 28,
       "file": "src/scanner.ts",
       "module": "src"
     },
@@ -5487,14 +5506,14 @@
       "module": "web/lib"
     },
     {
-      "dependents": 12,
-      "file": "src/deep-map/types.ts",
-      "module": "src/deep-map"
+      "dependents": 13,
+      "file": "src/rules.ts",
+      "module": "src"
     },
     {
       "dependents": 12,
-      "file": "src/rules.ts",
-      "module": "src"
+      "file": "src/deep-map/types.ts",
+      "module": "src/deep-map"
     },
     {
       "dependents": 12,
@@ -5584,7 +5603,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 122,
+      "edges": 126,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5644,7 +5663,7 @@
       "to": "src/remote"
     },
     {
-      "edges": 34,
+      "edges": 35,
       "from": "src/__tests__",
       "to": "src/scanners"
     },
@@ -5876,7 +5895,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 122,
+          "edges": 126,
           "module": "src/__tests__"
         },
         {
@@ -5997,16 +6016,16 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 122,
+          "edges": 126,
           "module": "src"
+        },
+        {
+          "edges": 35,
+          "module": "src/scanners"
         },
         {
           "edges": 34,
           "module": "src/cli"
-        },
-        {
-          "edges": 34,
-          "module": "src/scanners"
         },
         {
           "edges": 19,
@@ -6065,7 +6084,7 @@
           "module": "web"
         }
       ],
-      "files": 109,
+      "files": 110,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"
@@ -6506,7 +6525,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 34,
+          "edges": 35,
           "module": "src/__tests__"
         },
         {

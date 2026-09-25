@@ -21,7 +21,19 @@ export interface XcodeTarget {
   type: 'app' | 'extension' | 'test' | 'framework' | 'widget' | 'other';
   bundleId?: string;
   productName?: string;
-  sourceFiles: string[];   // relative paths
+  /**
+   * Source files compiled by the target, relative to the directory that holds
+   * the `.xcodeproj` (resolved through the group hierarchy, so a file in a
+   * group with `path = ../Shared/X` is `../Shared/X/File.swift`).
+   */
+  sourceFiles: string[];
+  /**
+   * Folders the target compiles through an Xcode 16 synchronized group
+   * (`fileSystemSynchronizedGroups`): every source file under `path` is a
+   * member except the `exclude` entries (paths relative to the folder). Same
+   * base directory as `sourceFiles`.
+   */
+  syncedFolders: Array<{ path: string; exclude: string[] }>;
   frameworks: string[];    // linked framework names
   deploymentTargets: Record<string, string>; // { iOS: "17.0" }
 }
@@ -74,13 +86,14 @@ export function parseXcodeProject(pbxprojPath: string): XcodeProjectData {
 
   // Build file reference map (ID → file path)
   const fileRefMap = buildFileReferenceMap(content);
+  const tree = buildGroupTree(content);
 
   // Build build phase map (ID → file refs)
   const buildPhaseMap = buildBuildPhaseMap(content);
 
   // Populate source files and frameworks for each target
   for (const target of targets) {
-    populateTargetDetails(target, content, fileRefMap, buildPhaseMap);
+    populateTargetDetails(target, content, fileRefMap, buildPhaseMap, tree);
   }
 
   return {
@@ -119,6 +132,7 @@ function extractTargets(content: string): XcodeTarget[] {
       bundleId: undefined,
       productName: undefined,
       sourceFiles: [],
+      syncedFolders: [],
       frameworks: [],
       deploymentTargets: {},
     });
@@ -248,7 +262,8 @@ function populateTargetDetails(
   target: XcodeTarget,
   content: string,
   fileRefMap: Map<string, string>,
-  buildPhaseMap: Map<string, { type: string; files: string[] }>
+  buildPhaseMap: Map<string, { type: string; files: string[] }>,
+  tree?: GroupTree
 ): void {
   // Find the target's ID by name
   const targetPattern = new RegExp(
@@ -297,7 +312,7 @@ function populateTargetDetails(
         if (phase.type === 'PBXSourcesBuildPhase') {
           // Add source files
           for (const fileRefId of phase.files) {
-            const filePath = fileRefMap.get(fileRefId);
+            const filePath = tree?.resolve(fileRefId) ?? fileRefMap.get(fileRefId);
             if (filePath && (filePath.endsWith('.swift') || filePath.endsWith('.m') || filePath.endsWith('.mm'))) {
               target.sourceFiles.push(filePath);
             }
@@ -317,6 +332,126 @@ function populateTargetDetails(
       }
     }
   }
+
+  // Xcode 16 synchronized folders: membership is "everything in the folder"
+  // minus the exception sets that name this target.
+  const syncedMatch = targetBody.match(/fileSystemSynchronizedGroups\s*=\s*\(([^)]*)\)/s);
+  if (syncedMatch && tree) {
+    for (const groupId of listIds(syncedMatch[1])) {
+      const dir = tree.resolve(groupId);
+      if (dir === undefined) continue;
+      const exclude: string[] = [];
+      const groupBody = tree.objects.get(groupId)?.body ?? '';
+      const exceptionsMatch = groupBody.match(/exceptions\s*=\s*\(([^)]*)\)/s);
+      for (const exceptionId of exceptionsMatch ? listIds(exceptionsMatch[1]) : []) {
+        const ex = tree.objects.get(exceptionId);
+        if (!ex || ex.isa !== 'PBXFileSystemSynchronizedBuildFileExceptionSet') continue;
+        if (ex.body.match(/\btarget\s*=\s*(\w+)/)?.[1] !== targetId) continue;
+        const members = ex.body.match(/membershipExceptions\s*=\s*\(([^)]*)\)/s);
+        if (members) exclude.push(...listValues(members[1]));
+      }
+      target.syncedFolders.push({ path: dir, exclude });
+    }
+  }
+}
+
+// =============================================================================
+// GROUP TREE (file paths relative to the project directory)
+// =============================================================================
+
+interface PbxObject {
+  isa: string;
+  body: string;
+}
+
+interface GroupTree {
+  objects: Map<string, PbxObject>;
+  /**
+   * Path of a file reference or group relative to the directory holding the
+   * `.xcodeproj`, or undefined when it is not project-relative (an SDK
+   * framework, a build product, an absolute path) or not in the tree.
+   */
+  resolve(id: string): string | undefined;
+}
+
+const GROUP_ISAS = new Set(['PBXGroup', 'PBXVariantGroup', 'PBXFileSystemSynchronizedRootGroup']);
+
+/** `ID /* name *\/,` items of a parenthesised id list. */
+function listIds(list: string): string[] {
+  return [...list.matchAll(/([A-Za-z0-9]+)\s*(?:\/\*[^*]*?\*\/)?\s*,/g)].map(m => m[1]);
+}
+
+/** Comma-separated (optionally quoted) values of a parenthesised list. */
+function listValues(list: string): string[] {
+  return list
+    .split(',')
+    .map(v => v.trim().replace(/^"(.*)"$/, '$1'))
+    .filter(Boolean);
+}
+
+function readField(body: string, key: string): string | undefined {
+  const m = body.match(new RegExp(`(?:^|[\\s;{])${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|[^;\\s]+);`));
+  return m ? m[1].replace(/^"(.*)"$/, '$1') : undefined;
+}
+
+/**
+ * Every `ID = { isa = X; ... }` object, brace-matched so nested dictionaries
+ * (`explicitFileTypes = { };`, `buildSettings = { }`) stay inside their owner.
+ * An object's isa is the first one before any nested `{`.
+ */
+function extractObjects(content: string): Map<string, PbxObject> {
+  const objects = new Map<string, PbxObject>();
+  const header = /([A-Za-z0-9]+)(?:\s*\/\*[^\n]*?\*\/)?\s*=\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = header.exec(content)) !== null) {
+    const open = m.index + m[0].length - 1;
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < content.length; i++) {
+      const ch = content[i];
+      if (ch === '"') {
+        for (i++; i < content.length && content[i] !== '"'; i++) if (content[i] === '\\') i++;
+      } else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) { end = i; break; }
+    }
+    if (end < 0) break;
+    const body = content.slice(open + 1, end);
+    const nested = body.indexOf('{');
+    const isa = (nested >= 0 ? body.slice(0, nested) : body).match(/\bisa\s*=\s*(\w+);/)?.[1];
+    // Resume inside the object: `objects = { ... }` holds every other object.
+    if (isa) objects.set(m[1], { isa, body });
+    header.lastIndex = open + 1;
+  }
+  return objects;
+}
+
+function buildGroupTree(content: string): GroupTree {
+  const objects = extractObjects(content);
+  const parent = new Map<string, string>();
+  for (const [id, obj] of objects) {
+    if (!GROUP_ISAS.has(obj.isa)) continue;
+    const children = obj.body.match(/children\s*=\s*\(([^)]*)\)/s);
+    for (const child of children ? listIds(children[1]) : []) parent.set(child, id);
+  }
+  const memo = new Map<string, string | undefined>();
+  const resolve = (id: string, seen = new Set<string>()): string | undefined => {
+    if (memo.has(id)) return memo.get(id);
+    const obj = objects.get(id);
+    if (!obj || seen.has(id)) return undefined;
+    seen.add(id);
+    const own = readField(obj.body, 'path') ?? '';
+    const sourceTree = readField(obj.body, 'sourceTree') ?? '<group>';
+    let out: string | undefined;
+    if (sourceTree === 'SOURCE_ROOT') out = path.posix.normalize(own || '.');
+    else if (sourceTree === '<group>') {
+      const up = parent.get(id);
+      const base = up === undefined ? '' : resolve(up, seen);
+      out = base === undefined ? undefined : path.posix.normalize(path.posix.join(base, own) || '.');
+    }
+    memo.set(id, out);
+    return out;
+  };
+  return { objects, resolve: (id: string) => resolve(id) };
 }
 
 /**
@@ -488,7 +623,8 @@ export function mapTargetToComponent(target: XcodeTarget, timestamp: number): Ar
 // =============================================================================
 
 /**
- * Map source file membership to connections
+ * Map source file membership to connections. `target.sourceFiles` must be
+ * repo-relative paths of files that exist.
  */
 export function mapSourceMembership(
   target: XcodeTarget,
@@ -497,9 +633,12 @@ export function mapSourceMembership(
 ): ArchitectureConnection[] {
   const connections: ArchitectureConnection[] = [];
 
-  // Create connections for each source file
+  // One edge per source file, addressed by path. `FILE:` endpoints are bound
+  // to the file's existing node by the scanner (resolveFileEndpoints), so the
+  // caller passes repo-relative paths. A minted `generateComponentId` here has
+  // a random suffix and named a component that never existed.
   for (const sourceFile of target.sourceFiles) {
-    const fileComponentId = generateComponentId('component', `file-${sourceFile}`);
+    const fileComponentId = `FILE:${sourceFile}`;
 
     connections.push({
       connection_id: generateConnectionId('target-contains'),

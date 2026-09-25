@@ -25,6 +25,20 @@ import { TimelineEntry, ArchitectureIndex } from './types.js';
  */
 export declare function normalizeEndpointPath(p: string): string;
 /**
+ * Repo-relative paths of the source files an Xcode target compiles: the files
+ * its Sources build phase lists (paths are relative to the directory holding
+ * the `.xcodeproj`), plus every scanned Swift/Objective-C file under one of its
+ * synchronized folders that no exception set removes. Only files that exist
+ * inside the repo are returned, so every membership edge lands on a real node.
+ */
+export declare function xcodeTargetMembers(target: {
+    sourceFiles: string[];
+    syncedFolders?: Array<{
+        path: string;
+        exclude: string[];
+    }>;
+}, pbxprojPath: string, root: string, components: ArchitectureComponent[]): string[];
+/**
  * (C) Resolve FILE: prefixed connection endpoints to real component IDs so
  * trace can follow imports from route files instead of dead-ending.
  *

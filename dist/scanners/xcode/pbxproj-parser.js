@@ -3,6 +3,7 @@
  * Parses ASCII plist format used by Xcode project files
  */
 import * as fs from 'fs';
+import * as path from 'path';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 // =============================================================================
 // PRODUCT TYPE MAPPING
@@ -39,11 +40,12 @@ export function parseXcodeProject(pbxprojPath) {
     const hasSwiftPackages = /XCRemoteSwiftPackageReference|XCSwiftPackageProductDependency/.test(content);
     // Build file reference map (ID → file path)
     const fileRefMap = buildFileReferenceMap(content);
+    const tree = buildGroupTree(content);
     // Build build phase map (ID → file refs)
     const buildPhaseMap = buildBuildPhaseMap(content);
     // Populate source files and frameworks for each target
     for (const target of targets) {
-        populateTargetDetails(target, content, fileRefMap, buildPhaseMap);
+        populateTargetDetails(target, content, fileRefMap, buildPhaseMap, tree);
     }
     return {
         targets,
@@ -75,6 +77,7 @@ function extractTargets(content) {
             bundleId: undefined,
             productName: undefined,
             sourceFiles: [],
+            syncedFolders: [],
             frameworks: [],
             deploymentTargets: {},
         });
@@ -174,7 +177,7 @@ function buildBuildPhaseMap(content) {
 /**
  * Populate source files, frameworks, and deployment targets for a target
  */
-function populateTargetDetails(target, content, fileRefMap, buildPhaseMap) {
+function populateTargetDetails(target, content, fileRefMap, buildPhaseMap, tree) {
     // Find the target's ID by name
     const targetPattern = new RegExp(`(\\w+)\\s*\\/\\*\\s*${escapeRegex(target.name)}\\s*\\*\\/\\s*=\\s*\\{[^}]*?isa\\s*=\\s*PBXNativeTarget;([^}]+?)\\}`, 's');
     const match = targetPattern.exec(content);
@@ -212,7 +215,7 @@ function populateTargetDetails(target, content, fileRefMap, buildPhaseMap) {
                 if (phase.type === 'PBXSourcesBuildPhase') {
                     // Add source files
                     for (const fileRefId of phase.files) {
-                        const filePath = fileRefMap.get(fileRefId);
+                        const filePath = tree?.resolve(fileRefId) ?? fileRefMap.get(fileRefId);
                         if (filePath && (filePath.endsWith('.swift') || filePath.endsWith('.m') || filePath.endsWith('.mm'))) {
                             target.sourceFiles.push(filePath);
                         }
@@ -233,6 +236,118 @@ function populateTargetDetails(target, content, fileRefMap, buildPhaseMap) {
             }
         }
     }
+    // Xcode 16 synchronized folders: membership is "everything in the folder"
+    // minus the exception sets that name this target.
+    const syncedMatch = targetBody.match(/fileSystemSynchronizedGroups\s*=\s*\(([^)]*)\)/s);
+    if (syncedMatch && tree) {
+        for (const groupId of listIds(syncedMatch[1])) {
+            const dir = tree.resolve(groupId);
+            if (dir === undefined)
+                continue;
+            const exclude = [];
+            const groupBody = tree.objects.get(groupId)?.body ?? '';
+            const exceptionsMatch = groupBody.match(/exceptions\s*=\s*\(([^)]*)\)/s);
+            for (const exceptionId of exceptionsMatch ? listIds(exceptionsMatch[1]) : []) {
+                const ex = tree.objects.get(exceptionId);
+                if (!ex || ex.isa !== 'PBXFileSystemSynchronizedBuildFileExceptionSet')
+                    continue;
+                if (ex.body.match(/\btarget\s*=\s*(\w+)/)?.[1] !== targetId)
+                    continue;
+                const members = ex.body.match(/membershipExceptions\s*=\s*\(([^)]*)\)/s);
+                if (members)
+                    exclude.push(...listValues(members[1]));
+            }
+            target.syncedFolders.push({ path: dir, exclude });
+        }
+    }
+}
+const GROUP_ISAS = new Set(['PBXGroup', 'PBXVariantGroup', 'PBXFileSystemSynchronizedRootGroup']);
+/** `ID /* name *\/,` items of a parenthesised id list. */
+function listIds(list) {
+    return [...list.matchAll(/([A-Za-z0-9]+)\s*(?:\/\*[^*]*?\*\/)?\s*,/g)].map(m => m[1]);
+}
+/** Comma-separated (optionally quoted) values of a parenthesised list. */
+function listValues(list) {
+    return list
+        .split(',')
+        .map(v => v.trim().replace(/^"(.*)"$/, '$1'))
+        .filter(Boolean);
+}
+function readField(body, key) {
+    const m = body.match(new RegExp(`(?:^|[\\s;{])${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|[^;\\s]+);`));
+    return m ? m[1].replace(/^"(.*)"$/, '$1') : undefined;
+}
+/**
+ * Every `ID = { isa = X; ... }` object, brace-matched so nested dictionaries
+ * (`explicitFileTypes = { };`, `buildSettings = { }`) stay inside their owner.
+ * An object's isa is the first one before any nested `{`.
+ */
+function extractObjects(content) {
+    const objects = new Map();
+    const header = /([A-Za-z0-9]+)(?:\s*\/\*[^\n]*?\*\/)?\s*=\s*\{/g;
+    let m;
+    while ((m = header.exec(content)) !== null) {
+        const open = m.index + m[0].length - 1;
+        let depth = 0;
+        let end = -1;
+        for (let i = open; i < content.length; i++) {
+            const ch = content[i];
+            if (ch === '"') {
+                for (i++; i < content.length && content[i] !== '"'; i++)
+                    if (content[i] === '\\')
+                        i++;
+            }
+            else if (ch === '{')
+                depth++;
+            else if (ch === '}' && --depth === 0) {
+                end = i;
+                break;
+            }
+        }
+        if (end < 0)
+            break;
+        const body = content.slice(open + 1, end);
+        const nested = body.indexOf('{');
+        const isa = (nested >= 0 ? body.slice(0, nested) : body).match(/\bisa\s*=\s*(\w+);/)?.[1];
+        // Resume inside the object: `objects = { ... }` holds every other object.
+        if (isa)
+            objects.set(m[1], { isa, body });
+        header.lastIndex = open + 1;
+    }
+    return objects;
+}
+function buildGroupTree(content) {
+    const objects = extractObjects(content);
+    const parent = new Map();
+    for (const [id, obj] of objects) {
+        if (!GROUP_ISAS.has(obj.isa))
+            continue;
+        const children = obj.body.match(/children\s*=\s*\(([^)]*)\)/s);
+        for (const child of children ? listIds(children[1]) : [])
+            parent.set(child, id);
+    }
+    const memo = new Map();
+    const resolve = (id, seen = new Set()) => {
+        if (memo.has(id))
+            return memo.get(id);
+        const obj = objects.get(id);
+        if (!obj || seen.has(id))
+            return undefined;
+        seen.add(id);
+        const own = readField(obj.body, 'path') ?? '';
+        const sourceTree = readField(obj.body, 'sourceTree') ?? '<group>';
+        let out;
+        if (sourceTree === 'SOURCE_ROOT')
+            out = path.posix.normalize(own || '.');
+        else if (sourceTree === '<group>') {
+            const up = parent.get(id);
+            const base = up === undefined ? '' : resolve(up, seen);
+            out = base === undefined ? undefined : path.posix.normalize(path.posix.join(base, own) || '.');
+        }
+        memo.set(id, out);
+        return out;
+    };
+    return { objects, resolve: (id) => resolve(id) };
 }
 /**
  * Extract deployment targets from build configuration list
@@ -365,13 +480,17 @@ export function mapTargetToComponent(target, timestamp) {
 // CONNECTION MAPPING
 // =============================================================================
 /**
- * Map source file membership to connections
+ * Map source file membership to connections. `target.sourceFiles` must be
+ * repo-relative paths of files that exist.
  */
 export function mapSourceMembership(target, targetCompId, timestamp) {
     const connections = [];
-    // Create connections for each source file
+    // One edge per source file, addressed by path. `FILE:` endpoints are bound
+    // to the file's existing node by the scanner (resolveFileEndpoints), so the
+    // caller passes repo-relative paths. A minted `generateComponentId` here has
+    // a random suffix and named a component that never existed.
     for (const sourceFile of target.sourceFiles) {
-        const fileComponentId = generateComponentId('component', `file-${sourceFile}`);
+        const fileComponentId = `FILE:${sourceFile}`;
         connections.push({
             connection_id: generateConnectionId('target-contains'),
             from: {

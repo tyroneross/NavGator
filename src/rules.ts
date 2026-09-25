@@ -498,6 +498,11 @@ function analyzeTransitiveDeadCode(
     adj.set(c.component_id, new Set());
   }
   for (const conn of connections) {
+    // Xcode target membership says a file is compiled into a product, not
+    // that anything calls it. Walking it from a launched target would make
+    // every file in the app reachable and its dead code unreportable; the
+    // app's files are reached from its `@main` type like any Swift code.
+    if (conn.connection_type === 'target-contains') continue;
     adj.get(conn.from.component_id)?.add(conn.to.component_id);
   }
 

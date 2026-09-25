@@ -158,7 +158,7 @@ import {
   generateTimelineId,
 } from './diff.js';
 import { registerProject } from './projects.js';
-import { TimelineEntry, ScanType, ArchitectureIndex, AuditReport } from './types.js';
+import { TimelineEntry, ScanType, ArchitectureIndex, AuditReport, generateConnectionId } from './types.js';
 import { runAudit, updateEwmaForAudit, type AuditOptions } from './audit/index.js';
 
 /**
@@ -202,6 +202,51 @@ export function normalizeEndpointPath(p: string): string {
   while (s.startsWith('./')) s = s.slice(2);
   s = s.replace(/\/\.\//g, '/');
   return s;
+}
+
+/**
+ * Repo-relative paths of the source files an Xcode target compiles: the files
+ * its Sources build phase lists (paths are relative to the directory holding
+ * the `.xcodeproj`), plus every scanned Swift/Objective-C file under one of its
+ * synchronized folders that no exception set removes. Only files that exist
+ * inside the repo are returned, so every membership edge lands on a real node.
+ */
+export function xcodeTargetMembers(
+  target: { sourceFiles: string[]; syncedFolders?: Array<{ path: string; exclude: string[] }> },
+  pbxprojPath: string,
+  root: string,
+  components: ArchitectureComponent[]
+): string[] {
+  const projectDir = path.relative(root, path.dirname(path.dirname(pbxprojPath))).split(path.sep).join('/') || '.';
+  const toRepo = (p: string): string | undefined => {
+    const out = path.posix.normalize(path.posix.join(projectDir, p));
+    return out === '..' || out.startsWith('../') || path.posix.isAbsolute(out) ? undefined : out;
+  };
+  const members = new Set<string>();
+  for (const file of target.sourceFiles) {
+    const rel = toRepo(file);
+    if (rel && fs.existsSync(path.join(root, rel))) members.add(rel);
+  }
+  if (target.syncedFolders?.length) {
+    const sourceFiles = new Set<string>();
+    for (const c of components) {
+      for (const f of c.source?.config_files ?? []) {
+        if (/\.(swift|m|mm)$/.test(f)) sourceFiles.add(normalizeEndpointPath(f));
+      }
+    }
+    for (const folder of target.syncedFolders) {
+      const dir = toRepo(folder.path);
+      if (dir === undefined) continue;
+      const prefix = dir === '.' ? '' : `${dir}/`;
+      const excluded = folder.exclude.map(e => path.posix.normalize(path.posix.join(dir, e)));
+      for (const f of sourceFiles) {
+        if (!f.startsWith(prefix)) continue;
+        if (excluded.some(e => f === e || f.startsWith(`${e}/`))) continue;
+        members.add(f);
+      }
+    }
+  }
+  return [...members].sort();
 }
 
 /**
@@ -1849,12 +1894,10 @@ export async function scan(
               );
             }
             allComponents.push(comp);
-            const targetForMapping = swiftRoot.origin === '.'
-              ? target
-              : {
-                  ...target,
-                  sourceFiles: target.sourceFiles.map(file => path.posix.join(swiftRoot.origin, file)),
-                };
+            const targetForMapping = {
+              ...target,
+              sourceFiles: xcodeTargetMembers(target, pbxprojPath, root, allComponents),
+            };
             const memberConns = mapSourceMembership(targetForMapping, comp.component_id, timestamp);
             if (swiftRoot.origin !== '.') {
               const pbxprojRelative = path.posix.join(
@@ -1872,6 +1915,26 @@ export async function scan(
               }
             }
             allConnections.push(...memberConns);
+
+            // The detected Xcode toolchain node builds this target. Without
+            // this edge that node never has a connection and `dead` reports
+            // Xcode itself as unused infra.
+            const xcodeInfra = allComponents.find(c => c.type === 'infra' && c.name === 'Xcode');
+            if (xcodeInfra) {
+              const pbxprojRelative = path.relative(root, pbxprojPath).split(path.sep).join('/');
+              allConnections.push({
+                connection_id: generateConnectionId('target-contains'),
+                from: { component_id: xcodeInfra.component_id, location: { file: pbxprojRelative, line: 1 } },
+                to: { component_id: comp.component_id, location: { file: pbxprojRelative, line: 1 } },
+                connection_type: 'target-contains',
+                code_reference: { file: pbxprojRelative, symbol: target.name, symbol_type: 'class', line_start: 1 },
+                description: `Xcode project ${pbxprojRelative} defines target ${target.name}`,
+                detected_from: 'pbxproj-parser',
+                confidence: 1.0,
+                timestamp,
+                last_verified: timestamp,
+              });
+            }
           }
 
           // Enrich project metadata with Xcode target info

@@ -54,6 +54,8 @@ const ENTRY_POINT_TYPES = new Set([
     'cron',
     'xcode-target',
 ]);
+/** Xcode target kinds (a tag on the target component) the OS launches. */
+const XCODE_LAUNCHED_TARGET_KINDS = new Set(['app', 'extension']);
 /** Names that mean "application launch point" on Apple and Android platforms. */
 const ENTRY_POINT_NAME_PATTERN = /App$|AppDelegate|@main|ContentView|SceneDelegate|(?:^|[/\\.:#\s_-])Main(?:$|[/\\.:#\s_-])/i;
 const ENTRY_POINT_TAGS = new Set([
@@ -374,6 +376,16 @@ export function detectEntryPoints(components, options = {}) {
         if (reasons.has(component.component_id))
             continue;
         if (ENTRY_POINT_TYPES.has(component.type)) {
+            reasons.set(component.component_id, 'component-type');
+            continue;
+        }
+        // The pbxproj parser emits a target as type `component` tagged
+        // `xcode-target` plus its kind. An application or extension target is a
+        // product the OS launches, so it is a root by definition; its member
+        // files are still reached through their `@main` type, not through
+        // membership (see `target-contains` in rules.ts).
+        if (component.tags?.includes('xcode-target') &&
+            component.tags.some((tag) => XCODE_LAUNCHED_TARGET_KINDS.has(tag))) {
             reasons.set(component.component_id, 'component-type');
             continue;
         }
