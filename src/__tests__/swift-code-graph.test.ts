@@ -138,4 +138,15 @@ describe('scanSwiftCode file graph', () => {
       .map(c => `${byId.get(c.from.component_id) ?? c.from.component_id} -> ${c.to.component_id}`);
     expect(ext).toEqual(['SessionStore -> FILE:Sources/Demo/SessionStore+Sync.swift']);
   });
+
+  it('anchors string-key storage edges on the file that touches the key', async () => {
+    writeFixture('Sources/Demo/Prefs.swift', 'import Foundation\nfunc save() { UserDefaults.standard.set(true, forKey: "demo.flag") }\n');
+    const result = await scanSwiftCode(tmp);
+    const stores = result.connections.filter(c => c.connection_type === 'stores');
+    expect(stores.length).toBeGreaterThan(0);
+    for (const c of stores) {
+      expect(c.from.component_id).toBe(`FILE:${c.from.location?.file}`);
+      expect(c.to.component_id).not.toBe(c.from.component_id);
+    }
+  });
 });

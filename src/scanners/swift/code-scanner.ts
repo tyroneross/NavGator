@@ -336,7 +336,9 @@ export async function scanSwiftCode(
     for (const hit of hits) {
       connections.push({
         connection_id: generateConnectionId('stores'),
-        from: { component_id: compId, location: { file: hit.file, line: hit.line } },
+        // From the file that touches the key, not a self-loop on the key: the
+        // self-loop tied the key to no code, so it read as unreachable.
+        from: { component_id: `FILE:${hit.file}`, location: { file: hit.file, line: hit.line } },
         to: { component_id: compId },
         connection_type: 'stores',
         code_reference: {
@@ -808,7 +810,8 @@ export async function scanSwiftCode(
 
     connections.push({
       connection_id: generateConnectionId('prompt-location'),
-      from: { component_id: compId, location: { file: prompt.file, line: prompt.line } },
+      // From the defining file (see the `stores` edges above for why).
+      from: { component_id: `FILE:${prompt.file}`, location: { file: prompt.file, line: prompt.line } },
       to: { component_id: compId },
       connection_type: 'prompt-location',
       code_reference: {
