@@ -34,6 +34,14 @@ describe('Architecture Rules', () => {
       expect(violations[0].message).toContain('has no connections');
     });
 
+    it('does not flag a declared entry point (a Swift @main type) as an orphan', () => {
+      const app = createComponent({ name: 'DemoApp', layer: 'frontend' });
+      app.tags = ['swift', 'type', 'entrypoint'];
+      const stray = createComponent({ name: 'Stray', layer: 'backend' });
+      const orphanRule = getBuiltinRules().find(r => r.id === 'orphan-component')!;
+      expect(orphanRule.check([app, stray], []).map(v => v.component)).toEqual(['Stray']);
+    });
+
     it('should not flag component with connections', () => {
       const comp1 = createComponent({ name: 'Frontend', layer: 'frontend' });
       const comp2 = createComponent({ name: 'Backend', layer: 'backend' });

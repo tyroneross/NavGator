@@ -29,6 +29,10 @@ export function getBuiltinRules(projectRoot) {
                 }
                 return components
                     .filter(c => !connectedIds.has(c.component_id))
+                    // A declared entry point (a Swift `@main` type) is used by the
+                    // runtime that launches it; "may be unused" is false for it by
+                    // definition. Its outgoing uses are recorded on its file's node.
+                    .filter(c => !c.tags?.includes('entrypoint'))
                     .map(c => ({
                     rule_id: 'orphan-component',
                     severity: 'warning',
