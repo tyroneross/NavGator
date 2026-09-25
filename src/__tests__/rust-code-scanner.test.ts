@@ -210,4 +210,36 @@ describe('scanRustCode', () => {
     expect(stripped).toContain('x::y');
     expect(stripped.split('\n')).toHaveLength(2);
   });
+
+  it('links files to the types they use, within the crate, and ignores definitions and impl headers', async () => {
+    writeFixture('Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    writeFixture('src/lib.rs', 'mod model;\nmod engine;\n');
+    writeFixture('src/model.rs', [
+      'pub struct Ledger { entries: Vec<Entry> }',
+      'struct Entry;',                       // used in this file only
+      'struct Unused;',                      // defined, impl-ed, never used
+      'impl Unused { fn f(&self) {} }',
+      'impl Default for Ledger { fn default() -> Self { Ledger { entries: vec![] } } }',
+    ].join('\n'));
+    writeFixture('src/engine.rs', [
+      'use crate::model::Ledger;',
+      '// Unused is only named in a comment',
+      'pub fn run(l: &Ledger) -> &str { "Unused" }',
+    ].join('\n'));
+
+    const result = await scanRustCode(tmp);
+    const byId = new Map(result.components.map(c => [c.component_id, c.name]));
+    const refs = result.connections
+      .filter(c => c.connection_type === 'references')
+      .map(c => `${c.from.component_id.slice(5)} -> ${byId.get(c.to.component_id) ?? c.to.component_id}`)
+      .sort();
+    expect(refs).toEqual([
+      'src/engine.rs -> Ledger',
+      'src/model.rs -> Entry',
+      'src/model.rs -> Ledger',
+    ]);
+    // Unused keeps no inbound use, so orphan-component can still report it.
+    const unusedId = result.components.find(c => c.name === 'Unused')!.component_id;
+    expect(result.connections.some(c => c.to.component_id === unusedId || c.from.component_id === unusedId)).toBe(false);
+  });
 });

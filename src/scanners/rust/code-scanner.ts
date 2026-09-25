@@ -471,6 +471,64 @@ export async function scanRustCode(
     });
   }
 
+  // ---- Type references → references ----
+  //
+  // A struct/enum/trait node had an edge only when something `impl`ed a
+  // trait for it, so most Rust types read as orphans although the code
+  // uses them. Resolve each CamelCase identifier against the declarations in
+  // the same crate: a declaration in exactly one file of that crate is the
+  // one a use means (the same name declared in two files of one crate is
+  // skipped, not guessed). The edge runs from the using file to the type's
+  // node when that node is this declaration, else to the declaring file.
+  //
+  // Uses inside the declaring file count too (a private helper type used
+  // only where it is defined is used), except the declaration itself and
+  // `impl ... for Name` / `impl Name` headers, which define the type rather
+  // than use it.
+  const declFilesByCrateName = new Map<string, Set<string>>(); // `${crateDir}|${name}` -> files
+  const nodeFileByName = new Map<string, string>();             // first declaration = the emitted node
+  for (const t of typeDecls) {
+    const crate = crateForFile(t.file, crates);
+    const key = `${crate?.dir ?? ''}|${t.name}`;
+    if (!declFilesByCrateName.has(key)) declFilesByCrateName.set(key, new Set());
+    declFilesByCrateName.get(key)!.add(t.file);
+    if (!nodeFileByName.has(t.name)) nodeFileByName.set(t.name, t.file);
+  }
+  const nodeIdForType = (name: string): string | undefined =>
+    idFor('component', name) ?? idFor('other', name);
+  for (const file of files) {
+    const crate = crateForFile(file.relativePath, crates);
+    const seenTargets = new Set<string>();
+    for (const ref of scanRustTypeUses(file)) {
+      const declFiles = declFilesByCrateName.get(`${crate?.dir ?? ''}|${ref.name}`);
+      if (!declFiles || declFiles.size !== 1) continue;
+      const declFile = [...declFiles][0];
+      const nodeId = nodeFileByName.get(ref.name) === declFile ? nodeIdForType(ref.name) : undefined;
+      if (!nodeId && declFile === file.relativePath) continue; // no node to attribute a same-file use to
+      const target = nodeId ?? `FILE:${declFile}`;
+      if (seenTargets.has(target)) continue;
+      seenTargets.add(target);
+      connections.push({
+        connection_id: generateConnectionId('references'),
+        from: { component_id: `FILE:${file.relativePath}`, location: { file: file.relativePath, line: ref.line } },
+        to: { component_id: target, location: { file: declFile, line: 1 } },
+        connection_type: 'references',
+        code_reference: {
+          file: file.relativePath,
+          symbol: ref.name,
+          symbol_type: 'class',
+          line_start: ref.line,
+          code_snippet: (file.lines[ref.line - 1] ?? '').trim().slice(0, 100),
+        },
+        description: `${file.relativePath} uses ${ref.name} (declared in ${declFile})`,
+        detected_from: 'rust-code-scanner',
+        confidence: 0.8,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
+  }
+
   // ---- LLM API calls (URL literals) → service-call ----
   const llmCalls = scanLLMCalls(files);
   for (const call of llmCalls) {
@@ -721,6 +779,29 @@ function scanUsePaths(files: RustFileInfo[]): UsePath[] {
     }
   }
   return uses;
+}
+
+/**
+ * CamelCase identifiers USED in a file, with their first line. Declarations
+ * (`struct Foo`, `enum Foo`, `trait Foo`, `type Foo`) and impl headers
+ * (`impl<T> Trait for Foo<T>`) are blanked first: they define a type, they
+ * do not use it.
+ */
+function scanRustTypeUses(file: RustFileInfo): Array<{ name: string; line: number }> {
+  let code = stripRustNonCode(file.content);
+  const blank = (text: string): string => text.replace(/[^\n]/g, ' ');
+  code = code.replace(/\b(?:struct|enum|trait|type|union)\s+[A-Za-z_]\w*/g, blank);
+  code = code.replace(/\bimpl\b[^{;]*[{;]/g, blank);
+  const lines = code.split('\n');
+  const first = new Map<string, number>();
+  for (let i = 0; i < lines.length; i++) {
+    const re = /(?<![\w.'$])([A-Z][A-Za-z0-9_]*)\b/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(lines[i])) !== null) {
+      if (!first.has(m[1])) first.set(m[1], i + 1);
+    }
+  }
+  return [...first.entries()].map(([name, line]) => ({ name, line }));
 }
 
 /** Offset → 1-based line number, for a string whose newlines were preserved. */
