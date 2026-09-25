@@ -198,13 +198,26 @@ describe('discoverStackRoots', () => {
     );
     const crateRoot = path.join(tmp, 'engine-rs');
     fs.mkdirSync(path.join(crateRoot, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(crateRoot, 'Cargo.toml'), '[package]\nname = "engine"\nversion = "0.1.0"\n');
-    fs.writeFileSync(path.join(crateRoot, 'src', 'lib.rs'), 'pub struct EngineCore {}\n');
+    fs.writeFileSync(
+      path.join(crateRoot, 'Cargo.toml'),
+      '[package]\nname = "engine"\nversion = "0.1.0"\n\n[dependencies]\nitoa = "1"\n'
+    );
+    fs.writeFileSync(
+      path.join(crateRoot, 'src', 'lib.rs'),
+      'pub struct EngineCore {}\npub fn fmt(n: u32) -> String { itoa::Buffer::new().format(n).to_string() }\n'
+    );
 
     const result = await scan(tmp, { mode: 'full', noAudit: true });
 
     expect(result.components.some(c =>
       c.name === 'EngineCore' && (c.metadata as Record<string, unknown>)?.file === 'engine-rs/src/lib.rs'
+    )).toBe(true);
+    // The crate node the manifest produced is the one the source usage links to.
+    const itoa = result.components.filter(c => c.name === 'itoa');
+    expect(itoa).toHaveLength(1);
+    expect(itoa[0].source.config_files).toEqual(['engine-rs/Cargo.toml']);
+    expect(result.connections.some(c =>
+      c.connection_type === 'uses-package' && c.to.component_id === itoa[0].component_id
     )).toBe(true);
   }, 30000);
 

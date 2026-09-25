@@ -1672,7 +1672,13 @@ export async function scan(projectRoot, options = {}) {
                         return {
                             component_id: c.component_id,
                             crateName: typeof crateName === 'string' && crateName ? crateName : c.name,
-                            manifest: normalizeEndpointPath(c.source.config_files.find(f => f === 'Cargo.toml' || f.endsWith('/Cargo.toml'))),
+                            // Phase 1 config_files are still absolute here; they are
+                            // relativized after Phase 3, and the Rust scanner keys on
+                            // repo-relative manifest paths.
+                            manifest: normalizeEndpointPath((() => {
+                                const f = c.source.config_files.find(p => p === 'Cargo.toml' || p.endsWith('/Cargo.toml'));
+                                return path.isAbsolute(f) ? path.relative(root, f) : f;
+                            })()),
                         };
                     });
                     const rustResult = await scanRustCode(root, incWalkSet, cargoKnownPackages);
