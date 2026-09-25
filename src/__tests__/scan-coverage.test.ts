@@ -187,6 +187,32 @@ describe('scan coverage reporting (honest disclosure of what was and was not ana
     }
   }, 30000);
 
+  it('counts Swift cross-file type references and Rust module imports as internal edges', async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-coverage-swift-rust-'));
+    try {
+      writeFixture(tmpRoot, 'Package.swift', '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "Demo")\n');
+      writeFixture(tmpRoot, 'Sources/Demo/Store.swift', 'final class Store {}\n');
+      writeFixture(tmpRoot, 'Sources/Demo/Screen.swift', 'struct Screen { let store = Store() }\n');
+      writeFixture(tmpRoot, 'engine/Cargo.toml', '[package]\nname = "engine"\nversion = "0.1.0"\n');
+      writeFixture(tmpRoot, 'engine/src/lib.rs', 'pub mod store;\npub use crate::store::Db;\n');
+      writeFixture(tmpRoot, 'engine/src/store.rs', 'pub struct Db;\n');
+
+      const outcome = await scan(tmpRoot, { mode: 'full', noAudit: true });
+      expect(outcome.status).toBe('completed');
+      if (outcome.status !== 'completed') return;
+
+      const langs = new Map((outcome.coverage?.languages ?? []).map(l => [l.language, l.internal_edges]));
+      // Either no coverage block at all (everything covered) or both languages > 0.
+      if (outcome.coverage) {
+        expect(langs.get('Swift')).toBe(1);
+        expect(langs.get('Rust')).toBe(1);
+        expect(outcome.coverage.blind_spots.some(s => /Swift|Rust/.test(s))).toBe(false);
+      }
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  }, 30000);
+
   it('a fully-analyzed repo (TS-only, with a real internal import) emits no `coverage` key — byte-identical to today', async () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-coverage-full-'));
     try {

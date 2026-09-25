@@ -563,9 +563,13 @@ function computeScanCoverage(scannableFiles, components, connections) {
     // Deduplicated internal `imports` edges by the origin file's language — two
     // import statements for the same target are one edge, matching
     // `architecture-index.ts`'s dedup so the two counts never disagree.
+    //
+    // `references` counts too: it is how Swift carries file-to-file coupling
+    // (same-module files never import each other), so an `imports`-only count
+    // reported every Swift file as edgeless. No TS/JS/Python scanner emits it.
     const edgesByLanguage = new Map();
     for (const conn of connections) {
-        if (conn.connection_type !== 'imports')
+        if (conn.connection_type !== 'imports' && conn.connection_type !== 'references')
             continue;
         const from = conn.from.location?.file ?? conn.code_reference?.file;
         const to = conn.to.location?.file;
