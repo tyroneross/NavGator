@@ -242,4 +242,32 @@ describe('scanRustCode', () => {
     const unusedId = result.components.find(c => c.name === 'Unused')!.component_id;
     expect(result.connections.some(c => c.to.component_id === unusedId || c.from.component_id === unusedId)).toBe(false);
   });
+
+  it('resolves a module declared inside an inline module, and types used from another crate', async () => {
+    writeFixture('Cargo.toml', '[workspace]\nmembers = ["crates/*"]\n');
+    writeFixture('crates/contracts/Cargo.toml', '[package]\nname = "contracts"\nversion = "0.1.0"\n');
+    writeFixture('crates/contracts/src/lib.rs', 'pub enum ErrorCode { Bad }\n');
+    writeFixture('crates/app/Cargo.toml', '[package]\nname = "app"\nversion = "0.1.0"\n');
+    writeFixture('crates/app/src/lib.rs', [
+      'mod surface {',
+      '    #[cfg(test)]',
+      '    mod tests;',
+      '}',
+      'pub fn f() -> contracts::ErrorCode { contracts::ErrorCode::Bad }',
+    ].join('\n'));
+    writeFixture('crates/app/src/surface/tests.rs', 'fn t() {}\n');
+
+    const result = await scanRustCode(tmp);
+    const byId = new Map(result.components.map(c => [c.component_id, c.name]));
+    expect(result.connections.some(c =>
+      c.connection_type === 'other' &&
+      c.from.component_id === 'FILE:crates/app/src/lib.rs' &&
+      c.to.component_id === 'FILE:crates/app/src/surface/tests.rs'
+    )).toBe(true);
+    expect(result.connections.some(c =>
+      c.connection_type === 'references' &&
+      c.from.component_id === 'FILE:crates/app/src/lib.rs' &&
+      byId.get(c.to.component_id) === 'ErrorCode'
+    )).toBe(true);
+  });
 });

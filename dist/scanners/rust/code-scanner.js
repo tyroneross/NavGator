@@ -235,7 +235,7 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
     for (const m of modules) {
         if (m.inline)
             continue;
-        const child = resolveChildModuleFile(m.file, m.name, fileSet);
+        const child = resolveChildModuleFile(m.file, [...m.inlineParents, m.name].join('/'), fileSet);
         if (!child)
             continue;
         pushFileEdge(m.file, child, m.line, 'other', `mod ${m.name}`, `mod ${m.name};`, `${m.file} declares module ${m.name}`);
@@ -384,7 +384,11 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
     // than use it.
     const declFilesByCrateName = new Map(); // `${crateDir}|${name}` -> files
     const nodeFileByName = new Map(); // first declaration = the emitted node
+    const declFilesByName = new Map(); // workspace-wide
     for (const t of typeDecls) {
+        if (!declFilesByName.has(t.name))
+            declFilesByName.set(t.name, new Set());
+        declFilesByName.get(t.name).add(t.file);
         const crate = crateForFile(t.file, crates);
         const key = `${crate?.dir ?? ''}|${t.name}`;
         if (!declFilesByCrateName.has(key))
@@ -398,7 +402,10 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
         const crate = crateForFile(file.relativePath, crates);
         const seenTargets = new Set();
         for (const ref of scanRustTypeUses(file)) {
-            const declFiles = declFilesByCrateName.get(`${crate?.dir ?? ''}|${ref.name}`);
+            // Own crate first; a name the crate does not declare comes from a
+            // dependency (`ambient_contracts::ErrorCode`), and resolves when exactly
+            // one file in the workspace declares it.
+            const declFiles = declFilesByCrateName.get(`${crate?.dir ?? ''}|${ref.name}`) ?? declFilesByName.get(ref.name);
             if (!declFiles || declFiles.size !== 1)
                 continue;
             const declFile = [...declFiles][0];
@@ -509,8 +516,13 @@ function scanTypeDecls(files) {
 function scanModules(files) {
     const mods = [];
     for (const file of files) {
-        for (let i = 0; i < file.lines.length; i++) {
-            const line = stripComment(file.lines[i]);
+        // Track inline `mod x { ... }` nesting by brace depth on comment- and
+        // string-stripped text, so `mod a { mod b; }` resolves b to a/b.rs.
+        const code = stripRustNonCode(file.content).split('\n');
+        const stack = [];
+        let depth = 0;
+        for (let i = 0; i < code.length; i++) {
+            const line = code[i];
             const m = line.match(/^\s*(pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*([;{])/);
             if (m) {
                 mods.push({
@@ -519,7 +531,21 @@ function scanModules(files) {
                     inline: m[3] === '{',
                     file: file.relativePath,
                     line: i + 1,
+                    inlineParents: stack.map(e => e.name),
                 });
+            }
+            for (let k = 0; k < line.length; k++) {
+                const ch = line[k];
+                if (ch === '{') {
+                    if (m && m[3] === '{' && k === line.indexOf('{', line.indexOf('mod')))
+                        stack.push({ name: m[2], depth });
+                    depth++;
+                }
+                else if (ch === '}') {
+                    depth--;
+                    while (stack.length > 0 && stack[stack.length - 1].depth >= depth)
+                        stack.pop();
+                }
             }
         }
     }
