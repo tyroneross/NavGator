@@ -47,7 +47,7 @@
  */
 import type { ArchitectureComponent } from './types.js';
 /** Why a component was treated as a root. Reported so a root is auditable. */
-export type EntryPointSource = 'component-type' | 'name-pattern' | 'tag' | 'infra-layer' | 'package-entry' | 'package-script' | 'package-file' | 'framework-route' | 'test-file' | 'tooling-config' | 'executable-dir';
+export type EntryPointSource = 'component-type' | 'name-pattern' | 'tag' | 'infra-layer' | 'package-entry' | 'package-script' | 'package-file' | 'framework-route' | 'test-file' | 'tooling-config' | 'executable-dir' | 'language-entry';
 export interface EntryPointResult {
     /** component_id of every root. */
     ids: Set<string>;

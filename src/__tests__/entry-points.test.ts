@@ -191,6 +191,23 @@ describe('classifyPathConvention', () => {
     expect(classifyPathConvention('packages/api/bin/serve.js')).toBe('executable-dir');
   });
 
+  it('roots Swift test targets and Swift/Rust toolchain entry files', () => {
+    expect(classifyPathConvention('Tests/AmbientCoreTests/StoreTests.swift')).toBe('test-file');
+    expect(classifyPathConvention('PhoneAppUITests/LaunchTests.swift')).toBe('test-file');
+    expect(classifyPathConvention('Sources/Tool/main.swift')).toBe('language-entry');
+    expect(classifyPathConvention('engine-rs/crates/store/src/lib.rs')).toBe('language-entry');
+    expect(classifyPathConvention('crates/daemon/src/main.rs')).toBe('language-entry');
+    expect(classifyPathConvention('crates/daemon/build.rs')).toBe('language-entry');
+    expect(classifyPathConvention('crates/store/benches/write.rs')).toBe('language-entry');
+    expect(classifyPathConvention('crates/store/tests/roundtrip.rs')).toBe('test-file');
+    // Ordinary modules stay candidates, and the Swift rules never touch other languages.
+    expect(classifyPathConvention('crates/store/src/query.rs')).toBeNull();
+    expect(classifyPathConvention('Sources/App/SpeedTest.swift')).toBeNull();
+    expect(classifyPathConvention('Sources/App/Store.swift')).toBeNull();
+    expect(classifyPathConvention('src/lib.ts')).toBeNull();
+    expect(classifyPathConvention('web/Tests/helper.ts')).toBeNull();
+  });
+
   it('does not mistake React custom-hook directories for executables', () => {
     // `hooks/` was in the executable list until measurement showed it admitting
     // 16 library modules in this repo. An over-broad entry-point source makes

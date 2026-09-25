@@ -98,6 +98,22 @@ const PATH_CONVENTIONS = [
     // directory permanently invisible, which is the failure this module exists to
     // fix, pointed the other way.
     ['executable-dir', /(^|\/)(scripts|bin)\//],
+    // Swift test targets. SwiftPM and Xcode put them in `Tests/` or a
+    // `<Target>Tests/` / `<Target>UITests/` directory, capitalized, which the
+    // lowercase `tests?/` pattern above never matched. Anchored to `.swift` so
+    // no TypeScript/Python path changes classification.
+    ['test-file', /(^|\/)[\w-]*Tests\/.*\.swift$/],
+    ['test-file', /Tests\.swift$/],
+    // Where the Swift and Rust toolchains start execution without anything
+    // importing the file: a SwiftPM executable's `main.swift`, a crate's
+    // `src/main.rs` / `src/lib.rs` (a library crate's API surface, the
+    // equivalent of package.json `main`), `src/bin/*`, `build.rs`, and cargo's
+    // `examples/` and `benches/` targets. Rust `tests/` is already a test-file.
+    ['language-entry', /(^|\/)main\.swift$/],
+    ['language-entry', /(^|\/)src\/(main|lib)\.rs$/],
+    ['language-entry', /(^|\/)src\/bin\/[^/]+(\/main)?\.rs$/],
+    ['language-entry', /(^|\/)build\.rs$/],
+    ['language-entry', /(^|\/)(examples|benches)\/[^/]+(\/main)?\.rs$/],
 ];
 /** Extensions a declared `.js` path may actually be authored in. */
 const SOURCE_EXTENSIONS = [

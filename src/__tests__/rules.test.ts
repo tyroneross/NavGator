@@ -353,6 +353,43 @@ describe('Architecture Rules', () => {
       ]);
     });
 
+    it('judges Swift and Rust at file granularity: a type lives and dies with its file', () => {
+      // @main type in App.swift; App.swift's file node references Feature.swift's
+      // type; Orphaned.swift is referenced by nothing.
+      const withFile = (c: ReturnType<typeof createComponent>, file: string) => {
+        c.source.config_files = [];
+        c.metadata = { file };
+        return c;
+      };
+      const app = withFile(createComponent({ name: 'DemoApp', type: 'component' }), 'Sources/App/App.swift');
+      app.tags = ['swift', 'entrypoint'];
+      const appFile = createComponent({ name: 'Sources/App/App', type: 'component', file: 'Sources/App/App.swift' });
+      const feature = withFile(createComponent({ name: 'FeatureModel', type: 'component' }), 'Sources/App/Feature.swift');
+      const featureHelper = withFile(createComponent({ name: 'FeatureHelper', type: 'component' }), 'Sources/App/Feature.swift');
+      const featureFile = createComponent({ name: 'Sources/App/Feature', type: 'component', file: 'Sources/App/Feature.swift' });
+      const helperTarget = withFile(createComponent({ name: 'Formatter', type: 'component' }), 'Sources/App/Formatter.swift');
+      const orphaned = withFile(createComponent({ name: 'OldScreen', type: 'component' }), 'Sources/App/Orphaned.swift');
+      const orphanedFile = createComponent({ name: 'Sources/App/Orphaned', type: 'component', file: 'Sources/App/Orphaned.swift' });
+      const proto = createComponent({ name: 'protocol:View', type: 'other' });
+
+      const rule = getBuiltinRules().find(r => r.id === 'transitively-dead')!;
+      const violations = rule.check(
+        [app, appFile, feature, featureHelper, featureFile, helperTarget, orphaned, orphanedFile, proto],
+        [
+          createConnection(app, proto, { connection_type: 'conforms-to' }),
+          createConnection(appFile, feature, { connection_type: 'references' }),
+          createConnection(featureFile, helperTarget, { connection_type: 'references' }),
+          createConnection(orphanedFile, helperTarget, { connection_type: 'references' }),
+          createConnection(orphaned, proto, { connection_type: 'conforms-to' }),
+          createConnection(featureHelper, proto, { connection_type: 'conforms-to' }),
+        ]
+      );
+
+      // FeatureHelper is reached through its file, Formatter through Feature.swift's
+      // references; the file nobody references stays dead with its type.
+      expect(violations.map(v => v.component).sort()).toEqual(['OldScreen', 'Sources/App/Orphaned']);
+    });
+
     it('does not apply runtime reachability rules to content documents', () => {
       const mainApp = createComponent({ name: 'MainApp', type: 'component', file: 'src/MainApp.ts' });
       const documentA = createComponent({ name: 'document-a', type: 'document', layer: 'content', file: 'wiki/a.md' });

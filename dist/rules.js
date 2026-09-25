@@ -404,11 +404,36 @@ function analyzeTransitiveDeadCode(components, connections, projectRoot) {
     for (const ep of entryPoints) {
         reachable.add(ep);
     }
+    // Swift and Rust are judged at FILE granularity. Their scanners emit one
+    // component per declared type (carrying `metadata.file`) plus a file node
+    // per source file, and the file-level edges (`references`, `imports`,
+    // `uses-package`) start at the file node. A type is compiled with its file,
+    // so a reachable file makes its types reachable, and a reachable type makes
+    // the file that declares it reachable, which is how a `@main` type reaches
+    // the files its own file references. The cost is stated: a dead type
+    // declared in a live file is not reported. Scoped to `.swift` / `.rs` so the
+    // TypeScript/Python graph, where one component already is one file, is
+    // unchanged.
+    const sameFileIds = new Map();
+    const pathsOf = new Map();
+    for (const c of components) {
+        const paths = entryCandidatePaths(c, root).filter(p => /\.(swift|rs)$/.test(p));
+        if (paths.length === 0)
+            continue;
+        pathsOf.set(c.component_id, paths);
+        for (const p of paths) {
+            const list = sameFileIds.get(p);
+            if (list)
+                list.push(c.component_id);
+            else
+                sameFileIds.set(p, [c.component_id]);
+        }
+    }
     while (queue.length > 0) {
         const current = queue.shift();
-        const neighbors = adj.get(current);
-        if (!neighbors)
-            continue;
+        const neighbors = [...(adj.get(current) ?? [])];
+        for (const p of pathsOf.get(current) ?? [])
+            neighbors.push(...(sameFileIds.get(p) ?? []));
         for (const neighbor of neighbors) {
             if (!reachable.has(neighbor)) {
                 reachable.add(neighbor);
