@@ -119,6 +119,8 @@ const LLM_URL_PATTERNS: { pattern: RegExp; provider: string }[] = [
   { pattern: /api\.mistral\.ai/, provider: 'Mistral' },
   { pattern: /api\.together\.xyz/, provider: 'Together AI' },
   { pattern: /api\.fireworks\.ai/, provider: 'Fireworks AI' },
+  // The API path, not the bare host: `openrouter.ai/models` is a docs link.
+  { pattern: /openrouter\.ai\/api\//, provider: 'OpenRouter' },
 ];
 
 // LLM SDK crate imports (async-openai, anthropic-sdk, etc.).

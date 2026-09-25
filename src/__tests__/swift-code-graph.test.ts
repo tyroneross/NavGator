@@ -149,4 +149,24 @@ describe('scanSwiftCode file graph', () => {
       expect(c.to.component_id).not.toBe(c.from.component_id);
     }
   });
+
+  it('detects an OpenRouter API call made through URLSession, not a docs link', async () => {
+    writeFixture('Sources/Demo/Broker.swift', [
+      'import Foundation',
+      'func send(isGroq: Bool) {',
+      '    var request = URLRequest(url: URL(string: isGroq ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions")!)',
+      '}',
+    ].join('\n'));
+    writeFixture('Sources/Demo/Links.swift', 'let docs = URL(string: "https://openrouter.ai/models")!\n');
+    const result = await scanSwiftCode(tmp);
+    const byId = new Map(result.components.map(c => [c.component_id, c.name]));
+    const calls = result.connections
+      .filter(c => c.connection_type === 'service-call')
+      .map(c => `${c.code_reference.file} -> ${byId.get(c.to.component_id)}`)
+      .sort();
+    expect(calls).toEqual([
+      'Sources/Demo/Broker.swift -> Groq',
+      'Sources/Demo/Broker.swift -> OpenRouter',
+    ]);
+  });
 });

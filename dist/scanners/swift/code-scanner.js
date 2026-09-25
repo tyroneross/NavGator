@@ -48,6 +48,8 @@ const LLM_URL_PATTERNS = [
     { pattern: /api\.replicate\.com/, provider: 'Replicate' },
     { pattern: /api\.together\.xyz/, provider: 'Together AI' },
     { pattern: /api\.fireworks\.ai/, provider: 'Fireworks AI' },
+    // The API path, not the bare host: `openrouter.ai/models` is a docs link.
+    { pattern: /openrouter\.ai\/api\//, provider: 'OpenRouter' },
 ];
 // Swift SDK import patterns for LLMs
 // NOTE: FoundationModels is intentionally NOT here — it has its own dedicated,
