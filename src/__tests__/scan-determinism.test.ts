@@ -87,7 +87,7 @@ function normalize(components: ArchitectureComponent[], connections: Architectur
     ].join(' | '))
     .sort();
   const violations = checkRules(components, connections, getBuiltinRules(root))
-    .map(v => `${v.rule_id} | ${label(v.component_id ?? '')} | ${v.message}`)
+    .map(v => `${v.rule_id} | ${v.component ?? ''} | ${v.message}`)
     .sort();
   return { comps, edges, violations };
 }

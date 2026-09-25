@@ -5,8 +5,36 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { detectImportCycles, detectLayerViolations, detectShallowModules, getTopFanOut, getTopHotspots } from './architecture-insights.js';
-import { detectEntryPoints, entryCandidatePaths, } from './entry-points.js';
+import { classifyPathConvention, detectEntryPoints, entryCandidatePaths, } from './entry-points.js';
 import { EXTERNAL_PACKAGE_TYPES, hasVendorSegment, underPackageContainer, } from './vendor-paths.js';
+/**
+ * Entry-point sources that exempt a component from `orphan-component`: each
+ * names a file that is launched rather than imported. `name-pattern` is a
+ * guess from a name, `component-type` covers endpoints and targets whose lack
+ * of callers is itself worth reporting, and `infra-layer` would hide unused
+ * packages, so none of those exempt.
+ */
+const ORPHAN_EXEMPT_ENTRY_SOURCES = new Set([
+    'package-entry',
+    'package-script',
+    'package-file',
+    'framework-route',
+    'test-file',
+    'tooling-config',
+    'executable-dir',
+    'language-entry',
+]);
+/**
+ * True for a component that stands for a whole source file (TS/Python
+ * `module`, Swift/Rust `file-node`). A type declared in `src/lib.rs` inherits
+ * its file's entry-point reason for reachability, but the type itself is not
+ * launched, so an unused one is still an orphan.
+ */
+function isFileNode(c) {
+    if (c.tags?.includes('module') || c.tags?.includes('file-node'))
+        return true;
+    return c.metadata?.['kind'] === 'source-file';
+}
 /**
  * Get all built-in architecture rules.
  *
@@ -27,12 +55,34 @@ export function getBuiltinRules(projectRoot) {
                     connectedIds.add(conn.from.component_id);
                     connectedIds.add(conn.to.component_id);
                 }
-                return components
+                const unconnected = components
                     .filter(c => !connectedIds.has(c.component_id))
                     // A declared entry point (a Swift `@main` type) is used by the
                     // runtime that launches it; "may be unused" is false for it by
                     // definition. Its outgoing uses are recorded on its file's node.
-                    .filter(c => !c.tags?.includes('entrypoint'))
+                    .filter(c => !c.tags?.includes('entrypoint'));
+                if (unconnected.length === 0)
+                    return [];
+                // A file a toolchain, test runner, manifest or human runs directly
+                // (Scripts/*.py, tests, src/main.rs, bin/, package.json `bin`) has no
+                // importer by design, so zero edges is not evidence it is unused.
+                // Same root set as transitively-dead, limited to the sources that
+                // name a file by path or manifest declaration, and to file nodes.
+                const entries = detectEntryPoints(components, { projectRoot: projectRoot ?? process.cwd() });
+                return unconnected
+                    .filter(c => {
+                    if (!isFileNode(c))
+                        return true;
+                    const source = entries.reasons.get(c.component_id);
+                    if (source && ORPHAN_EXEMPT_ENTRY_SOURCES.has(source))
+                        return false;
+                    // `reasons` keeps the first match, and a name pattern (`.../main`)
+                    // can win before the path convention (`src/main.rs`) is tried.
+                    return !entryCandidatePaths(c, projectRoot).some(p => {
+                        const convention = classifyPathConvention(p);
+                        return convention !== null && ORPHAN_EXEMPT_ENTRY_SOURCES.has(convention);
+                    });
+                })
                     .map(c => ({
                     rule_id: 'orphan-component',
                     severity: 'warning',

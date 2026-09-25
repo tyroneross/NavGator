@@ -42,6 +42,31 @@ describe('Architecture Rules', () => {
       expect(orphanRule.check([app, stray], []).map(v => v.component)).toEqual(['Stray']);
     });
 
+    it('does not flag a launched file (script, test, main.rs, bin/) but still flags a type declared in one', () => {
+      const fileNode = (name: string, file: string, tag: 'module' | 'file-node') => {
+        const c = createComponent({ name, layer: 'backend' });
+        c.tags = ['internal', tag];
+        c.source = { ...c.source, config_files: [file] };
+        c.metadata = { file };
+        return c;
+      };
+      const script = fileNode('Scripts/arc_soak', 'Scripts/arc_soak.py', 'module');
+      const pyTest = fileNode('Tests/test_math', 'Tests/test_math.py', 'module');
+      const rustMain = fileNode('crates/app/src/main', 'crates/app/src/main.rs', 'file-node');
+      const binTool = fileNode('bin/cli', 'bin/cli.ts', 'module');
+      const library = fileNode('src/lib/helper', 'src/lib/helper.ts', 'module');
+      const unusedType = createComponent({ name: 'ResultEnvelope', layer: 'backend' });
+      unusedType.tags = ['rust', 'struct', 'public'];
+      unusedType.metadata = { kind: 'struct', file: 'crates/app/src/lib.rs' };
+
+      const rule = getBuiltinRules(fs.mkdtempSync(path.join(os.tmpdir(), 'navgator-orphan-entry-')))
+        .find(r => r.id === 'orphan-component')!;
+      const flagged = rule.check([script, pyTest, rustMain, binTool, library, unusedType], [])
+        .map(v => v.component)
+        .sort();
+      expect(flagged).toEqual(['ResultEnvelope', 'src/lib/helper']);
+    });
+
     it('should not flag component with connections', () => {
       const comp1 = createComponent({ name: 'Frontend', layer: 'frontend' });
       const comp2 = createComponent({ name: 'Backend', layer: 'backend' });
