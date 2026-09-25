@@ -124,4 +124,18 @@ describe('scanSwiftCode file graph', () => {
     expect(refs).toContain('Sources/Demo/RootView.swift -> Sources/Demo/SessionStore.swift');
     expect(refs.some(r => r.startsWith('Sources/Demo/Feature/Use.swift'))).toBe(false);
   });
+
+  it('links an extended project type to the file that extends it', async () => {
+    writeFixture('Sources/Demo/SessionStore+Sync.swift', [
+      'import Foundation',
+      'extension SessionStore { func sync() {} }',
+      'extension JSONDecoder { }',   // not a project type: no anchor
+    ].join('\n'));
+    const result = await scanSwiftCode(tmp);
+    const byId = new Map(result.components.map(c => [c.component_id, c.name]));
+    const ext = result.connections
+      .filter(c => (c.description ?? '').includes('is extended in'))
+      .map(c => `${byId.get(c.from.component_id) ?? c.from.component_id} -> ${c.to.component_id}`);
+    expect(ext).toEqual(['SessionStore -> FILE:Sources/Demo/SessionStore+Sync.swift']);
+  });
 });

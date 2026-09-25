@@ -941,6 +941,51 @@ export async function scanSwiftCode(
     }
   }
 
+  // ---- Extensions → the extended type's file reaches the extending file ----
+  //
+  // A file holding only `extension WorkStore { ... }` contributes methods to
+  // WorkStore; callers name WorkStore, never this file, so no reference
+  // reaches it. Record that WorkStore is extended here (typed `other`, from
+  // the type to the extending file) so a live type keeps its extension files
+  // live. Extensions of types the project does not declare (Foundation's
+  // JSONDecoder) have no declaration to anchor to and are skipped.
+  for (const file of files) {
+    const code = stripSwiftNonCode(file.content);
+    const re = /\bextension\s+([A-Z]\w*)/g;
+    const seen = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(code)) !== null) {
+      const name = m[1];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const declFiles = declarations.get(name);
+      if (!declFiles) continue;
+      const declFile = nearestDeclaration(file.relativePath, declFiles);
+      if (!declFile || declFile === file.relativePath) continue;
+      const node = componentByName.get(name);
+      const source = node && (declFiles.size === 1 || node.file === declFile) ? node.id : `FILE:${declFile}`;
+      const line = code.slice(0, m.index).split('\n').length;
+      connections.push({
+        connection_id: generateConnectionId('other'),
+        from: { component_id: source, location: { file: declFile, line: 1 } },
+        to: { component_id: `FILE:${file.relativePath}`, location: { file: file.relativePath, line } },
+        connection_type: 'other',
+        code_reference: {
+          file: file.relativePath,
+          symbol: name,
+          symbol_type: 'class',
+          line_start: line,
+          code_snippet: (file.lines[line - 1] ?? '').trim().slice(0, 100),
+        },
+        description: `${name} is extended in ${file.relativePath}`,
+        detected_from: 'swift-code-scanner',
+        confidence: 0.85,
+        timestamp,
+        last_verified: timestamp,
+      });
+    }
+  }
+
   // ---- Build project metadata ----
   const projectMeta = buildProjectMetadata(files, frameworkImports, projectRoot, fragileKeys, entitlementReqs);
 
