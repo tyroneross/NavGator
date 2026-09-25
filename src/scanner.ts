@@ -1911,7 +1911,22 @@ export async function scan(
     if (stackRoots.some(sr => detectCargo(sr.path))) {
       if (options.verbose) console.log('  - Scanning Rust code connections...');
       try {
-        const rustResult = await scanRustCode(root, incWalkSet);
+        // Hand the Phase 1 Cargo nodes to the Rust scanner so `tokio::` in a
+        // crate's source resolves to the node that crate's Cargo.toml produced
+        // (same contract as `npmKnownPackages` for bare TS imports).
+        const cargoKnownPackages = allComponents
+          .filter(c => c.source.config_files?.some(f => f === 'Cargo.toml' || f.endsWith('/Cargo.toml')))
+          .map(c => {
+            const crateName = (c.metadata as Record<string, unknown> | undefined)?.['crate_name'];
+            return {
+              component_id: c.component_id,
+              crateName: typeof crateName === 'string' && crateName ? crateName : c.name,
+              manifest: normalizeEndpointPath(
+                c.source.config_files.find(f => f === 'Cargo.toml' || f.endsWith('/Cargo.toml'))!
+              ),
+            };
+          });
+        const rustResult = await scanRustCode(root, incWalkSet, cargoKnownPackages);
         allComponents.push(...rustResult.components);
         allConnections.push(...rustResult.connections);
         allWarnings.push(...rustResult.warnings);

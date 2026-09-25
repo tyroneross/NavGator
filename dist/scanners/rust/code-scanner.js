@@ -40,7 +40,7 @@ const LLM_CRATE_PATTERNS = [
 // =============================================================================
 // MAIN SCANNER
 // =============================================================================
-export async function scanRustCode(projectRoot, walkSet) {
+export async function scanRustCode(projectRoot, walkSet, knownPackages) {
     const components = [];
     const connections = [];
     const warnings = [];
@@ -123,27 +123,14 @@ export async function scanRustCode(projectRoot, walkSet) {
         });
     }
     // ---- Modules ----
+    //
+    // Modules are represented by the files that hold them, not by a `mod:<name>`
+    // component. The old `mod:<name>` node was keyed on the bare name across the
+    // whole workspace (`mod tests`, `mod store` in every crate collapsed into one
+    // node) and carried the DECLARING file, so an edge to it said nothing about
+    // which file was coupled to which. Module structure is emitted below as
+    // file → file edges instead (see the module-graph pass).
     const modules = scanModules(files);
-    for (const m of modules) {
-        addComponent({
-            component_id: generateComponentId('other', `mod:${m.name}`),
-            name: `mod:${m.name}`,
-            type: 'other',
-            role: {
-                purpose: `Rust module: ${m.name}`,
-                layer: 'backend',
-                critical: false,
-            },
-            source: { detection_method: 'auto', config_files: [], confidence: 0.85 },
-            connects_to: [],
-            connected_from: [],
-            status: 'active',
-            tags: ['rust', 'module', m.isPub ? 'public' : 'private', m.inline ? 'inline' : 'file'],
-            metadata: { file: m.file, line: m.line, inline: m.inline },
-            timestamp,
-            last_updated: timestamp,
-        });
-    }
     // ---- Trait implementations → conforms-to ----
     const impls = scanTraitImpls(files);
     const traitConformers = new Map();
@@ -210,98 +197,176 @@ export async function scanRustCode(projectRoot, walkSet) {
             last_verified: timestamp,
         });
     }
-    // ---- use paths → imports (internal) / uses-package (external crate) ----
+    // ---- Module graph: `mod x;` + `use crate::/self::/super::` → file edges ----
+    const crates = loadCrates(projectRoot, files.map(f => f.relativePath));
+    const fileSet = new Set(allRustFiles);
+    const fileEdgeSeen = new Set();
+    const pushFileEdge = (fromFile, toFile, line, kind, symbol, snippet, description) => {
+        if (fromFile === toFile)
+            return;
+        const key = `${kind}|${fromFile}|${toFile}`;
+        if (fileEdgeSeen.has(key))
+            return;
+        fileEdgeSeen.add(key);
+        connections.push({
+            connection_id: generateConnectionId(kind),
+            // FILE: on both ends so scanner.ts binds each end to that file's node.
+            from: { component_id: `FILE:${fromFile}`, location: { file: fromFile, line } },
+            to: { component_id: `FILE:${toFile}`, location: { file: toFile, line: 1 } },
+            connection_type: kind,
+            code_reference: {
+                file: fromFile,
+                symbol,
+                symbol_type: 'import',
+                line_start: line,
+                code_snippet: snippet.slice(0, 100),
+            },
+            description,
+            detected_from: 'rust-code-scanner',
+            confidence: 0.85,
+            timestamp,
+            last_verified: timestamp,
+        });
+    };
+    // `mod x;` — the parent file owns the child file. Typed `other`, not
+    // `imports`: a child reaching back with `use super::X` is the normal Rust
+    // module shape, and an `imports` edge here would report every such child as
+    // an import cycle.
+    for (const m of modules) {
+        if (m.inline)
+            continue;
+        const child = resolveChildModuleFile(m.file, m.name, fileSet);
+        if (!child)
+            continue;
+        pushFileEdge(m.file, child, m.line, 'other', `mod ${m.name}`, `mod ${m.name};`, `${m.file} declares module ${m.name}`);
+    }
+    // Paths into the crate's own module tree (`use crate::a::B`, inline
+    // `super::helper()`), resolved to the file that defines the module.
     const usePaths = scanUsePaths(files);
-    const externalCrates = new Set();
     for (const u of usePaths) {
-        if (INTERNAL_HEADS.has(u.head)) {
-            // Internal module reference — imports connection to the target module.
-            const targetSegs = u.raw.split('::').filter(s => s && !INTERNAL_HEADS.has(s));
-            const targetName = targetSegs[0];
-            if (!targetName)
+        if (!INTERNAL_HEADS.has(u.head))
+            continue;
+        const crate = crateForFile(u.file, crates);
+        const target = resolveInternalPath(u.file, u.raw.split('::'), crate, fileSet);
+        if (!target)
+            continue;
+        pushFileEdge(u.file, target, u.line, 'imports', u.raw, u.inline ? u.raw : `use ${u.raw}`, `${u.file} imports ${u.raw}`);
+    }
+    // ---- External crate usage → uses-package ----
+    //
+    // With manifest data (a full scan: `knownPackages` holds the Phase 1 cargo
+    // nodes), a crate is used when its identifier appears as a path head —
+    // `use tokio::sync`, `tokio::spawn(..)`, `#[tokio::main]`,
+    // `#[derive(serde::Serialize)]` — in a file of a crate whose Cargo.toml
+    // declares it. The edge goes to THAT manifest's node, so per-crate
+    // declarations stay separate and a dependency declared but never used in its
+    // crate stays an orphan: that is a real finding. Without manifest data (a
+    // direct call), fall back to the `use`-statement heuristic and mint a node.
+    const externalCrates = new Set();
+    const haveManifestData = crates.length > 0 && (knownPackages?.length ?? 0) > 0;
+    const depsByManifest = new Map(); // manifest -> ident -> component_id
+    for (const pkg of knownPackages ?? []) {
+        const ident = pkg.crateName.replace(/-/g, '_');
+        if (!depsByManifest.has(pkg.manifest))
+            depsByManifest.set(pkg.manifest, new Map());
+        const byIdent = depsByManifest.get(pkg.manifest);
+        if (!byIdent.has(ident))
+            byIdent.set(ident, pkg.component_id);
+    }
+    const packageEdgeSeen = new Set();
+    const pushPackageEdge = (file, line, targetCompId, crateIdent, snippet) => {
+        const key = `${file}|${targetCompId}`;
+        if (packageEdgeSeen.has(key))
+            return;
+        packageEdgeSeen.add(key);
+        connections.push({
+            connection_id: generateConnectionId('uses-package'),
+            from: { component_id: `FILE:${file}`, location: { file, line } },
+            to: { component_id: targetCompId },
+            connection_type: 'uses-package',
+            code_reference: {
+                file,
+                symbol: crateIdent,
+                symbol_type: 'import',
+                line_start: line,
+                code_snippet: snippet.slice(0, 100),
+            },
+            description: `${file} uses crate ${crateIdent}`,
+            detected_from: 'rust-code-scanner',
+            confidence: 0.8,
+            timestamp,
+            last_verified: timestamp,
+        });
+    };
+    if (haveManifestData) {
+        for (const file of files) {
+            const crate = crateForFile(file.relativePath, crates);
+            if (!crate)
                 continue;
-            // Target: resolve the module component the module pass emitted. Calling
-            // generateComponentId() again here produced a different random suffix, so
-            // the edge pointed at a `mod:` id no component carried. If the module was
-            // never declared locally (a re-export, or `crate::` reaching a path this
-            // scan did not walk), skip rather than invent a component for it.
-            const targetModId = idFor('other', `mod:${targetName}`);
-            if (!targetModId)
-                continue;
-            connections.push({
-                connection_id: generateConnectionId('imports'),
-                // FILE: form so scanner.ts's endpoint resolver binds this to the
-                // file's component — no `file:` component is ever pushed here, so the
-                // generated id was never a real endpoint.
-                from: {
-                    component_id: `FILE:${u.file}`,
-                    location: { file: u.file, line: u.line },
-                },
-                to: { component_id: targetModId },
-                connection_type: 'imports',
-                code_reference: {
-                    file: u.file,
-                    symbol: u.raw,
-                    symbol_type: 'import',
-                    line_start: u.line,
-                    code_snippet: `use ${u.raw}`,
-                },
-                description: `${u.file} imports ${u.raw}`,
-                detected_from: 'rust-code-scanner',
-                confidence: 0.8,
-                timestamp,
-                last_verified: timestamp,
-            });
+            const deps = depsByManifest.get(crate.manifest);
+            for (const hit of scanCrateHeads(file)) {
+                // A crate's own tests/, benches/ and examples/ reach its library by
+                // the crate's own name: that is an edge into src/lib.rs.
+                if (hit.ident === crate.ident && crate.libFile) {
+                    pushFileEdge(file.relativePath, crate.libFile, hit.line, 'imports', hit.ident, hit.snippet, `${file.relativePath} uses its own crate ${crate.name}`);
+                    continue;
+                }
+                const compId = deps?.get(hit.ident);
+                if (compId)
+                    pushPackageEdge(file.relativePath, hit.line, compId, hit.ident, hit.snippet);
+            }
         }
-        else if (!STDLIB_HEADS.has(u.head)) {
-            // External crate dependency.
-            externalCrates.add(u.head);
-            // LLM SDK crate?
-            const llmMatch = LLM_CRATE_PATTERNS.find(p => p.pattern.test(u.head));
-            const targetType = llmMatch ? 'llm' : 'cargo';
-            const targetName = llmMatch ? llmMatch.provider : u.head;
-            // Use addComponent's return: on the 2nd+ use of the same crate the id
-            // generated here is discarded by the dedupe, so an edge built from it
-            // would dangle.
-            const targetCompId = addComponent({
-                component_id: generateComponentId(targetType, targetName),
-                name: targetName,
-                type: targetType,
-                role: {
-                    purpose: llmMatch ? `${targetName} LLM SDK` : `Rust crate: ${u.head}`,
-                    layer: 'external',
-                    critical: !!llmMatch,
-                },
-                source: { detection_method: 'auto', config_files: [], confidence: 0.75 },
-                connects_to: [],
-                connected_from: [],
-                status: 'active',
-                tags: llmMatch ? ['rust', 'llm', 'external'] : ['rust', 'crate', 'external'],
-                timestamp,
-                last_updated: timestamp,
-            });
-            connections.push({
-                connection_id: generateConnectionId(llmMatch ? 'service-call' : 'uses-package'),
-                from: {
-                    component_id: `FILE:${u.file}`,
-                    location: { file: u.file, line: u.line },
-                },
-                to: { component_id: targetCompId },
-                connection_type: llmMatch ? 'service-call' : 'uses-package',
-                code_reference: {
-                    file: u.file,
-                    symbol: u.raw,
-                    symbol_type: 'import',
-                    line_start: u.line,
-                    code_snippet: `use ${u.raw}`,
-                },
-                description: `${u.file} uses crate ${u.head}`,
-                detected_from: 'rust-code-scanner',
-                confidence: 0.75,
-                timestamp,
-                last_verified: timestamp,
-            });
-        }
+    }
+    for (const u of usePaths) {
+        if (u.inline || INTERNAL_HEADS.has(u.head) || STDLIB_HEADS.has(u.head))
+            continue;
+        const llmMatch = LLM_CRATE_PATTERNS.find(p => p.pattern.test(u.head));
+        if (haveManifestData && !llmMatch)
+            continue; // resolved against manifests above
+        externalCrates.add(u.head);
+        const targetType = llmMatch ? 'llm' : 'cargo';
+        const targetName = llmMatch ? llmMatch.provider : u.head;
+        // Use addComponent's return: on the 2nd+ use of the same crate the id
+        // generated here is discarded by the dedupe, so an edge built from it
+        // would dangle.
+        const targetCompId = addComponent({
+            component_id: generateComponentId(targetType, targetName),
+            name: targetName,
+            type: targetType,
+            role: {
+                purpose: llmMatch ? `${targetName} LLM SDK` : `Rust crate: ${u.head}`,
+                layer: 'external',
+                critical: !!llmMatch,
+            },
+            source: { detection_method: 'auto', config_files: [], confidence: 0.75 },
+            connects_to: [],
+            connected_from: [],
+            status: 'active',
+            tags: llmMatch ? ['rust', 'llm', 'external'] : ['rust', 'crate', 'external'],
+            timestamp,
+            last_updated: timestamp,
+        });
+        connections.push({
+            connection_id: generateConnectionId(llmMatch ? 'service-call' : 'uses-package'),
+            from: {
+                component_id: `FILE:${u.file}`,
+                location: { file: u.file, line: u.line },
+            },
+            to: { component_id: targetCompId },
+            connection_type: llmMatch ? 'service-call' : 'uses-package',
+            code_reference: {
+                file: u.file,
+                symbol: u.raw,
+                symbol_type: 'import',
+                line_start: u.line,
+                code_snippet: `use ${u.raw}`,
+            },
+            description: `${u.file} uses crate ${u.head}`,
+            detected_from: 'rust-code-scanner',
+            confidence: 0.75,
+            timestamp,
+            last_verified: timestamp,
+        });
     }
     // ---- LLM API calls (URL literals) → service-call ----
     const llmCalls = scanLLMCalls(files);
@@ -421,22 +486,347 @@ function scanTraitImpls(files) {
     }
     return impls;
 }
+/**
+ * Blank out comments and string/char literals, keeping every newline so line
+ * numbers survive. Path heads inside a doc comment or a log string are not
+ * usages.
+ */
+export function stripRustNonCode(src) {
+    let out = '';
+    let i = 0;
+    const n = src.length;
+    const blank = (text) => text.replace(/[^\n]/g, ' ');
+    while (i < n) {
+        const c = src[i];
+        const next = src[i + 1];
+        if (c === '/' && next === '/') {
+            let j = src.indexOf('\n', i);
+            if (j === -1)
+                j = n;
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === '/' && next === '*') {
+            // Rust block comments nest.
+            let depth = 1;
+            let j = i + 2;
+            while (j < n && depth > 0) {
+                if (src[j] === '/' && src[j + 1] === '*') {
+                    depth++;
+                    j += 2;
+                }
+                else if (src[j] === '*' && src[j + 1] === '/') {
+                    depth--;
+                    j += 2;
+                }
+                else
+                    j++;
+            }
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === 'r' && (next === '"' || next === '#') && !/[\w]/.test(src[i - 1] ?? '')) {
+            const m = /^r(#*)"/.exec(src.slice(i, i + 260));
+            if (!m) {
+                out += c;
+                i++;
+                continue;
+            }
+            const close = `"${m[1]}`;
+            let j = src.indexOf(close, i + m[0].length);
+            j = j === -1 ? n : j + close.length;
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === '"') {
+            let j = i + 1;
+            while (j < n && src[j] !== '"')
+                j += src[j] === '\\' ? 2 : 1;
+            j = Math.min(n, j + 1);
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === "'") {
+            const m = /^'(?:\\.[^']{0,8}|[^'\\\n])'/.exec(src.slice(i, i + 12));
+            if (m) {
+                out += blank(m[0]);
+                i += m[0].length;
+            }
+            else {
+                out += c;
+                i++;
+            }
+        }
+        else {
+            out += c;
+            i++;
+        }
+    }
+    return out;
+}
+/**
+ * Expand one `use` tree body (`a::{b, c::{d, e}}`, `x as y`, `a::*`) into
+ * its leaf paths. Aliases and globs keep the path up to the alias/glob.
+ */
+export function expandUseTree(body) {
+    const text = body.replace(/\s+/g, '');
+    const out = [];
+    const walk = (prefix, tree) => {
+        // Split `tree` on top-level commas.
+        const parts = [];
+        let depth = 0;
+        let cur = '';
+        for (const ch of tree) {
+            if (ch === '{')
+                depth++;
+            if (ch === '}')
+                depth--;
+            if (ch === ',' && depth === 0) {
+                parts.push(cur);
+                cur = '';
+                continue;
+            }
+            cur += ch;
+        }
+        if (cur)
+            parts.push(cur);
+        for (const part of parts) {
+            const brace = part.indexOf('{');
+            if (brace >= 0 && part.endsWith('}')) {
+                const head = part.slice(0, brace).replace(/::$/, '');
+                walk(prefix && head ? `${prefix}::${head}` : prefix || head, part.slice(brace + 1, -1));
+                continue;
+            }
+            const leaf = part.replace(/as\w+$/, '').replace(/::\*$/, '').replace(/^\*$/, '');
+            const full = prefix && leaf ? `${prefix}::${leaf}` : prefix || leaf;
+            if (full && full !== 'self')
+                out.push(full.replace(/::self$/, ''));
+        }
+    };
+    walk('', text.replace(/^::/, ''));
+    return out;
+}
 function scanUsePaths(files) {
     const uses = [];
     for (const file of files) {
-        for (let i = 0; i < file.lines.length; i++) {
-            const line = stripComment(file.lines[i]);
-            const m = line.match(/^\s*(?:pub\s+)?use\s+([A-Za-z_][\w:]*)/);
-            if (m) {
-                const raw = m[1];
+        const code = stripRustNonCode(file.content);
+        const lineAt = lineIndexer(code);
+        // `use` declarations, including multi-line and grouped trees.
+        const useRe = /(^|[;{}\s])(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/g;
+        const useSpans = [];
+        let m;
+        while ((m = useRe.exec(code)) !== null) {
+            const start = m.index + m[1].length;
+            useSpans.push([start, m.index + m[0].length]);
+            const line = lineAt(start);
+            for (const raw of expandUseTree(m[2])) {
                 const head = raw.split('::')[0];
-                if (!head)
+                if (!head || !/^[A-Za-z_]\w*$/.test(head))
                     continue;
-                uses.push({ raw, head, file: file.relativePath, line: i + 1 });
+                uses.push({ raw, head, file: file.relativePath, line, inline: false });
             }
+        }
+        // In-expression paths into the crate's own module tree:
+        // `crate::store::open()`, `super::helper(x)`, `self::inner::f()`.
+        const inlineRe = /(?<![\w:])((?:crate|super|self)(?:::[A-Za-z_]\w*)+)/g;
+        while ((m = inlineRe.exec(code)) !== null) {
+            const at = m.index;
+            if (useSpans.some(([a, b]) => at >= a && at < b))
+                continue;
+            const raw = m[1];
+            uses.push({ raw, head: raw.split('::')[0], file: file.relativePath, line: lineAt(at), inline: true });
         }
     }
     return uses;
+}
+/** Offset → 1-based line number, for a string whose newlines were preserved. */
+function lineIndexer(text) {
+    const starts = [0];
+    for (let i = 0; i < text.length; i++)
+        if (text[i] === '\n')
+            starts.push(i + 1);
+    return (offset) => {
+        let lo = 0;
+        let hi = starts.length - 1;
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (starts[mid] <= offset)
+                lo = mid;
+            else
+                hi = mid - 1;
+        }
+        return lo + 1;
+    };
+}
+/**
+ * Every lowercase path head in a file (`tokio::spawn`, `use serde::X`,
+ * `#[tokio::main]`, `extern crate libc`) with its first line. Callers filter
+ * against the crate's declared dependencies, so local module heads and `std`
+ * fall out there.
+ */
+function scanCrateHeads(file) {
+    const code = stripRustNonCode(file.content);
+    const lineAt = lineIndexer(code);
+    const first = new Map();
+    const note = (ident, offset) => {
+        if (!first.has(ident))
+            first.set(ident, offset);
+    };
+    let m;
+    const headRe = /(?<![\w:$])([a-z_][a-z0-9_]*)\s*::/g;
+    while ((m = headRe.exec(code)) !== null)
+        note(m[1], m.index);
+    const bareRe = /\b(?:use|extern\s+crate)\s+([a-z_][a-z0-9_]*)\s*(?:;|\bas\b)/g;
+    while ((m = bareRe.exec(code)) !== null)
+        note(m[1], m.index);
+    return [...first.entries()].map(([ident, offset]) => {
+        const line = lineAt(offset);
+        return { ident, line, snippet: (file.lines[line - 1] ?? '').trim() };
+    });
+}
+/** Read every `[package]` Cargo.toml that owns one of `rustFiles`. */
+function loadCrates(projectRoot, rustFiles) {
+    const dirs = new Set();
+    for (const f of rustFiles) {
+        let dir = path.posix.dirname(f);
+        // Walk up to the nearest Cargo.toml.
+        for (;;) {
+            const manifest = dir === '.' ? 'Cargo.toml' : `${dir}/Cargo.toml`;
+            if (dirs.has(dir))
+                break;
+            if (fs.existsSync(path.join(projectRoot, manifest))) {
+                dirs.add(dir);
+                break;
+            }
+            if (dir === '.' || dir === '')
+                break;
+            dir = path.posix.dirname(dir);
+        }
+    }
+    const crates = [];
+    for (const dir of dirs) {
+        const rel = dir === '.' ? '' : dir;
+        const manifest = rel ? `${rel}/Cargo.toml` : 'Cargo.toml';
+        let text = '';
+        try {
+            text = fs.readFileSync(path.join(projectRoot, manifest), 'utf-8');
+        }
+        catch {
+            continue;
+        }
+        const pkg = /^\s*\[package\]([\s\S]*?)(?=^\s*\[|(?![\s\S]))/m.exec(text);
+        const name = pkg && /^\s*name\s*=\s*"([^"]+)"/m.exec(pkg[1])?.[1];
+        if (!name)
+            continue; // a virtual workspace manifest owns no source
+        const libRel = rel ? `${rel}/src/lib.rs` : 'src/lib.rs';
+        crates.push({
+            dir: rel,
+            manifest,
+            name,
+            ident: name.replace(/-/g, '_'),
+            libFile: fs.existsSync(path.join(projectRoot, libRel)) ? libRel : undefined,
+        });
+    }
+    return crates;
+}
+function crateForFile(file, crates) {
+    let best;
+    for (const c of crates) {
+        if (c.dir === '' || file.startsWith(`${c.dir}/`)) {
+            if (!best || c.dir.length > best.dir.length)
+                best = c;
+        }
+    }
+    return best;
+}
+/** A file that roots its own module tree (lib.rs, main.rs, bin/*, tests/*, build.rs...). */
+function isCrateRootFile(file, crate) {
+    const rel = crate && crate.dir ? file.slice(crate.dir.length + 1) : file;
+    return /^(src\/(lib|main)\.rs|build\.rs|src\/bin\/[^/]+\.rs|src\/bin\/[^/]+\/main\.rs|(tests|benches|examples)\/[^/]+\.rs|(tests|benches|examples)\/[^/]+\/main\.rs)$/.test(rel);
+}
+/** Directory that holds the child modules of `file`. */
+function moduleDirOf(file, crate) {
+    const dir = path.posix.dirname(file);
+    if (isCrateRootFile(file, crate) || path.posix.basename(file) === 'mod.rs')
+        return dir;
+    return `${dir}/${path.posix.basename(file, '.rs')}`;
+}
+function joinDir(dir, name) {
+    return dir === '.' || dir === '' ? name : `${dir}/${name}`;
+}
+/** `mod name;` declared in `parent` → the file holding module `name`. */
+function resolveChildModuleFile(parent, name, fileSet) {
+    // Crate context only changes which directory children live in, and the
+    // crate-root check needs it; derive it from the path shape alone here.
+    const crateLike = (() => {
+        const idx = parent.lastIndexOf('/src/');
+        if (idx >= 0)
+            return { dir: parent.slice(0, idx), manifest: '', name: '', ident: '' };
+        if (parent.startsWith('src/'))
+            return { dir: '', manifest: '', name: '', ident: '' };
+        const t = /^(.*?\/)?(tests|benches|examples)\//.exec(parent);
+        if (t)
+            return { dir: (t[1] ?? '').replace(/\/$/, ''), manifest: '', name: '', ident: '' };
+        return undefined;
+    })();
+    const dir = moduleDirOf(parent, crateLike);
+    for (const candidate of [joinDir(dir, `${name}.rs`), joinDir(dir, `${name}/mod.rs`)]) {
+        if (fileSet.has(candidate))
+            return candidate;
+    }
+    return undefined;
+}
+/** The module file whose children live in `dir`. */
+function moduleFileForDir(dir, fileSet) {
+    for (const candidate of [joinDir(dir, 'mod.rs'), `${dir}.rs`, joinDir(dir, 'lib.rs'), joinDir(dir, 'main.rs')]) {
+        if (fileSet.has(candidate))
+            return candidate;
+    }
+    return undefined;
+}
+/**
+ * Resolve a `crate::` / `self::` / `super::` path to the deepest module FILE
+ * it names. Item segments past the last module (`crate::store::Store`) are
+ * ignored: the edge is file-to-file.
+ */
+function resolveInternalPath(file, segments, crate, fileSet) {
+    let dir;
+    let current;
+    let i = 0;
+    if (segments[0] === 'crate') {
+        if (!crate)
+            return undefined;
+        dir = joinDir(crate.dir, 'src');
+        current = moduleFileForDir(dir, fileSet);
+        i = 1;
+    }
+    else if (segments[0] === 'self' || segments[0] === 'super') {
+        dir = moduleDirOf(file, crate);
+        current = file;
+        while (segments[i] === 'self')
+            i++;
+        while (segments[i] === 'super') {
+            // `dir` holds the current module's children; its parent directory holds
+            // the parent module's children (src/a/b.rs → src/a → src/a.rs|mod.rs).
+            if (!current || isCrateRootFile(current, crate))
+                return undefined; // no parent module
+            dir = path.posix.dirname(dir);
+            current = moduleFileForDir(dir, fileSet);
+            i++;
+        }
+    }
+    else {
+        return undefined;
+    }
+    for (; i < segments.length; i++) {
+        const seg = segments[i];
+        const next = [joinDir(dir, `${seg}.rs`), joinDir(dir, `${seg}/mod.rs`)].find(c => fileSet.has(c));
+        if (!next)
+            break;
+        current = next;
+        dir = joinDir(dir, seg);
+    }
+    return current;
 }
 function scanLLMCalls(files) {
     const calls = [];
