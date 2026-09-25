@@ -514,8 +514,14 @@ export async function scanRustCode(
       // one file in the workspace declares it.
       const declFiles =
         declFilesByCrateName.get(`${crate?.dir ?? ''}|${ref.name}`) ?? declFilesByName.get(ref.name);
-      if (!declFiles || declFiles.size !== 1) continue;
-      const declFile = [...declFiles][0];
+      if (!declFiles) continue;
+      // A file that declares the name uses its own declaration (two private
+      // `StageRequest`s in two modules of one crate); otherwise it must be
+      // unique.
+      const declFile = declFiles.has(file.relativePath)
+        ? file.relativePath
+        : declFiles.size === 1 ? [...declFiles][0] : undefined;
+      if (!declFile) continue;
       const nodeId = nodeFileByName.get(ref.name) === declFile ? nodeIdForType(ref.name) : undefined;
       if (!nodeId && declFile === file.relativePath) continue; // no node to attribute a same-file use to
       const target = nodeId ?? `FILE:${declFile}`;

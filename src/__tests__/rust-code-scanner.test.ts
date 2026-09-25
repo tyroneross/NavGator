@@ -286,4 +286,20 @@ describe('scanRustCode', () => {
       c.from.component_id === 'FILE:src/lib.rs' && c.to.component_id === 'FILE:src/dependency_surface/tests.rs'
     )).toBe(true);
   });
+
+  it('attributes a name declared in two modules to the declaring file that uses it', async () => {
+    writeFixture('Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    writeFixture('src/lib.rs', 'mod a;\nmod b;\n');
+    writeFixture('src/a.rs', 'struct StageRequest;\nfn f() -> StageRequest { StageRequest }\n');
+    writeFixture('src/b.rs', 'struct StageRequest;\nfn g() -> StageRequest { StageRequest }\n');
+    const result = await scanRustCode(tmp);
+    // One node per name (the first declaration scanned); each file resolves
+    // the name to its OWN declaration, so exactly the node's file links to it.
+    const node = result.components.find(c => c.name === 'StageRequest')!;
+    const nodeFile = (node.metadata as Record<string, unknown>).file;
+    const refs = result.connections
+      .filter(c => c.connection_type === 'references')
+      .map(c => `${c.from.component_id.slice(5)} -> ${c.to.component_id === node.component_id ? 'node' : c.to.component_id}`);
+    expect(refs).toEqual([`${nodeFile} -> node`]);
+  });
 });
