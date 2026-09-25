@@ -270,4 +270,20 @@ describe('scanRustCode', () => {
       byId.get(c.to.component_id) === 'ErrorCode'
     )).toBe(true);
   });
+
+  it('resolves #[path] module declarations inside an inline module', async () => {
+    writeFixture('Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    writeFixture('src/lib.rs', [
+      '#[cfg(test)]',
+      'mod dependency_surface {',
+      '    #[path = "tests.rs"]',
+      '    mod behavior;',
+      '}',
+    ].join('\n'));
+    writeFixture('src/dependency_surface/tests.rs', 'fn t() {}\n');
+    const result = await scanRustCode(tmp);
+    expect(result.connections.some(c =>
+      c.from.component_id === 'FILE:src/lib.rs' && c.to.component_id === 'FILE:src/dependency_surface/tests.rs'
+    )).toBe(true);
+  });
 });

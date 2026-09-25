@@ -52,6 +52,8 @@ interface ModuleDecl {
   line: number;
   /** Enclosing inline modules, outermost first: `mod a { mod b; }` → ['a'] for b. */
   inlineParents: string[];
+  /** `#[path = "x.rs"]` on the declaration, when present. */
+  pathAttr?: string;
 }
 
 interface TraitImpl {
@@ -345,7 +347,9 @@ export async function scanRustCode(
   // an import cycle.
   for (const m of modules) {
     if (m.inline) continue;
-    const child = resolveChildModuleFile(m.file, [...m.inlineParents, m.name].join('/'), fileSet);
+    const child = m.pathAttr
+      ? resolvePathAttribute(m.file, m.inlineParents, m.pathAttr, fileSet)
+      : resolveChildModuleFile(m.file, [...m.inlineParents, m.name].join('/'), fileSet);
     if (!child) continue;
     pushFileEdge(m.file, child, m.line, 'other', `mod ${m.name}`, `mod ${m.name};`, `${m.file} declares module ${m.name}`);
   }
@@ -642,6 +646,7 @@ function scanModules(files: RustFileInfo[]): ModuleDecl[] {
           file: file.relativePath,
           line: i + 1,
           inlineParents: stack.map(e => e.name),
+          pathAttr: findPathAttribute(file.lines, i),
         });
       }
       for (let k = 0; k < line.length; k++) {
@@ -948,6 +953,39 @@ function resolveChildModuleFile(parent: string, name: string, fileSet: Set<strin
     if (fileSet.has(candidate)) return candidate;
   }
   return undefined;
+}
+
+/** `#[path = "x.rs"]` within the attribute lines directly above line `i`. */
+function findPathAttribute(lines: string[], i: number): string | undefined {
+  for (let j = i; j >= Math.max(0, i - 4); j--) {
+    const text = lines[j] ?? '';
+    const m = text.match(/#\[\s*path\s*=\s*"([^"]+)"\s*\]/);
+    if (m) return m[1];
+    if (j < i && !/^\s*(#\[|\/\/|$)/.test(text)) break; // stop at the previous item
+  }
+  return undefined;
+}
+
+/**
+ * Resolve `#[path]`. Outside any inline module the path is relative to the
+ * declaring file's directory; inside `mod a { .. }` it is relative to the
+ * directory that inline module's children would live in.
+ */
+function resolvePathAttribute(
+  parent: string,
+  inlineParents: string[],
+  attr: string,
+  fileSet: Set<string>
+): string | undefined {
+  let base = path.posix.dirname(parent);
+  if (inlineParents.length > 0) {
+    const crateLike: CrateInfo | undefined = parent.includes('/src/') || parent.startsWith('src/')
+      ? { dir: parent.includes('/src/') ? parent.slice(0, parent.lastIndexOf('/src/')) : '', manifest: '', name: '', ident: '' }
+      : undefined;
+    base = joinDir(moduleDirOf(parent, crateLike), inlineParents.join('/'));
+  }
+  const candidate = path.posix.normalize(joinDir(base, attr));
+  return fileSet.has(candidate) ? candidate : undefined;
 }
 
 /** The module file whose children live in `dir`. */
