@@ -202,15 +202,20 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
     // ---- Module graph: `mod x;` + `use crate::/self::/super::` → file edges ----
     const crates = loadCrates(projectRoot, files.map(f => f.relativePath));
     const fileSet = new Set(allRustFiles);
-    const fileEdgeSeen = new Set();
-    const pushFileEdge = (fromFile, toFile, line, kind, symbol, snippet, description) => {
+    const fileEdgeSeen = new Map();
+    const pushFileEdge = (fromFile, toFile, line, kind, symbol, snippet, description, testOnly) => {
         if (fromFile === toFile)
             return;
         const key = `${kind}|${fromFile}|${toFile}`;
-        if (fileEdgeSeen.has(key))
+        const seen = fileEdgeSeen.get(key);
+        if (seen) {
+            // One edge per file pair. A runtime use anywhere in the file makes the
+            // pair runtime coupling, whichever use was seen first.
+            if (!testOnly && seen.runtime_relevance === 'test-only')
+                delete seen.runtime_relevance;
             return;
-        fileEdgeSeen.add(key);
-        connections.push({
+        }
+        const conn = {
             connection_id: generateConnectionId(kind),
             // FILE: on both ends so scanner.ts binds each end to that file's node.
             from: { component_id: `FILE:${fromFile}`, location: { file: fromFile, line } },
@@ -228,21 +233,41 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
             confidence: 0.85,
             timestamp,
             last_verified: timestamp,
-        });
+            ...(testOnly ? { runtime_relevance: 'test-only' } : {}),
+        };
+        fileEdgeSeen.set(key, conn);
+        connections.push(conn);
     };
+    // A file declared by a test-only `mod x;` (`#[cfg(test)] mod tests;`) is
+    // compiled only in a test build, and so is every module it declares.
+    const testOnlyFiles = new Set();
+    const childOf = (m) => m.inline
+        ? undefined
+        : m.pathAttr
+            ? resolvePathAttribute(m.file, m.inlineParents, m.pathAttr, fileSet)
+            : resolveChildModuleFile(m.file, [...m.inlineParents, m.name].join('/'), fileSet);
+    for (let changed = true; changed;) {
+        changed = false;
+        for (const m of modules) {
+            if (!m.testOnly && !testOnlyFiles.has(m.file))
+                continue;
+            const child = childOf(m);
+            if (child && !testOnlyFiles.has(child)) {
+                testOnlyFiles.add(child);
+                changed = true;
+            }
+        }
+    }
     // `mod x;` — the parent file owns the child file. Typed `other`, not
     // `imports`: a child reaching back with `use super::X` is the normal Rust
     // module shape, and an `imports` edge here would report every such child as
     // an import cycle.
     for (const m of modules) {
-        if (m.inline)
-            continue;
-        const child = m.pathAttr
-            ? resolvePathAttribute(m.file, m.inlineParents, m.pathAttr, fileSet)
-            : resolveChildModuleFile(m.file, [...m.inlineParents, m.name].join('/'), fileSet);
+        const child = childOf(m);
         if (!child)
             continue;
-        pushFileEdge(m.file, child, m.line, 'other', `mod ${m.name}`, `mod ${m.name};`, `${m.file} declares module ${m.name}`);
+        const testOnly = m.testOnly || testOnlyFiles.has(m.file);
+        pushFileEdge(m.file, child, m.line, 'other', `mod ${m.name}`, `mod ${m.name};`, `${m.file} declares module ${m.name}`, testOnly);
     }
     // Paths into the crate's own module tree (`use crate::a::B`, inline
     // `super::helper()`), resolved to the file that defines the module.
@@ -254,7 +279,8 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
         const target = resolveInternalPath(u.file, u.raw.split('::'), crate, fileSet);
         if (!target)
             continue;
-        pushFileEdge(u.file, target, u.line, 'imports', u.raw, u.inline ? u.raw : `use ${u.raw}`, `${u.file} imports ${u.raw}`);
+        const testOnly = u.testOnly || testOnlyFiles.has(u.file);
+        pushFileEdge(u.file, target, u.line, 'imports', u.raw, u.inline ? u.raw : `use ${u.raw}`, `${u.file} imports ${u.raw}`, testOnly);
     }
     // ---- External crate usage → uses-package ----
     //
@@ -312,7 +338,7 @@ export async function scanRustCode(projectRoot, walkSet, knownPackages) {
                 // A crate's own tests/, benches/ and examples/ reach its library by
                 // the crate's own name: that is an edge into src/lib.rs.
                 if (hit.ident === crate.ident && crate.libFile) {
-                    pushFileEdge(file.relativePath, crate.libFile, hit.line, 'imports', hit.ident, hit.snippet, `${file.relativePath} uses its own crate ${crate.name}`);
+                    pushFileEdge(file.relativePath, crate.libFile, hit.line, 'imports', hit.ident, hit.snippet, `${file.relativePath} uses its own crate ${crate.name}`, testOnlyFiles.has(file.relativePath));
                     continue;
                 }
                 const compId = deps?.get(hit.ident);
@@ -529,7 +555,14 @@ function scanModules(files) {
     for (const file of files) {
         // Track inline `mod x { ... }` nesting by brace depth on comment- and
         // string-stripped text, so `mod a { mod b; }` resolves b to a/b.rs.
-        const code = stripRustNonCode(file.content).split('\n');
+        const stripped = stripRustNonCode(file.content);
+        const code = stripped.split('\n');
+        const testSpans = findCfgTestSpans(stripped);
+        const lineStarts = [];
+        for (let i = 0, off = 0; i < code.length; i++) {
+            lineStarts.push(off);
+            off += code[i].length + 1;
+        }
         const stack = [];
         let depth = 0;
         for (let i = 0; i < code.length; i++) {
@@ -544,6 +577,7 @@ function scanModules(files) {
                     line: i + 1,
                     inlineParents: stack.map(e => e.name),
                     pathAttr: findPathAttribute(file.lines, i),
+                    testOnly: inSpans(testSpans, lineStarts[i] + line.indexOf('mod')),
                 });
             }
             for (let k = 0; k < line.length; k++) {
@@ -664,6 +698,59 @@ export function stripRustNonCode(src) {
     return out;
 }
 /**
+ * `#[cfg(test)]` — or `#[cfg(all(test, ...))]`, which also requires `test` —
+ * on an item. `cfg(any(test, ...))` and `cfg(not(test))` are not test-only.
+ */
+const CFG_TEST_ATTR = /#\[\s*cfg\s*\(\s*(?:test|all\s*\([^()]*\btest\b[^()]*\))\s*\)\s*\]/g;
+/**
+ * Offset spans `[start, end)` of every item carrying a test-only `cfg`
+ * attribute, on text already passed through `stripRustNonCode`. An item ends
+ * at its first top-level `;` (`use`, `mod x;`) or at the brace that closes
+ * its first top-level `{` (`mod tests { }`, `fn`, `impl`).
+ */
+export function findCfgTestSpans(code) {
+    const spans = [];
+    CFG_TEST_ATTR.lastIndex = 0;
+    let m;
+    while ((m = CFG_TEST_ATTR.exec(code)) !== null) {
+        const start = m.index;
+        let i = m.index + m[0].length;
+        const n = code.length;
+        let end = n;
+        let nest = 0; // ( and [ depth, so `[u8; 4]` does not end the item
+        while (i < n) {
+            const ch = code[i];
+            if (ch === '(' || ch === '[')
+                nest++;
+            else if (ch === ')' || ch === ']')
+                nest--;
+            else if (ch === ';' && nest === 0) {
+                end = i + 1;
+                break;
+            }
+            else if (ch === '{' && nest === 0) {
+                let depth = 0;
+                let j = i;
+                for (; j < n; j++) {
+                    if (code[j] === '{')
+                        depth++;
+                    else if (code[j] === '}' && --depth === 0)
+                        break;
+                }
+                end = Math.min(n, j + 1);
+                break;
+            }
+            i++;
+        }
+        spans.push([start, end]);
+        CFG_TEST_ATTR.lastIndex = Math.max(CFG_TEST_ATTR.lastIndex, end);
+    }
+    return spans;
+}
+function inSpans(spans, offset) {
+    return spans.some(([a, b]) => offset >= a && offset < b);
+}
+/**
  * Expand one `use` tree body (`a::{b, c::{d, e}}`, `x as y`, `a::*`) into
  * its leaf paths. Aliases and globs keep the path up to the alias/glob.
  */
@@ -710,6 +797,7 @@ function scanUsePaths(files) {
     for (const file of files) {
         const code = stripRustNonCode(file.content);
         const lineAt = lineIndexer(code);
+        const testSpans = findCfgTestSpans(code);
         // `use` declarations, including multi-line and grouped trees.
         const useRe = /(^|[;{}\s])(?:pub(?:\([^)]*\))?\s+)?use\s+([^;]+);/g;
         const useSpans = [];
@@ -722,7 +810,7 @@ function scanUsePaths(files) {
                 const head = raw.split('::')[0];
                 if (!head || !/^[A-Za-z_]\w*$/.test(head))
                     continue;
-                uses.push({ raw, head, file: file.relativePath, line, inline: false });
+                uses.push({ raw, head, file: file.relativePath, line, inline: false, testOnly: inSpans(testSpans, start) });
             }
         }
         // In-expression paths into the crate's own module tree:
@@ -733,7 +821,7 @@ function scanUsePaths(files) {
             if (useSpans.some(([a, b]) => at >= a && at < b))
                 continue;
             const raw = m[1];
-            uses.push({ raw, head: raw.split('::')[0], file: file.relativePath, line: lineAt(at), inline: true });
+            uses.push({ raw, head: raw.split('::')[0], file: file.relativePath, line: lineAt(at), inline: true, testOnly: inSpans(testSpans, at) });
         }
     }
     return uses;

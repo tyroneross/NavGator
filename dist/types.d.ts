@@ -146,7 +146,7 @@ export interface ArchitectureConnection {
         classification: 'production' | 'admin' | 'analytics' | 'test' | 'dev-only' | 'migration' | 'unknown';
         confidence: number;
     };
-    runtime_relevance?: 'runtime' | 'type-only';
+    runtime_relevance?: 'runtime' | 'type-only' | 'test-only';
     description?: string;
     detected_from: string;
     confidence: number;

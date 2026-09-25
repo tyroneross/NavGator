@@ -20,14 +20,14 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-393 files analyzed, 1100 internal import edges.
+393 files analyzed, 1102 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
 | JavaScript | 8 | yes | 0 |
 | Python | 11 | yes | 1 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 374 | yes | 1099 |
+| TypeScript | 374 | yes | 1101 |
 
 What this index cannot see:
 
@@ -75,7 +75,7 @@ Read as "the module on the left imports from the modules on the right"; the numb
 many file-level import edges cross that pair.
 
 - `src` imports `src/scanners` (28), `src/memory` (5), `src/portfolio` (4), `src/enrich` (3), `src/git-aware` (3), `src/freshness` (2), `src/remote` (2), `src/audit` (1), `src/metrics` (1), `src/parsers` (1), `src/storage` (1), `src/temporal` (1)
-- `src/__tests__` imports `src` (120), `src/cli` (34), `src/scanners` (34), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/audit` (7), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
+- `src/__tests__` imports `src` (122), `src/cli` (34), `src/scanners` (34), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/audit` (7), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
 - `src/audit` imports `src` (8), `src/parsers` (1)
 - `src/cli` imports `src` (105), `src/deep-map` (8), `src/audit` (4), `src/freshness` (3), `src/memory` (3), `src/portfolio` (3), `src/enrich` (2), `src/git-aware` (2), `src/scanners` (2), `src/remote` (1), `src/temporal` (1)
 - `src/deep-map` imports `src` (18), `src/metrics` (3)
@@ -108,7 +108,7 @@ Highest-fan-in files. Changing one of these can affect every file listed as its 
 | `src/storage.ts` | `src` | 39 |
 | `src/agent-output.ts` | `src` | 28 |
 | `src/cli/exit-codes.ts` | `src/cli` | 28 |
-| `src/scanner.ts` | `src` | 26 |
+| `src/scanner.ts` | `src` | 27 |
 | `web/lib/types.ts` | `web/lib` | 26 |
 | `src/__tests__/helpers.ts` | `src/__tests__` | 19 |
 | `src/projects.ts` | `src` | 19 |

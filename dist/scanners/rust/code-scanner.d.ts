@@ -33,6 +33,13 @@ export declare function scanRustCode(projectRoot: string, walkSet?: Set<string>,
  */
 export declare function stripRustNonCode(src: string): string;
 /**
+ * Offset spans `[start, end)` of every item carrying a test-only `cfg`
+ * attribute, on text already passed through `stripRustNonCode`. An item ends
+ * at its first top-level `;` (`use`, `mod x;`) or at the brace that closes
+ * its first top-level `{` (`mod tests { }`, `fn`, `impl`).
+ */
+export declare function findCfgTestSpans(code: string): Array<[number, number]>;
+/**
  * Expand one `use` tree body (`a::{b, c::{d, e}}`, `x as y`, `a::*`) into
  * its leaf paths. Aliases and globs keep the path up to the alias/glob.
  */

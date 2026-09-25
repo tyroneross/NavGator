@@ -281,7 +281,9 @@ export interface ArchitectureConnection {
 
   // Import erasure is orthogonal to semantic environment classification.
   // `type-only` edges are real source coupling but do not execute at runtime.
-  runtime_relevance?: 'runtime' | 'type-only';
+  // `test-only` edges exist only in a test build (Rust `#[cfg(test)]` items),
+  // so they are not coupling the shipped module graph carries.
+  runtime_relevance?: 'runtime' | 'type-only' | 'test-only';
 
   // Metadata
   description?: string;         // "Creates user in database"

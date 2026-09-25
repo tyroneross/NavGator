@@ -8,6 +8,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { scanRustCode, expandUseTree, stripRustNonCode } from '../scanners/rust/code-scanner.js';
+import { resolveFileEndpoints } from '../scanner.js';
+import { detectImportCycles } from '../architecture-insights.js';
 
 let tmp: string;
 
@@ -301,5 +303,55 @@ describe('scanRustCode', () => {
       .filter(c => c.connection_type === 'references')
       .map(c => `${c.from.component_id.slice(5)} -> ${c.to.component_id === node.component_id ? 'node' : c.to.component_id}`);
     expect(refs).toEqual([`${nodeFile} -> node`]);
+  });
+
+  it('tags edges from #[cfg(test)] code test-only and keeps them out of import cycles', async () => {
+    writeFixture('Cargo.toml', '[package]\nname = "demo"\nversion = "0.1.0"\n');
+    writeFixture('src/lib.rs', 'pub mod relevance;\npub mod compiler;\npub mod memory;\npub mod archive;\npub mod planner;\n');
+    // relevance -> compiler at runtime; compiler -> relevance only in its test module.
+    writeFixture('src/relevance.rs', 'use crate::compiler::CompileError;\npub struct Policy;\n');
+    writeFixture(
+      'src/compiler.rs',
+      [
+        'pub struct CompileError;',
+        'pub fn compile(buf: [u8; 4]) {}',
+        '',
+        '#[cfg(test)]',
+        'mod compiler_tests {',
+        '    use super::*;',
+        '    #[test]',
+        '    fn policy() { let _p = crate::relevance::Policy; }',
+        '}',
+      ].join('\n')
+    );
+    // A real runtime cycle must still be reported.
+    writeFixture('src/memory.rs', 'use crate::archive::Archive;\npub struct Memory;\n');
+    writeFixture('src/archive.rs', 'use crate::memory::Memory;\npub struct Archive;\n');
+    // A file-based test module: everything in planner/tests.rs is test-only.
+    writeFixture('src/planner.rs', 'use crate::relevance::Policy;\n#[cfg(all(test, feature = "slow"))]\nmod tests;\n');
+    writeFixture('src/planner/tests.rs', 'use crate::planner;\nuse crate::compiler::compile;\n');
+
+    const result = await scanRustCode(tmp);
+    const imports = result.connections
+      .filter(c => c.connection_type === 'imports')
+      .map(c => `${c.from.component_id.slice(5)} -> ${c.to.component_id.slice(5)} ${c.runtime_relevance ?? 'runtime'}`)
+      .sort();
+    expect(imports).toEqual([
+      'src/archive.rs -> src/memory.rs runtime',
+      'src/compiler.rs -> src/lib.rs test-only', // `use super::*` in the test module
+      'src/compiler.rs -> src/relevance.rs test-only',
+      'src/memory.rs -> src/archive.rs runtime',
+      'src/planner.rs -> src/relevance.rs runtime',
+      'src/planner/tests.rs -> src/compiler.rs test-only',
+      'src/planner/tests.rs -> src/planner.rs test-only',
+      'src/relevance.rs -> src/compiler.rs runtime',
+    ]);
+
+    const components = [...result.components];
+    const connections = [...result.connections];
+    resolveFileEndpoints(components, connections, tmp);
+    const cycles = detectImportCycles(components, connections, 20).map(c => c.join(' -> '));
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toMatch(/^(memory|archive) -> (archive|memory) -> (memory|archive)$/);
   });
 });

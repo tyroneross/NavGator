@@ -77,7 +77,7 @@
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1100,
+    "internal_edges": 1102,
     "languages": [
       {
         "analyzed": true,
@@ -100,7 +100,7 @@
       {
         "analyzed": true,
         "files": 374,
-        "internal_edges": 1099,
+        "internal_edges": 1101,
         "language": "TypeScript"
       }
     ],
@@ -1040,6 +1040,8 @@
     "src/__tests__/rust-code-scanner.test.ts": {
       "imported_by": [],
       "imports": [
+        "src/architecture-insights.ts",
+        "src/scanner.ts",
         "src/scanners/rust/code-scanner.ts"
       ],
       "module": "src/__tests__",
@@ -1415,6 +1417,7 @@
       "imported_by": [
         "src/__tests__/architecture-insights-stack.test.ts",
         "src/__tests__/architecture-insights.test.ts",
+        "src/__tests__/rust-code-scanner.test.ts",
         "src/rules.ts",
         "src/storage.ts"
       ],
@@ -3218,6 +3221,7 @@
         "src/__tests__/freshness/cli-freshness.test.ts",
         "src/__tests__/multi-stack-discovery.test.ts",
         "src/__tests__/remote/scan-remote.test.ts",
+        "src/__tests__/rust-code-scanner.test.ts",
         "src/__tests__/scan-boundaries.test.ts",
         "src/__tests__/scan-coverage.test.ts",
         "src/__tests__/scan-degradation.test.ts",
@@ -5448,7 +5452,7 @@
       "module": "src/cli"
     },
     {
-      "dependents": 26,
+      "dependents": 27,
       "file": "src/scanner.ts",
       "module": "src"
     },
@@ -5580,7 +5584,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 120,
+      "edges": 122,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5872,7 +5876,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 120,
+          "edges": 122,
           "module": "src/__tests__"
         },
         {
@@ -5993,7 +5997,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 120,
+          "edges": 122,
           "module": "src"
         },
         {

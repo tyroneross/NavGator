@@ -171,7 +171,13 @@ export function detectImportCycles(
   limit: number = 5
 ): string[][] {
   const importEdges = getImportConnections(components, connections)
-    .filter(({ connection }) => connection.runtime_relevance !== 'type-only')
+    // A cycle is a load-order/coupling claim about the shipped build. Type-only
+    // imports are erased and test-only edges (Rust `#[cfg(test)]`) are not
+    // compiled into it, so neither can close a cycle. Reachability still walks
+    // both: tests are entry points, and what they exercise is live.
+    .filter(({ connection }) =>
+      connection.runtime_relevance !== 'type-only' && connection.runtime_relevance !== 'test-only'
+    )
     .filter(({ from, to }) => isInternalCodeComponent(from) && isInternalCodeComponent(to));
 
   const graph = new Map<string, Set<string>>();
