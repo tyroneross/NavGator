@@ -22,7 +22,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 /**
  * Parse a connection URL string into its structural components.

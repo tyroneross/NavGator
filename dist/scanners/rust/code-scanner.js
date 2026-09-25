@@ -12,7 +12,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 // External-path heads that are internal to the crate, never a package.
 const INTERNAL_HEADS = new Set(['crate', 'self', 'super']);

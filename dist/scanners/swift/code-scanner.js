@@ -9,7 +9,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 import { scanSwiftUIViews } from './swiftui-scanner.js';
 // =============================================================================

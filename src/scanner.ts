@@ -6,7 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'node:child_process';
-import { glob, globSync } from 'glob';
+import { glob, globSync } from './sorted-glob.js';
 
 const DEFAULT_IGNORE_PATTERNS = [
   '**/node_modules/**',

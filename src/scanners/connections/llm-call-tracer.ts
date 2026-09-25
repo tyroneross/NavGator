@@ -15,7 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { MAX_FILE_SIZE_BYTES, MAX_LINE_LENGTH } from '../scan-limits.js';
 import {
   ArchitectureConnection,

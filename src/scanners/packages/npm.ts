@@ -150,7 +150,7 @@ async function resolveWorkspacePackages(projectRoot: string): Promise<string[]> 
       : `${pattern}/*`;
 
     try {
-      const { glob: globFn } = await import('glob');
+      const { glob: globFn } = await import('../../sorted-glob.js');
       const matches = await globFn(globPattern, {
         cwd: projectRoot,
         ignore: ['**/node_modules/**'],

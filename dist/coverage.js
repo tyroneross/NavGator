@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
-import { glob } from 'glob';
+import { glob } from './sorted-glob.js';
 /**
  * Compute architecture coverage for a project.
  */

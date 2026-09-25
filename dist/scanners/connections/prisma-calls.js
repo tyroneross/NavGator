@@ -5,7 +5,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateConnectionId, } from '../../types.js';
 // Prisma client operations — split into reads and writes
 const READ_OPS = 'find(?:Many|Unique|First|UniqueOrThrow|FirstOrThrow)?|count|aggregate|groupBy';

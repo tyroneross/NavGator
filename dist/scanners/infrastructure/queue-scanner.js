@@ -4,7 +4,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateComponentId, generateConnectionId, } from '../../types.js';
 /**
  * Scan source files for queue definitions (new Queue, new Worker, etc.)

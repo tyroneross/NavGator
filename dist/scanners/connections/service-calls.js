@@ -4,7 +4,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateConnectionId, generateComponentId, } from '../../types.js';
 const SERVICE_PATTERNS = [
     // AI/LLM Services - These get their own 'llm' type for visibility

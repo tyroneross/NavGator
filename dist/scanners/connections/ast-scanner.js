@@ -11,7 +11,7 @@
  *   npm install ts-morph
  */
 import * as path from 'path';
-import { glob } from 'glob';
+import { glob } from '../../sorted-glob.js';
 import { generateConnectionId, generateComponentId, } from '../../types.js';
 const SERVICE_SIGNATURES = [
     // AI Services

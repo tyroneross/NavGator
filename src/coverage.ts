@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { glob } from 'glob';
+import { glob } from './sorted-glob.js';
 import { ArchitectureComponent, ArchitectureConnection, ArchitectureLayer } from './types.js';
 
 export interface CoverageGap {

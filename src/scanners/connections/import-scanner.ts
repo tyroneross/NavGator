@@ -476,7 +476,7 @@ export async function scanImports(
     files = files.filter(f => !f.endsWith('.d.ts'));
   } else {
     // Fallback: use glob (shouldn't happen in normal flow)
-    const { glob } = await import('glob');
+    const { glob } = await import('../../sorted-glob.js');
     files = await glob('**/*.{ts,tsx,js,jsx,mjs,cjs}', {
       cwd: projectRoot,
       ignore: [
@@ -498,7 +498,7 @@ export async function scanImports(
       .filter(f => f.endsWith('.py'));
   } else {
     // Fallback: use glob (shouldn't happen in normal flow)
-    const { glob } = await import('glob');
+    const { glob } = await import('../../sorted-glob.js');
     pythonFiles = await glob('**/*.py', {
       cwd: projectRoot,
       ignore: [

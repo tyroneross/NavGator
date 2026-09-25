@@ -70,14 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 395,
+    "analyzed_files": 397,
     "blind_spots": [
       "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1111,
+    "internal_edges": 1134,
     "languages": [
       {
         "analyzed": true,
@@ -99,8 +99,8 @@
       },
       {
         "analyzed": true,
-        "files": 376,
-        "internal_edges": 1110,
+        "files": 378,
+        "internal_edges": 1133,
         "language": "TypeScript"
       }
     ],
@@ -1092,6 +1092,18 @@
       "module": "src/__tests__",
       "type_only_imports": []
     },
+    "src/__tests__/scan-determinism.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/rules.ts",
+        "src/scanner.ts",
+        "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": [
+        "src/types.ts"
+      ]
+    },
     "src/__tests__/scanner-audit.test.ts": {
       "imported_by": [],
       "imports": [
@@ -1435,7 +1447,8 @@
         "src/scanner.ts"
       ],
       "imports": [
-        "src/scanners/connections/import-scanner.ts"
+        "src/scanners/connections/import-scanner.ts",
+        "src/sorted-glob.ts"
       ],
       "module": "src",
       "type_only_imports": []
@@ -2278,6 +2291,7 @@
         "src/index.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src",
@@ -3199,6 +3213,7 @@
         "src/__tests__/deep-map-core.test.ts",
         "src/__tests__/deep-map-packets.test.ts",
         "src/__tests__/rules.test.ts",
+        "src/__tests__/scan-determinism.test.ts",
         "src/__tests__/spof-rule.test.ts",
         "src/__tests__/xcode-target-membership.test.ts",
         "src/agent-output.ts",
@@ -3255,6 +3270,7 @@
         "src/__tests__/scan-boundaries.test.ts",
         "src/__tests__/scan-coverage.test.ts",
         "src/__tests__/scan-degradation.test.ts",
+        "src/__tests__/scan-determinism.test.ts",
         "src/__tests__/scanner-audit.test.ts",
         "src/__tests__/scanner-characterization.test.ts",
         "src/__tests__/scanner-diff-guard.test.ts",
@@ -3315,6 +3331,7 @@
         "src/scanners/swift/code-scanner.ts",
         "src/scanners/xcode/pbxproj-parser.ts",
         "src/scanners/xcode/storyboard-scanner.ts",
+        "src/sorted-glob.ts",
         "src/storage.ts",
         "src/storage/markdown-view.ts",
         "src/temporal/git-store.ts",
@@ -3329,6 +3346,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3349,6 +3367,7 @@
       "imports": [
         "src/scanners/connections/python-imports.ts",
         "src/scanners/scan-limits.ts",
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3363,6 +3382,7 @@
       ],
       "imports": [
         "src/scanners/scan-limits.ts",
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3374,6 +3394,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3396,6 +3417,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3418,6 +3440,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3442,6 +3465,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3454,6 +3478,7 @@
       ],
       "imports": [
         "src/scanners/infrastructure/prisma-parser.ts",
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3500,6 +3525,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3512,6 +3538,7 @@
       ],
       "imports": [
         "src/scanners/infrastructure/prisma-parser.ts",
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3524,6 +3551,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3534,6 +3562,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3554,6 +3583,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3565,7 +3595,8 @@
         "src/scanners/prompts/index.ts"
       ],
       "imports": [
-        "src/scanners/prompts/types.ts"
+        "src/scanners/prompts/types.ts",
+        "src/sorted-glob.ts"
       ],
       "module": "src/scanners",
       "type_only_imports": []
@@ -3603,6 +3634,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3627,6 +3659,7 @@
       ],
       "imports": [
         "src/scanners/swift/swiftui-scanner.ts",
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3658,6 +3691,7 @@
         "src/scanner.ts"
       ],
       "imports": [
+        "src/sorted-glob.ts",
         "src/types.ts"
       ],
       "module": "src/scanners",
@@ -3677,6 +3711,33 @@
         "src/storage.ts",
         "src/types.ts"
       ],
+      "module": "src",
+      "type_only_imports": []
+    },
+    "src/sorted-glob.ts": {
+      "imported_by": [
+        "src/architecture-index.ts",
+        "src/coverage.ts",
+        "src/scanner.ts",
+        "src/scanners/connections/ast-scanner.ts",
+        "src/scanners/connections/import-scanner.ts",
+        "src/scanners/connections/llm-call-tracer.ts",
+        "src/scanners/connections/prisma-calls.ts",
+        "src/scanners/connections/service-calls.ts",
+        "src/scanners/infrastructure/cron-scanner.ts",
+        "src/scanners/infrastructure/env-scanner.ts",
+        "src/scanners/infrastructure/field-usage-analyzer.ts",
+        "src/scanners/infrastructure/queue-scanner.ts",
+        "src/scanners/infrastructure/typespec-validator.ts",
+        "src/scanners/packages/cargo.ts",
+        "src/scanners/packages/npm.ts",
+        "src/scanners/packages/swift.ts",
+        "src/scanners/prompts/detector.ts",
+        "src/scanners/rust/code-scanner.ts",
+        "src/scanners/swift/code-scanner.ts",
+        "src/scanners/xcode/storyboard-scanner.ts"
+      ],
+      "imports": [],
       "module": "src",
       "type_only_imports": []
     },
@@ -3806,6 +3867,7 @@
         "src/__tests__/per-entity-files-gate.test.ts",
         "src/__tests__/resolve.test.ts",
         "src/__tests__/scan-coverage.test.ts",
+        "src/__tests__/scan-determinism.test.ts",
         "src/__tests__/scanner-audit.test.ts",
         "src/__tests__/scanner-diff-guard.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
@@ -5456,7 +5518,7 @@
   "generator": "navgator arch-index",
   "hotspots": [
     {
-      "dependents": 108,
+      "dependents": 109,
       "file": "src/types.ts",
       "module": "src"
     },
@@ -5476,7 +5538,7 @@
       "module": "src"
     },
     {
-      "dependents": 29,
+      "dependents": 30,
       "file": "src/scanner.ts",
       "module": "src"
     },
@@ -5501,6 +5563,11 @@
       "module": "src/__tests__"
     },
     {
+      "dependents": 20,
+      "file": "src/sorted-glob.ts",
+      "module": "src"
+    },
+    {
       "dependents": 19,
       "file": "src/projects.ts",
       "module": "src"
@@ -5517,13 +5584,13 @@
     },
     {
       "dependents": 15,
-      "file": "web/lib/api-client.ts",
-      "module": "web/lib"
-    },
-    {
-      "dependents": 14,
       "file": "src/rules.ts",
       "module": "src"
+    },
+    {
+      "dependents": 15,
+      "file": "web/lib/api-client.ts",
+      "module": "web/lib"
     },
     {
       "dependents": 12,
@@ -5548,11 +5615,6 @@
     {
       "dependents": 11,
       "file": "web/lib/hooks/index.ts",
-      "module": "web/lib"
-    },
-    {
-      "dependents": 11,
-      "file": "web/lib/server/project-path.ts",
       "module": "web/lib"
     }
   ],
@@ -5618,7 +5680,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 128,
+      "edges": 131,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5838,7 +5900,7 @@
       "to": "src"
     },
     {
-      "edges": 24,
+      "edges": 41,
       "from": "src/scanners",
       "to": "src"
     },
@@ -5910,7 +5972,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 128,
+          "edges": 131,
           "module": "src/__tests__"
         },
         {
@@ -5918,7 +5980,7 @@
           "module": "src/cli"
         },
         {
-          "edges": 24,
+          "edges": 41,
           "module": "src/scanners"
         },
         {
@@ -6016,7 +6078,7 @@
           "module": "src/temporal"
         }
       ],
-      "files": 37,
+      "files": 38,
       "id": "src",
       "key_files": [
         "src/types.ts",
@@ -6031,7 +6093,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 128,
+          "edges": 131,
           "module": "src"
         },
         {
@@ -6099,7 +6161,7 @@
           "module": "web"
         }
       ],
-      "files": 111,
+      "files": 112,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"
@@ -6554,7 +6616,7 @@
       ],
       "depends_on": [
         {
-          "edges": 24,
+          "edges": 41,
           "module": "src"
         }
       ],

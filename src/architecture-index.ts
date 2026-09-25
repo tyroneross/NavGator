@@ -258,7 +258,7 @@ function toPosix(p: string): string {
  * the drift this exists to remove.
  */
 export async function discoverSourceFiles(root: string): Promise<string[]> {
-  const { glob } = await import('glob');
+  const { glob } = await import('./sorted-glob.js');
   const extensions = Object.keys(LANGUAGE_BY_EXTENSION).map(e => e.slice(1)).sort();
   const found = await glob(`**/*.{${extensions.join(',')}}`, {
     cwd: root,

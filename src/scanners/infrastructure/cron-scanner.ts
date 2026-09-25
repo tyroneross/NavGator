@@ -181,7 +181,7 @@ async function findCodeCrons(
   if (!hasCronPkg) return { crons, warnings };
 
   // Scan source files for cron.schedule('expression', handler) patterns
-  const { glob: globFn } = await import('glob');
+  const { glob: globFn } = await import('../../sorted-glob.js');
   const allSourceFiles = await globFn('**/*.{ts,tsx,js,jsx,mjs}', {
     cwd: projectRoot,
     ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**', '**/.git/**'],
