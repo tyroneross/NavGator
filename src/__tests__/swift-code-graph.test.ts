@@ -125,6 +125,33 @@ describe('scanSwiftCode file graph', () => {
     expect(refs.some(r => r.startsWith('Sources/Demo/Feature/Use.swift'))).toBe(false);
   });
 
+  it('resolves past a copy of a type compiled only under a custom #if flag', async () => {
+    // A drill harness redeclares the production type in the same folder,
+    // inside `#if CALENDAR_DRILL`. Ordinary code means the production type.
+    writeFixture('App/Calendar/EventStore.swift', 'final class EventStore { }\n');
+    writeFixture('App/Calendar/LifecycleDrill.swift', [
+      '#if CALENDAR_DRILL',
+      'final class EventStore { }',
+      '@main struct LifecycleDrill { static func main() { _ = EventStore() } }',
+      '#endif',
+    ].join('\n'));
+    writeFixture('App/Calendar/Coordinator.swift', 'final class Coordinator { let s = EventStore() }\n');
+    writeFixture('App/Scheduler/Executor.swift', 'final class Executor { let s = EventStore() }\n');
+    // A DEBUG-only copy is ordinarily compiled, so it still ties and is skipped.
+    writeFixture('App/Debug/A/Probe.swift', '#if DEBUG\nstruct Probe {}\n#endif\n');
+    writeFixture('App/Debug/B/Probe.swift', 'struct Probe {}\n');
+    writeFixture('App/Debug/UseProbe.swift', 'let p = Probe()\n');
+    const result = await scanSwiftCode(tmp);
+    const refs = result.connections
+      .filter(c => c.connection_type === 'references')
+      .map(c => `${c.from.component_id.slice(5)} -> ${c.to.location?.file}`);
+    expect(refs).toContain('App/Calendar/Coordinator.swift -> App/Calendar/EventStore.swift');
+    expect(refs).toContain('App/Scheduler/Executor.swift -> App/Calendar/EventStore.swift');
+    // The drill uses its own declaration: no edge out for that name.
+    expect(refs.filter(r => r.startsWith('App/Calendar/LifecycleDrill.swift'))).toEqual([]);
+    expect(refs.some(r => r.startsWith('App/Debug/UseProbe.swift'))).toBe(false);
+  });
+
   it('links an extended project type to the file that extends it', async () => {
     writeFixture('Sources/Demo/SessionStore+Sync.swift', [
       'import Foundation',

@@ -790,6 +790,22 @@ export async function scanSwiftCode(projectRoot, walkSet, knownPackages) {
     // declaration. Otherwise (two `State`s in sibling folders) it is skipped:
     // guessing would invent coupling.
     const declarations = scanTypeDeclarations(files);
+    // A copy of a type compiled only under a custom flag (`#if SOME_DRILL`,
+    // a test harness stubbing the production type) is not what ordinary code
+    // sees. Code outside such a region resolves against the unflagged
+    // declarations when any exist; code inside one keeps every candidate.
+    const gatedLines = new Map();
+    for (const f of files)
+        gatedLines.set(f.relativePath, customFlagGatedLines(stripSwiftNonCode(f.content)));
+    const gatedDecls = scanFlagGatedDeclarations(files, gatedLines);
+    const visibleDeclarations = (file, line, name) => {
+        const all = declarations.get(name);
+        const gated = gatedDecls.get(name);
+        if (!all || !gated || gatedLines.get(file)?.[line - 1])
+            return all;
+        const ungated = new Set([...all].filter(d => !gated.has(d)));
+        return ungated.size > 0 ? ungated : all;
+    };
     // name → node, and the file that node was recorded in: with a name
     // declared in two places, the node is the target only when it is the
     // declaration the use resolved to.
@@ -803,7 +819,7 @@ export async function scanSwiftCode(projectRoot, walkSet, knownPackages) {
     for (const file of files) {
         const seenTargets = new Set();
         for (const ref of scanTypeIdentifiers(file)) {
-            const declFiles = declarations.get(ref.name);
+            const declFiles = visibleDeclarations(file.relativePath, ref.line, ref.name);
             if (!declFiles)
                 continue;
             const declFile = nearestDeclaration(file.relativePath, declFiles);
@@ -854,15 +870,15 @@ export async function scanSwiftCode(projectRoot, walkSet, knownPackages) {
             if (seen.has(name))
                 continue;
             seen.add(name);
-            const declFiles = declarations.get(name);
+            const line = code.slice(0, m.index).split('\n').length;
+            const declFiles = visibleDeclarations(file.relativePath, line, name);
             if (!declFiles)
                 continue;
             const declFile = nearestDeclaration(file.relativePath, declFiles);
             if (!declFile || declFile === file.relativePath)
                 continue;
             const node = componentByName.get(name);
-            const source = node && (declFiles.size === 1 || node.file === declFile) ? node.id : `FILE:${declFile}`;
-            const line = code.slice(0, m.index).split('\n').length;
+            const source = node && (declarations.get(name).size === 1 || node.file === declFile) ? node.id : `FILE:${declFile}`;
             connections.push({
                 connection_id: generateConnectionId('other'),
                 from: { component_id: source, location: { file: declFile, line: 1 } },
@@ -1401,6 +1417,66 @@ function scanTypeDeclarations(files) {
         }
     }
     return decls;
+}
+/**
+ * Per line of `code` (already stripped of comments and strings): true when
+ * the line sits inside an `#if` branch that is compiled only when a custom
+ * flag is set (`#if CALENDAR_LIFECYCLE_DRILL`). `DEBUG`, `SWIFT_PACKAGE`,
+ * platform and compiler conditions, negations and compound conditions are
+ * treated as ordinarily compiled. The `#else` of a custom flag is the
+ * ordinary branch.
+ */
+function customFlagGatedLines(code) {
+    const lines = code.split('\n');
+    const out = new Array(lines.length).fill(false);
+    const stack = [];
+    const isCustomFlag = (cond) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(cond) && cond !== 'DEBUG' && cond !== 'SWIFT_PACKAGE';
+    for (let i = 0; i < lines.length; i++) {
+        const t = lines[i].trim();
+        let m;
+        if ((m = /^#if\s+(.+)$/.exec(t))) {
+            stack.push(isCustomFlag(m[1].trim()));
+        }
+        else if ((m = /^#elseif\s+(.+)$/.exec(t))) {
+            if (stack.length)
+                stack[stack.length - 1] = isCustomFlag(m[1].trim());
+        }
+        else if (/^#else\b/.test(t)) {
+            if (stack.length)
+                stack[stack.length - 1] = false;
+        }
+        else if (/^#endif\b/.test(t)) {
+            stack.pop();
+        }
+        out[i] = stack.some(Boolean);
+    }
+    return out;
+}
+/** name → files whose every declaration of that type sits in a custom-flag `#if` branch. */
+function scanFlagGatedDeclarations(files, gatedLines) {
+    const gated = new Map();
+    for (const file of files) {
+        const lineGated = gatedLines.get(file.relativePath) ?? [];
+        if (!lineGated.some(Boolean))
+            continue;
+        const code = stripSwiftNonCode(file.content);
+        const re = /\b(?:struct|class|enum|actor|protocol|typealias)\s+([A-Z]\w*)/g;
+        const state = new Map(); // name → all declarations gated so far
+        let m;
+        while ((m = re.exec(code)) !== null) {
+            const line = code.slice(0, m.index).split('\n').length;
+            const isGated = lineGated[line - 1] === true;
+            state.set(m[1], (state.get(m[1]) ?? true) && isGated);
+        }
+        for (const [name, allGated] of state) {
+            if (!allGated)
+                continue;
+            if (!gated.has(name))
+                gated.set(name, new Set());
+            gated.get(name).add(file.relativePath);
+        }
+    }
+    return gated;
 }
 /** Distinct capitalized identifiers in code (not comments/strings), with their first line. */
 function scanTypeIdentifiers(file) {
