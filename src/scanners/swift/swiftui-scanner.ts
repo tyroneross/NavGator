@@ -157,6 +157,10 @@ export function scanSwiftUIViews(files: SwiftFileInfo[]): SwiftUIResult {
         ...(view.environmentDeps.length > 0 ? ['uses-environment'] : []),
       ],
       metadata: {
+        // The declaring file, so this view (which wins the scan-level dedup
+        // over the code-scanner's same-named type) keeps a location.
+        file: view.file,
+        line: view.line,
         composedViews: view.composedViews,
         modifierCount: view.modifiers.length,
         a11yModifiers: view.modifiers

@@ -8,9 +8,22 @@
  * - Entitlement requirements from framework usage
  */
 import { ScanResult, ProjectMetadata } from '../../types.js';
-export declare function scanSwiftCode(projectRoot: string, walkSet?: Set<string>): Promise<ScanResult & {
+/**
+ * A package-pass node (framework, SwiftPM or CocoaPods dependency) and the
+ * module name source code imports it by.
+ */
+export interface SwiftKnownPackage {
+    component_id: string;
+    module: string;
+}
+export declare function scanSwiftCode(projectRoot: string, walkSet?: Set<string>, knownPackages?: SwiftKnownPackage[]): Promise<ScanResult & {
     projectMeta: Partial<ProjectMetadata>;
 }>;
+/**
+ * Blank out comments and string-literal text, keeping newlines (line numbers)
+ * and the code inside `\( … )` interpolations, where type references are real.
+ */
+export declare function stripSwiftNonCode(src: string): string;
 /**
  * Parse the local target graph out of a Package.swift manifest.
  *

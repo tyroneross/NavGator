@@ -1793,7 +1793,18 @@ export async function scan(
     if (swiftStackRoots.length > 0) {
       if (options.verbose) console.log('  - Scanning Swift code connections...');
       try {
-        const swiftResult = await scanSwiftCode(root, incWalkSet);
+        // Phase 1 Swift package nodes — frameworks detected from `import`
+        // (tagged swift+import) and Package.swift / Podfile dependencies — so
+        // each file's `import X` becomes an edge to that node.
+        const SWIFT_MANIFEST_RE = /(^|\/)(Package\.swift|Podfile)$/;
+        const swiftKnownPackages = allComponents
+          .filter(c =>
+            (c.tags?.includes('swift') && c.tags?.includes('import')) ||
+            c.source.config_files?.some(f => SWIFT_MANIFEST_RE.test(f.replace(/\\/g, '/')))
+          )
+          .filter(c => c.type !== 'infra')
+          .map(c => ({ component_id: c.component_id, module: c.name }));
+        const swiftResult = await scanSwiftCode(root, incWalkSet, swiftKnownPackages);
         allComponents.push(...swiftResult.components);
         allConnections.push(...swiftResult.connections);
         allWarnings.push(...swiftResult.warnings);

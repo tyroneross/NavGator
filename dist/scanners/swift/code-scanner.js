@@ -106,10 +106,7 @@ const FOUNDATION_MODELS_CONFIRMING = [
 ];
 const GENERABLE_ANNOTATION = /@Generable\b(?:\([^)]*\))?/;
 const STRUCT_ENUM_DECL = /^\s*(?:(?:public|private|internal|open|final)\s+)*(?:struct|enum)\s+(\w+)/;
-// =============================================================================
-// MAIN SCANNER
-// =============================================================================
-export async function scanSwiftCode(projectRoot, walkSet) {
+export async function scanSwiftCode(projectRoot, walkSet, knownPackages) {
     const components = [];
     const connections = [];
     const warnings = [];
@@ -721,6 +718,107 @@ export async function scanSwiftCode(projectRoot, walkSet) {
     const swiftuiResult = scanSwiftUIViews(files);
     components.push(...swiftuiResult.components);
     connections.push(...swiftuiResult.connections);
+    // ---- @main entry points ----
+    //
+    // `@main` marks the type the runtime launches (an App, a WidgetBundle, a
+    // command-line entry). Tag it `entrypoint` so reachability starts there
+    // instead of guessing from the type's name.
+    for (const hit of scanMainAttributes(files)) {
+        findOrCreateTypeComponent(hit.name, {
+            purpose: `Swift entry point: ${hit.name}`,
+            file: hit.file,
+            line: hit.line,
+            tags: ['type', 'entrypoint'],
+        });
+    }
+    // ---- Package / framework imports → uses-package ----
+    //
+    // `import SwiftUI` in a file is that file's use of the SwiftUI node the
+    // package pass created. Without this edge every framework and SwiftPM
+    // dependency node was an orphan even though most files import one.
+    if (knownPackages && knownPackages.length > 0) {
+        const byModule = new Map();
+        for (const pkg of knownPackages) {
+            if (!byModule.has(pkg.module))
+                byModule.set(pkg.module, pkg.component_id);
+        }
+        for (const imp of scanAllImports(files)) {
+            const target = byModule.get(imp.module);
+            if (!target)
+                continue;
+            connections.push({
+                connection_id: generateConnectionId('uses-package'),
+                from: { component_id: `FILE:${imp.file}`, location: { file: imp.file, line: imp.line } },
+                to: { component_id: target },
+                connection_type: 'uses-package',
+                code_reference: {
+                    file: imp.file,
+                    symbol: imp.module,
+                    symbol_type: 'import',
+                    line_start: imp.line,
+                    code_snippet: imp.snippet.slice(0, 100),
+                },
+                description: `${imp.file} imports ${imp.module}`,
+                detected_from: 'swift-code-scanner',
+                confidence: 0.9,
+                timestamp,
+                last_verified: timestamp,
+            });
+        }
+    }
+    // ---- Cross-file type references → references ----
+    //
+    // Files in one Swift module see each other's types with no import
+    // statement, so the only file-to-file coupling Swift source carries is a
+    // type used in one file and declared in another. Resolve each capitalized
+    // identifier against the project's own type declarations and emit
+    // `references` from the using file to the declaring type (or its file, when
+    // no component exists for that type). Typed `references`, not `imports`:
+    // two files of one module naming each other's types is ordinary Swift, not
+    // an import cycle.
+    //
+    // A name declared in more than one file (nested `CodingKeys`, per-feature
+    // `State`) is skipped: which declaration a use means is not decidable from
+    // text, and guessing would invent coupling.
+    const declarations = scanTypeDeclarations(files);
+    const componentByName = new Map();
+    for (const c of components) {
+        if (c.type === 'component' && !componentByName.has(c.name))
+            componentByName.set(c.name, c.component_id);
+    }
+    for (const file of files) {
+        const seenTargets = new Set();
+        for (const ref of scanTypeIdentifiers(file)) {
+            const declFiles = declarations.get(ref.name);
+            if (!declFiles || declFiles.size !== 1)
+                continue;
+            const declFile = [...declFiles][0];
+            if (declFile === file.relativePath)
+                continue;
+            const target = componentByName.get(ref.name) ?? `FILE:${declFile}`;
+            if (seenTargets.has(target))
+                continue;
+            seenTargets.add(target);
+            connections.push({
+                connection_id: generateConnectionId('references'),
+                from: { component_id: `FILE:${file.relativePath}`, location: { file: file.relativePath, line: ref.line } },
+                to: { component_id: target, location: { file: declFile, line: 1 } },
+                connection_type: 'references',
+                code_reference: {
+                    file: file.relativePath,
+                    symbol: ref.name,
+                    symbol_type: 'class',
+                    line_start: ref.line,
+                    code_snippet: (file.lines[ref.line - 1] ?? '').trim().slice(0, 100),
+                },
+                description: `${file.relativePath} references ${ref.name} (declared in ${declFile})`,
+                detected_from: 'swift-code-scanner',
+                confidence: 0.8,
+                timestamp,
+                last_verified: timestamp,
+            });
+        }
+    }
     // ---- Build project metadata ----
     const projectMeta = buildProjectMetadata(files, frameworkImports, projectRoot, fragileKeys, entitlementReqs);
     return { components, connections, warnings, projectMeta };
@@ -1066,6 +1164,162 @@ function scanFoundationModelsUsage(files) {
 // =============================================================================
 // FRAMEWORK IMPORT SCANNING (for entitlement detection)
 // =============================================================================
+/** `import X`, `@testable import X`, `import struct X.Y` — every one, per file. */
+function scanAllImports(files) {
+    const results = [];
+    for (const file of files) {
+        const seen = new Set();
+        for (let i = 0; i < file.lines.length; i++) {
+            const line = file.lines[i];
+            const match = line.match(/^\s*(?:@\w+(?:\([^)]*\))?\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?(\w+)/);
+            if (!match || seen.has(match[1]))
+                continue;
+            seen.add(match[1]);
+            results.push({ module: match[1], file: file.relativePath, line: i + 1, snippet: line.trim() });
+        }
+    }
+    return results;
+}
+/** Types declared with `@main` (attribute on its own line or inline). */
+function scanMainAttributes(files) {
+    const hits = [];
+    for (const file of files) {
+        const code = stripSwiftNonCode(file.content);
+        const re = /@main\b[\s\S]{0,200}?\b(?:struct|class|enum|actor)\s+([A-Za-z_]\w*)/g;
+        let m;
+        while ((m = re.exec(code)) !== null) {
+            const line = code.slice(0, m.index).split('\n').length;
+            hits.push({ name: m[1], file: file.relativePath, line });
+        }
+    }
+    return hits;
+}
+/**
+ * Blank out comments and string-literal text, keeping newlines (line numbers)
+ * and the code inside `\( … )` interpolations, where type references are real.
+ */
+export function stripSwiftNonCode(src) {
+    let out = '';
+    let i = 0;
+    const n = src.length;
+    const blank = (text) => text.replace(/[^\n]/g, ' ');
+    // Copy a string literal starting at `start` (its `#`/quote run), keeping
+    // interpolations. Returns the index just past the literal.
+    const copyString = (start) => {
+        const hashes = /^#*/.exec(src.slice(start, start + 16))[0];
+        let j = start + hashes.length;
+        const multi = src.startsWith('"""', j);
+        const quote = multi ? '"""' : '"';
+        const close = quote + hashes;
+        out += blank(src.slice(start, j + quote.length));
+        j += quote.length;
+        const interp = `\\${hashes}(`;
+        while (j < n) {
+            if (src.startsWith(close, j)) {
+                out += blank(close);
+                return j + close.length;
+            }
+            if (!multi && src[j] === '\n')
+                return j; // unterminated single-line literal
+            if (src.startsWith(interp, j)) {
+                out += blank(interp);
+                j += interp.length;
+                let depth = 1;
+                const exprStart = j;
+                while (j < n && depth > 0) {
+                    if (src[j] === '(')
+                        depth++;
+                    else if (src[j] === ')')
+                        depth--;
+                    if (depth > 0)
+                        j++;
+                }
+                out += stripSwiftNonCode(src.slice(exprStart, j));
+                if (j < n) {
+                    out += ' ';
+                    j++;
+                }
+                continue;
+            }
+            if (!hashes && src[j] === '\\') {
+                out += blank(src.slice(j, j + 2));
+                j += 2;
+                continue;
+            }
+            out += src[j] === '\n' ? '\n' : ' ';
+            j++;
+        }
+        return j;
+    };
+    while (i < n) {
+        const c = src[i];
+        const next = src[i + 1];
+        if (c === '/' && next === '/') {
+            let j = src.indexOf('\n', i);
+            if (j === -1)
+                j = n;
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === '/' && next === '*') {
+            let depth = 1;
+            let j = i + 2;
+            while (j < n && depth > 0) {
+                if (src[j] === '/' && src[j + 1] === '*') {
+                    depth++;
+                    j += 2;
+                }
+                else if (src[j] === '*' && src[j + 1] === '/') {
+                    depth--;
+                    j += 2;
+                }
+                else
+                    j++;
+            }
+            out += blank(src.slice(i, j));
+            i = j;
+        }
+        else if (c === '"' || (c === '#' && /^#+"/.test(src.slice(i, i + 8)))) {
+            i = copyString(i);
+        }
+        else {
+            out += c;
+            i++;
+        }
+    }
+    return out;
+}
+/** name → files that declare a type (struct/class/enum/actor/protocol/typealias) of that name. */
+function scanTypeDeclarations(files) {
+    const decls = new Map();
+    for (const file of files) {
+        const code = stripSwiftNonCode(file.content);
+        // Capitalized names only: `class func` / `class var` are members, not types.
+        const re = /\b(?:struct|class|enum|actor|protocol|typealias)\s+([A-Z]\w*)/g;
+        let m;
+        while ((m = re.exec(code)) !== null) {
+            if (!decls.has(m[1]))
+                decls.set(m[1], new Set());
+            decls.get(m[1]).add(file.relativePath);
+        }
+    }
+    return decls;
+}
+/** Distinct capitalized identifiers in code (not comments/strings), with their first line. */
+function scanTypeIdentifiers(file) {
+    const code = stripSwiftNonCode(file.content);
+    const lines = code.split('\n');
+    const first = new Map();
+    for (let i = 0; i < lines.length; i++) {
+        const re = /(?<![\w.$@#])([A-Z][A-Za-z0-9_]*)\b/g;
+        let m;
+        while ((m = re.exec(lines[i])) !== null) {
+            if (!first.has(m[1]))
+                first.set(m[1], i + 1);
+        }
+    }
+    return [...first.entries()].map(([name, line]) => ({ name, line }));
+}
 function scanFrameworkImports(files) {
     const results = [];
     const entitlementFrameworks = new Set(Object.keys(FRAMEWORK_ENTITLEMENTS));

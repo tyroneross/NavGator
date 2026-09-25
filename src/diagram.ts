@@ -103,6 +103,10 @@ const CONNECTION_STYLES: Record<ConnectionType, ConnectionStyle> = {
   'uses-package': {
     lineStyle: '-->',
   },
+  references: {
+    lineStyle: '-->',
+    label: 'references',
+  },
   wikilink: {
     lineStyle: '-->',
     label: 'links',

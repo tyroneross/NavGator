@@ -209,6 +209,7 @@ export type ConnectionType =
   | 'prompt-location'     // AI prompt definition location
   | 'prompt-usage'        // Code uses an AI prompt
   | 'uses-package'        // Code uses a package
+  | 'references'          // File uses a type declared in another file of the same module (no import statement)
   | 'wikilink'            // Markdown/Obsidian document → linked document
   | 'markdown-link'       // Markdown document → relative Markdown target
   | 'typed-relationship'  // Frontmatter relationship field → target document

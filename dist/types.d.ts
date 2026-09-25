@@ -109,7 +109,7 @@ export interface RuntimeIdentity {
 /**
  * Types of connections between components
  */
-export type ConnectionType = 'api-calls-db' | 'frontend-calls-api' | 'queue-triggers' | 'service-call' | 'imports' | 'deploys-to' | 'env-dependency' | 'schema-relation' | 'cron-triggers' | 'queue-produces' | 'queue-consumes' | 'prompt-location' | 'prompt-usage' | 'uses-package' | 'wikilink' | 'markdown-link' | 'typed-relationship' | 'observes' | 'conforms-to' | 'notifies' | 'stores' | 'navigates-to' | 'presents' | 'requires-entitlement' | 'target-contains' | 'build-phase-includes' | 'generates' | 'field-reference' | 'runtime-binding' | 'queue-uses-cache' | 'other';
+export type ConnectionType = 'api-calls-db' | 'frontend-calls-api' | 'queue-triggers' | 'service-call' | 'imports' | 'deploys-to' | 'env-dependency' | 'schema-relation' | 'cron-triggers' | 'queue-produces' | 'queue-consumes' | 'prompt-location' | 'prompt-usage' | 'uses-package' | 'references' | 'wikilink' | 'markdown-link' | 'typed-relationship' | 'observes' | 'conforms-to' | 'notifies' | 'stores' | 'navigates-to' | 'presents' | 'requires-entitlement' | 'target-contains' | 'build-phase-includes' | 'generates' | 'field-reference' | 'runtime-binding' | 'queue-uses-cache' | 'other';
 /**
  * Code location reference
  */

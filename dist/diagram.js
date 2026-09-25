@@ -74,6 +74,10 @@ const CONNECTION_STYLES = {
     'uses-package': {
         lineStyle: '-->',
     },
+    references: {
+        lineStyle: '-->',
+        label: 'references',
+    },
     wikilink: {
         lineStyle: '-->',
         label: 'links',

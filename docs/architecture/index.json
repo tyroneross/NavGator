@@ -70,14 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 392,
+    "analyzed_files": 393,
     "blind_spots": [
       "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1099,
+    "internal_edges": 1100,
     "languages": [
       {
         "analyzed": true,
@@ -99,8 +99,8 @@
       },
       {
         "analyzed": true,
-        "files": 373,
-        "internal_edges": 1098,
+        "files": 374,
+        "internal_edges": 1099,
         "language": "TypeScript"
       }
     ],
@@ -1219,6 +1219,14 @@
         "src/__tests__/helpers.ts",
         "src/subgraph.ts",
         "src/types.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/swift-code-graph.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/scanners/swift/code-scanner.ts"
       ],
       "module": "src/__tests__",
       "type_only_imports": []
@@ -3576,6 +3584,7 @@
     },
     "src/scanners/swift/code-scanner.ts": {
       "imported_by": [
+        "src/__tests__/swift-code-graph.test.ts",
         "src/__tests__/swift-foundation-models.test.ts",
         "src/__tests__/swift-package-targets.test.ts",
         "src/scanner.ts"
@@ -5631,7 +5640,7 @@
       "to": "src/remote"
     },
     {
-      "edges": 33,
+      "edges": 34,
       "from": "src/__tests__",
       "to": "src/scanners"
     },
@@ -5992,7 +6001,7 @@
           "module": "src/cli"
         },
         {
-          "edges": 33,
+          "edges": 34,
           "module": "src/scanners"
         },
         {
@@ -6052,7 +6061,7 @@
           "module": "web"
         }
       ],
-      "files": 108,
+      "files": 109,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"
@@ -6493,7 +6502,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 33,
+          "edges": 34,
           "module": "src/__tests__"
         },
         {
