@@ -77,7 +77,7 @@
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1110,
+    "internal_edges": 1111,
     "languages": [
       {
         "analyzed": true,
@@ -100,7 +100,7 @@
       {
         "analyzed": true,
         "files": 376,
-        "internal_edges": 1109,
+        "internal_edges": 1110,
         "language": "TypeScript"
       }
     ],
@@ -696,7 +696,8 @@
         "src/__tests__/spof-rule.test.ts",
         "src/__tests__/subgraph.test.ts",
         "src/__tests__/trace-file-nodes.test.ts",
-        "src/__tests__/trace.test.ts"
+        "src/__tests__/trace.test.ts",
+        "src/__tests__/xcode-target-membership.test.ts"
       ],
       "imports": [
         "src/types.ts"
@@ -1375,6 +1376,7 @@
     "src/__tests__/xcode-target-membership.test.ts": {
       "imported_by": [],
       "imports": [
+        "src/__tests__/helpers.ts",
         "src/entry-points.ts",
         "src/rules.ts",
         "src/scanner.ts",
@@ -5494,7 +5496,7 @@
       "module": "web/lib"
     },
     {
-      "dependents": 20,
+      "dependents": 21,
       "file": "src/__tests__/helpers.ts",
       "module": "src/__tests__"
     },

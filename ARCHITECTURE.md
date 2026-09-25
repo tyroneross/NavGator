@@ -20,14 +20,14 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-395 files analyzed, 1110 internal import edges.
+395 files analyzed, 1111 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
 | JavaScript | 8 | yes | 0 |
 | Python | 11 | yes | 1 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 376 | yes | 1109 |
+| TypeScript | 376 | yes | 1110 |
 
 What this index cannot see:
 
@@ -110,7 +110,7 @@ Highest-fan-in files. Changing one of these can affect every file listed as its 
 | `src/agent-output.ts` | `src` | 28 |
 | `src/cli/exit-codes.ts` | `src/cli` | 28 |
 | `web/lib/types.ts` | `web/lib` | 26 |
-| `src/__tests__/helpers.ts` | `src/__tests__` | 20 |
+| `src/__tests__/helpers.ts` | `src/__tests__` | 21 |
 | `src/projects.ts` | `src` | 19 |
 | `src/cli/commands/helpers.ts` | `src/cli` | 18 |
 | `web/components/ui/button.tsx` | `web/components` | 17 |

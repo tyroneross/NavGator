@@ -15,6 +15,7 @@ import { resolveFileEndpoints, scan, xcodeTargetMembers } from '../scanner.js';
 import { detectEntryPoints } from '../entry-points.js';
 import { getBuiltinRules } from '../rules.js';
 import type { ArchitectureComponent, ArchitectureConnection } from '../types.js';
+import { createConnection } from './helpers.js';
 
 // App/Demo.xcodeproj: target `Demo` compiles ../Shared/Wire/Contract.swift via
 // a Sources build phase, and everything under the synchronized folder `Sources`
@@ -180,15 +181,8 @@ describe('Xcode target membership', () => {
     const unused = fileNode('App/Sources/Unused.swift');
     const components = [target, testTarget, main, used, unused];
     const edge = (from: string, to: string, type: ArchitectureConnection['connection_type']): ArchitectureConnection => ({
-      connection_id: `${from}->${to}`,
-      from: { component_id: from },
-      to: { component_id: to },
+      ...createConnection(from, to),
       connection_type: type,
-      code_reference: { file: 'x' },
-      detected_from: 'test',
-      confidence: 1,
-      timestamp: 0,
-      last_verified: 0,
     });
     const connections = [
       edge(target.component_id, main.component_id, 'target-contains'),
