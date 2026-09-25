@@ -150,6 +150,14 @@ const PATH_CONVENTIONS: ReadonlyArray<readonly [EntryPointSource, RegExp]> = [
   // directory permanently invisible, which is the failure this module exists to
   // fix, pointed the other way.
   ['executable-dir', /(^|\/)(scripts|bin)\//],
+  // Python projects capitalize these directories as often as not (`Scripts/`,
+  // `Tests/`), and a Python file there is run by a human, CI, or pytest the
+  // same as its lowercase twin. Case-insensitive, anchored to `.py` so no
+  // TypeScript/JS/Swift path changes classification. Lowercase paths already
+  // matched above, with the same source, so their result is unchanged.
+  // `tools/` stays out for the reason given above.
+  ['executable-dir', /(^|\/)(scripts|bin)\/.*\.py$/i],
+  ['test-file', /(^|\/)tests?\/.*\.py$/i],
   // Swift test targets. SwiftPM and Xcode put them in `Tests/` or a
   // `<Target>Tests/` / `<Target>UITests/` directory, capitalized, which the
   // lowercase `tests?/` pattern above never matched. Anchored to `.swift` so

@@ -208,6 +208,24 @@ describe('classifyPathConvention', () => {
     expect(classifyPathConvention('web/Tests/helper.ts')).toBeNull();
   });
 
+  it('matches Python executable and test directories case-insensitively', () => {
+    expect(classifyPathConvention('Scripts/stats_toolkit.py')).toBe('executable-dir');
+    expect(classifyPathConvention('Tools/Perf/BIN/fit.py')).toBe('executable-dir');
+    expect(classifyPathConvention('Tests/RoutingDataset/test_miner.py')).toBe('test-file');
+    expect(classifyPathConvention('pkg/TEST/test_x.py')).toBe('test-file');
+    // Lowercase Python paths classify exactly as before.
+    expect(classifyPathConvention('scripts/stats_toolkit.py')).toBe('executable-dir');
+    expect(classifyPathConvention('bin/run.py')).toBe('executable-dir');
+    expect(classifyPathConvention('tests/test_miner.py')).toBe('test-file');
+    expect(classifyPathConvention('pkg/test/test_x.py')).toBe('test-file');
+    expect(classifyPathConvention('pkg/stats.py')).toBeNull();
+    // Scoped to Python: capitalized TS/JS directories are still not roots, and
+    // `Tools/` is not an executable directory in any case.
+    expect(classifyPathConvention('Scripts/build.ts')).toBeNull();
+    expect(classifyPathConvention('web/Tests/helper.ts')).toBeNull();
+    expect(classifyPathConvention('Tools/Usage/export_native_usage.py')).toBeNull();
+  });
+
   it('does not mistake React custom-hook directories for executables', () => {
     // `hooks/` was in the executable list until measurement showed it admitting
     // 16 library modules in this repo. An over-broad entry-point source makes
