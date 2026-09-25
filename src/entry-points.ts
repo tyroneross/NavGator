@@ -161,6 +161,9 @@ const PATH_CONVENTIONS: ReadonlyArray<readonly [EntryPointSource, RegExp]> = [
   // `tools/` stays out for the reason given above.
   ['executable-dir', /(^|\/)(scripts|bin)\/.*\.py$/i],
   ['test-file', /(^|\/)tests?\/.*\.py$/i],
+  // pytest collects `test_*.py` and `*_test.py` from any directory, so the
+  // file name alone makes it a test outside a tests folder too.
+  ['test-file', /(^|\/)(test_[^/]*|[^/]*_test)\.py$/],
   // Swift test targets. SwiftPM and Xcode put them in `Tests/` or a
   // `<Target>Tests/` / `<Target>UITests/` directory, capitalized, which the
   // lowercase `tests?/` pattern above never matched. Anchored to `.swift` so

@@ -226,6 +226,18 @@ describe('classifyPathConvention', () => {
     expect(classifyPathConvention('Tools/Usage/export_native_usage.py')).toBeNull();
   });
 
+  it('treats pytest-named Python files as tests wherever they live', () => {
+    // pytest collects `test_*.py` and `*_test.py` from any directory.
+    expect(classifyPathConvention('Tools/ProtocolConformance/test_run.py')).toBe('test-file');
+    expect(classifyPathConvention('test_top.py')).toBe('test-file');
+    expect(classifyPathConvention('pkg/stats_test.py')).toBe('test-file');
+    // Only the file name decides, and only for Python.
+    expect(classifyPathConvention('pkg/testing.py')).toBeNull();
+    expect(classifyPathConvention('pkg/latest_results.py')).toBeNull();
+    expect(classifyPathConvention('test_data/loader.py')).toBeNull();
+    expect(classifyPathConvention('src/test_utils.ts')).toBeNull();
+  });
+
   it('does not mistake React custom-hook directories for executables', () => {
     // `hooks/` was in the executable list until measurement showed it admitting
     // 16 library modules in this repo. An over-broad entry-point source makes
