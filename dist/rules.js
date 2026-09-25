@@ -146,6 +146,13 @@ export function getBuiltinRules(projectRoot) {
             check: (components, connections) => {
                 const dependentCounts = new Map();
                 for (const conn of connections) {
+                    // Conforming to a protocol or trait (`Codable`, `Sendable`, `Default`)
+                    // is not depending on something that can fail: the protocol has no
+                    // runtime of its own. Swift and Rust emit one such edge per
+                    // conformer, which made every widely adopted protocol a "single point
+                    // of failure". No TypeScript/JS scanner emits `conforms-to`.
+                    if (conn.connection_type === 'conforms-to')
+                        continue;
                     dependentCounts.set(conn.to.component_id, (dependentCounts.get(conn.to.component_id) || 0) + 1);
                 }
                 return components

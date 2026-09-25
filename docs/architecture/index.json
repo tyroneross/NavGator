@@ -70,14 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 394,
+    "analyzed_files": 395,
     "blind_spots": [
       "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1107,
+    "internal_edges": 1110,
     "languages": [
       {
         "analyzed": true,
@@ -99,8 +99,8 @@
       },
       {
         "analyzed": true,
-        "files": 375,
-        "internal_edges": 1106,
+        "files": 376,
+        "internal_edges": 1109,
         "language": "TypeScript"
       }
     ],
@@ -693,6 +693,7 @@
         "src/__tests__/prisma-calls.test.ts",
         "src/__tests__/resolve.test.ts",
         "src/__tests__/rules.test.ts",
+        "src/__tests__/spof-rule.test.ts",
         "src/__tests__/subgraph.test.ts",
         "src/__tests__/trace-file-nodes.test.ts",
         "src/__tests__/trace.test.ts"
@@ -1212,6 +1213,16 @@
     "src/__tests__/setup/home-redirect.ts": {
       "imported_by": [],
       "imports": [],
+      "module": "src/__tests__",
+      "type_only_imports": []
+    },
+    "src/__tests__/spof-rule.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/__tests__/helpers.ts",
+        "src/rules.ts",
+        "src/scanner.ts"
+      ],
       "module": "src/__tests__",
       "type_only_imports": []
     },
@@ -3186,6 +3197,7 @@
         "src/__tests__/deep-map-core.test.ts",
         "src/__tests__/deep-map-packets.test.ts",
         "src/__tests__/rules.test.ts",
+        "src/__tests__/spof-rule.test.ts",
         "src/__tests__/xcode-target-membership.test.ts",
         "src/agent-output.ts",
         "src/cli/commands/rules.ts",
@@ -3248,6 +3260,7 @@
         "src/__tests__/scanner-full-scan-diff.test.ts",
         "src/__tests__/scanner-ignore.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
+        "src/__tests__/spof-rule.test.ts",
         "src/__tests__/xcode-target-membership.test.ts",
         "src/cli/commands/freshness.ts",
         "src/cli/commands/misc.ts",
@@ -5461,6 +5474,11 @@
       "module": "src"
     },
     {
+      "dependents": 29,
+      "file": "src/scanner.ts",
+      "module": "src"
+    },
+    {
       "dependents": 28,
       "file": "src/agent-output.ts",
       "module": "src"
@@ -5471,17 +5489,12 @@
       "module": "src/cli"
     },
     {
-      "dependents": 28,
-      "file": "src/scanner.ts",
-      "module": "src"
-    },
-    {
       "dependents": 26,
       "file": "web/lib/types.ts",
       "module": "web/lib"
     },
     {
-      "dependents": 19,
+      "dependents": 20,
       "file": "src/__tests__/helpers.ts",
       "module": "src/__tests__"
     },
@@ -5506,7 +5519,7 @@
       "module": "web/lib"
     },
     {
-      "dependents": 13,
+      "dependents": 14,
       "file": "src/rules.ts",
       "module": "src"
     },
@@ -5603,7 +5616,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 126,
+      "edges": 128,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5895,7 +5908,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 126,
+          "edges": 128,
           "module": "src/__tests__"
         },
         {
@@ -6016,7 +6029,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 126,
+          "edges": 128,
           "module": "src"
         },
         {
@@ -6084,7 +6097,7 @@
           "module": "web"
         }
       ],
-      "files": 110,
+      "files": 111,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"

@@ -20,14 +20,14 @@ given file can break, and which boundaries must not be crossed.
 
 **Coverage: PARTIAL** — part of this tree was not analyzed. Read the blind spots below before treating any absence of edges as evidence.
 
-394 files analyzed, 1107 internal import edges.
+395 files analyzed, 1110 internal import edges.
 
 | Language | Files | Analyzed | Internal edges |
 |---|---:|---|---:|
 | JavaScript | 8 | yes | 0 |
 | Python | 11 | yes | 1 |
 | Shell | 8 | **no** | n/a |
-| TypeScript | 375 | yes | 1106 |
+| TypeScript | 376 | yes | 1109 |
 
 What this index cannot see:
 
@@ -47,7 +47,7 @@ them a responsibility in `docs/architecture/modules.json`.
 | `.` | 1 | Repo-root configuration only (tsconfig, vitest config, package manifests). `.` claims top-level files and nothing below them. | - |
 | `scripts` | 17 | Release and install tooling run from npm scripts and CI — the release verifier, web-runtime packaging, benchmarks, and host-plugin installers. | `scripts/registry_lag.py` |
 | `src` | 37 | Core library and the published npm surface: scan orchestration, storage, graph queries (impact/trace/rules/review), and the shared type system. | `src/types.ts`<br>`src/config.ts`<br>`src/storage.ts` |
-| `src/__tests__` | 110 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
+| `src/__tests__` | 111 | Vitest suite for the core library, CLI, and scanners. Imports production modules freely; nothing in production may import it. | `src/__tests__/helpers.ts` |
 | `src/audit` | 12 | Dependency-free statistical sampling and process-control math used to audit scan accuracy. | `src/audit/oracles/common.ts`<br>`src/audit/sampler.ts`<br>`src/audit/index.ts` |
 | `src/cli` | 31 | The `navgator` binary. One module per subcommand, all registered in `src/cli/index.ts`; owns the five-value exit-code contract in `exit-codes.ts`. | `src/cli/exit-codes.ts`<br>`src/cli/commands/helpers.ts`<br>`src/cli/commands/portfolio.ts` |
 | `src/deep-map` | 9 | Tiered semantic mapping: emits LLM work packets for the calling agent to run, then validates and attributes the findings. Findings never enter the graph. | `src/deep-map/types.ts`<br>`src/deep-map/store.ts`<br>`src/deep-map/filter.ts` |
@@ -75,7 +75,7 @@ Read as "the module on the left imports from the modules on the right"; the numb
 many file-level import edges cross that pair.
 
 - `src` imports `src/scanners` (28), `src/memory` (5), `src/portfolio` (4), `src/enrich` (3), `src/git-aware` (3), `src/freshness` (2), `src/remote` (2), `src/audit` (1), `src/metrics` (1), `src/parsers` (1), `src/storage` (1), `src/temporal` (1)
-- `src/__tests__` imports `src` (126), `src/scanners` (35), `src/cli` (34), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/audit` (7), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
+- `src/__tests__` imports `src` (128), `src/scanners` (35), `src/cli` (34), `src/freshness` (19), `web/lib` (18), `src/deep-map` (15), `web/app` (11), `src/audit` (7), `src/git-aware` (7), `src/memory` (7), `src/portfolio` (5), `src/remote` (5), `src/mcp` (3), `src/parsers` (2), `src/storage` (2), `src/metrics` (1), `web` (1)
 - `src/audit` imports `src` (8), `src/parsers` (1)
 - `src/cli` imports `src` (105), `src/deep-map` (8), `src/audit` (4), `src/freshness` (3), `src/memory` (3), `src/portfolio` (3), `src/enrich` (2), `src/git-aware` (2), `src/scanners` (2), `src/remote` (1), `src/temporal` (1)
 - `src/deep-map` imports `src` (18), `src/metrics` (3)
@@ -106,16 +106,16 @@ Highest-fan-in files. Changing one of these can affect every file listed as its 
 | `web/lib/utils.ts` | `web/lib` | 57 |
 | `src/config.ts` | `src` | 46 |
 | `src/storage.ts` | `src` | 39 |
+| `src/scanner.ts` | `src` | 29 |
 | `src/agent-output.ts` | `src` | 28 |
 | `src/cli/exit-codes.ts` | `src/cli` | 28 |
-| `src/scanner.ts` | `src` | 28 |
 | `web/lib/types.ts` | `web/lib` | 26 |
-| `src/__tests__/helpers.ts` | `src/__tests__` | 19 |
+| `src/__tests__/helpers.ts` | `src/__tests__` | 20 |
 | `src/projects.ts` | `src` | 19 |
 | `src/cli/commands/helpers.ts` | `src/cli` | 18 |
 | `web/components/ui/button.tsx` | `web/components` | 17 |
 | `web/lib/api-client.ts` | `web/lib` | 15 |
-| `src/rules.ts` | `src` | 13 |
+| `src/rules.ts` | `src` | 14 |
 | `src/deep-map/types.ts` | `src/deep-map` | 12 |
 | `web/components/ui/card.tsx` | `web/components` | 12 |
 | `web/lib/project-context.tsx` | `web/lib` | 12 |
