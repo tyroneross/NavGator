@@ -224,6 +224,8 @@ function sanitizeStandaloneConfig(server) {
   const configStart = start + prefix.length
   const config = JSON.parse(server.slice(configStart, end))
   config.outputFileTracingRoot = '.'
+  // Next.js 16.3 records the repository root as well.
+  if ('repoRoot' in config) config.repoRoot = '.'
   if (config.turbopack && typeof config.turbopack === 'object') config.turbopack.root = '.'
   return `${server.slice(0, configStart)}${JSON.stringify(config)}${server.slice(end)}`
 }
@@ -235,6 +237,7 @@ async function sanitizeRequiredServerFiles(root) {
   required.relativeAppDir = '.'
   if (required.config && typeof required.config === 'object') {
     required.config.outputFileTracingRoot = '.'
+    if ('repoRoot' in required.config) required.config.repoRoot = '.'
     if (required.config.turbopack && typeof required.config.turbopack === 'object') {
       required.config.turbopack.root = '.'
     }
