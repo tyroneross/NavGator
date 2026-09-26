@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.10.1](https://github.com/tyroneross/NavGator/compare/navgator-v0.10.0...navgator-v0.10.1) (2026-09-26)
+
+
+### Features
+
+* **release:** detect a stalled cadence and a registry that never got the release ([85e5b5e](https://github.com/tyroneross/NavGator/commit/85e5b5ef178a055b593ba187661519367c9428ad))
+
+
+### Bug Fixes
+
+* **coverage:** count Swift type references as internal edges ([62d7430](https://github.com/tyroneross/NavGator/commit/62d743029862caa97c921f79defba533843fd4fa))
+* **llm:** detect OpenRouter API calls in Swift and Rust ([ad0149b](https://github.com/tyroneross/NavGator/commit/ad0149b28c269d57b07e22009cfc6ccdb6ac7c98))
+* **rules:** do not report a Swift [@main](https://github.com/main) entry point as an orphan ([b97bfe1](https://github.com/tyroneross/NavGator/commit/b97bfe1548a6468928ad4653c20a769c28387b37))
+* **rules:** find Swift and Rust entry points and judge their reachability per file ([43285d7](https://github.com/tyroneross/NavGator/commit/43285d73850a72591f148354c7b2892e2e06262a))
+* **rust:** a file that declares a type name uses its own declaration ([a8ffc33](https://github.com/tyroneross/NavGator/commit/a8ffc3350545caf4794207a029b30c9709f4c492))
+* **rust:** link crate usage to its manifest node and build the module graph file-to-file ([ed3d486](https://github.com/tyroneross/NavGator/commit/ed3d486f10f12c9143c5898d475d5cd16d12b313))
+* **rust:** match Cargo nodes by repo-relative manifest path during the scan ([9e3311d](https://github.com/tyroneross/NavGator/commit/9e3311db727b4db16eef06758fbc6836190c3fa6))
+* **rust:** record where each struct, enum and trait is used ([e952aaf](https://github.com/tyroneross/NavGator/commit/e952aaf22dfc9b998583c9b61cb5547b66e3a092))
+* **rust:** resolve #[path] module declarations ([aedd473](https://github.com/tyroneross/NavGator/commit/aedd473eadb1271ee41e58d8cf82f6419a63eece))
+* **rust:** resolve modules declared inside inline modules and types from sibling crates ([9123f17](https://github.com/tyroneross/NavGator/commit/9123f175b15dcaa63646e8388d07bdb3321e227c))
+* **scan:** run the Rust code scanner when the Cargo workspace sits below the scan root ([6e62473](https://github.com/tyroneross/NavGator/commit/6e6247316bd4e137d1a6781a19aa9b4fda16c480))
+* **swift:** anchor string-key and prompt edges on the file that uses them ([bc73e3d](https://github.com/tyroneross/NavGator/commit/bc73e3de65a17201a5e8fe113eccf3c0b0a7441d))
+* **swift:** give Swift files real edges: framework imports, cross-file type references, [@main](https://github.com/main) ([23852d0](https://github.com/tyroneross/NavGator/commit/23852d0952e88195f8678073bcea772024a30d3a))
+* **swift:** keep a file that only extends a project type reachable from that type ([0853a26](https://github.com/tyroneross/NavGator/commit/0853a2642b6cc8acccf09e4e4603acf9c4300ead))
+* **swift:** resolve a type name declared twice to the nearer declaration ([3dd9ba6](https://github.com/tyroneross/NavGator/commit/3dd9ba6ac3495b8177d118c10c9c22d3e8529588))
+
 ## [0.10.0](https://github.com/tyroneross/NavGator/compare/navgator-v0.9.1...navgator-v0.10.0) (2026-09-06)
 
 
