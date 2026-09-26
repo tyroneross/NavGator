@@ -36,7 +36,7 @@ describe('release contract', () => {
     // (99961eb kept it deliberately). Pin it anyway: an unasserted semver in a
     // repo whose defect was a stale version string is a silent drift surface.
     expect(claudeMarketplace.metadata.version).toBe(packageJson.version);
-    expect(webPackage.dependencies.next).toBe('16.2.12');
+    expect(webPackage.dependencies.next).toBe('16.3.6');
     expect(webPackage.overrides.postcss).toBe('$postcss');
     for (const manifest of [claudeManifest, claudeEntry, codexManifest]) {
       expect(manifest).toMatchObject({
