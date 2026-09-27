@@ -9,6 +9,7 @@ export function registerReviewCommand(program: Command): void {
     .command('review')
     .description('Architectural integrity review: rule violations, runtime topology, LLM use cases')
     .option('--component <name>', 'Focus the review on one component\'s impact')
+    .option('--path <prefix>', 'Limit live change inventory to this repository path prefix')
     .option('--json', 'Output as JSON')
     .option('--agent', 'Output wrapped in agent envelope (implies --json)')
     .action(async (options) => {
@@ -20,7 +21,7 @@ export function registerReviewCommand(program: Command): void {
           return;
         }
 
-        const report = await buildReviewReport({ component: options.component });
+        const report = await buildReviewReport({ component: options.component, pathPrefix: options.path });
 
         if ('error' in report) {
           // buildReviewReport's only error case is "no architecture data"

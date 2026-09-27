@@ -4,8 +4,7 @@
  * Single shared implementation of the `review` composite, used by both the
  * `navgator review` CLI command and the MCP `review` tool handler. Builds a
  * structured report from the architecture graph, then formats it to the
- * human-readable text that predates this module (byte-identical to the prior
- * inline implementation in src/mcp/tools.ts).
+ * human-readable architecture text with additive live-coverage lines.
  */
 
 import * as fs from "fs";
@@ -15,6 +14,7 @@ import { computeImpact } from "./impact.js";
 import { resolveComponent } from "./resolve.js";
 import { checkRules, type RuleViolation } from "./rules.js";
 import { deduplicateLLMUseCases } from "./llm-dedup.js";
+import { collectReviewScope, type ReviewScope } from "./review-scope.js";
 import type { ImpactSeverity } from "./types.js";
 
 export interface ReviewFocusSummary {
@@ -37,6 +37,8 @@ export interface ReviewReport {
   runtime_topology: Record<string, number>;
   /** Present only when at least one deduplicated LLM use case was found. */
   llm?: ReviewLLMSummary;
+  /** Live checkout coverage and age of the stored architecture scan. */
+  review_scope?: ReviewScope;
 }
 
 export interface ReviewReportError {
@@ -50,7 +52,7 @@ export interface ReviewReportError {
  * rather than treated as an error (only "no architecture data" errors).
  */
 export async function buildReviewReport(
-  opts: { projectRoot?: string; component?: string } = {}
+  opts: { projectRoot?: string; component?: string; pathPrefix?: string } = {}
 ): Promise<ReviewReport | ReviewReportError> {
   const projectRoot = opts.projectRoot ?? process.cwd();
   const config = getConfig();
@@ -104,13 +106,13 @@ export async function buildReviewReport(
     /* dedup not available */
   }
 
-  return { violations, focus, runtime_topology, llm };
+  const review_scope = await collectReviewScope(projectRoot, Date.now(), opts.pathPrefix);
+  return { violations, focus, runtime_topology, llm, review_scope };
 }
 
 /**
- * Render a ReviewReport to the human-readable text NavGator has always
- * produced for `review`. Kept byte-identical to the pre-refactor inline
- * implementation so existing tests and the release verifier keep matching.
+ * Render a ReviewReport with additive live coverage warnings for Git worktrees.
+ * Missing Git inventory remains visible as an incomplete-coverage warning.
  */
 export function formatReviewReport(report: ReviewReport): string {
   const lines: string[] = ["ARCHITECTURE REVIEW"];
@@ -159,6 +161,21 @@ export function formatReviewReport(report: ReviewReport): string {
   if (report.llm) {
     lines.push(`\nAI/LLM: ${report.llm.use_cases} use cases across ${report.llm.providers} providers`);
   }
+
+  const scope = report.review_scope;
+  if (scope?.available) {
+    const counts = scope.counts;
+    if (scope.scope_prefix) lines.push(`\nScope filter: ${scope.scope_prefix} (${scope.outside_scope} changed files outside scope)`);
+    lines.push(`\nLive change scope: ${counts.total} files (${counts.committed} committed, ${counts.staged} staged, ${counts.unstaged} unstaged, ${counts.untracked} untracked; surfaces may overlap)`);
+    if (!scope.branch_base_known) lines.push('Branch base: unavailable; committed delta uses HEAD');
+    if (scope.omitted_changed) lines.push(`Path sample omits ${scope.omitted_changed} changed files; scope the review before concluding coverage`);
+    if (scope.behavioral_review.required) {
+      lines.push(`Functional validation needed: ${scope.behavioral_review.matched_count} changed retrieval/persistence source files; run route, evidence, and no-write probes`);
+    }
+  } else if (scope) {
+    lines.push(`\nLive change scope: unavailable (${scope.reason || 'unknown'}); review coverage is incomplete`);
+  }
+  if (scope && scope.scan.status !== 'fresh') lines.push(`Architecture scan: ${scope.scan.status}; refresh before relying on graph edges`);
 
   return lines.join("\n");
 }

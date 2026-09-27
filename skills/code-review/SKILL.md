@@ -8,6 +8,7 @@ user-invocable: false
 # Architectural Integrity Review
 
 Orchestrates NavGator's impact analysis, data flow tracing, rules engine, and lessons tracking into a repeatable architectural review workflow. This skill is an architectural integrity reviewer — not a linter, not a bug hunter.
+`navgator review` reports stored architecture plus a bounded inventory of committed, staged, unstaged, and untracked files and scan age. It does not inspect diff content or execute user queries. Read the scoped diff and perform the behavioral handoff below before calling a review complete.
 
 Resolve the binary first: use `navgator` if it is on PATH, otherwise `node "$NAVGATOR_HOME/dist/cli/index.js"` where `NAVGATOR_HOME` is the installed package root. Never hardcode an absolute path. See the `navgator-setup` skill for the full resolution order.
 
@@ -26,7 +27,7 @@ Resolve the binary first: use `navgator` if it is on PATH, otherwise `node "$NAV
 - Code linter or style checker — formatting, naming conventions, indentation
 - Individual function bug hunter — local logic errors, off-by-one mistakes
 - Security vulnerability scanner — use dedicated security tools for that
-- Test coverage auditor — use `navgator coverage` for that
+- Behavioral test coverage auditor — `navgator coverage` measures architecture mapping, not whether changed behavior has adversarial tests
 - TypeScript type error detector — the compiler handles that
 - Performance optimizer — not the scope of architectural review
 
@@ -36,20 +37,22 @@ Determine what to review before starting:
 
 | Invocation | Scope |
 |------------|-------|
-| Default (no flags) | `git diff origin/main..HEAD` — changed files since branch diverged |
+| Default (no flags) | Committed branch delta **plus** staged, unstaged, and untracked files in the current checkout |
 | `--all` | Full architecture review across all components |
 | `<component>` | Focused review on one component and its direct connections |
 | `--validate` | Run Phase 5 freshness validation regardless of age |
 | `learn "..."` | Record a manual lesson, skip full review |
 
-When scope is ambiguous, default to `git diff origin/main..HEAD`. If the branch has no divergence from main, ask the user what they want to review.
+Inventory four surfaces: `git diff --name-only <merge-base>..HEAD`, `git diff --cached --name-only`, `git diff --name-only`, and `git ls-files --others --exclude-standard`; deduplicate paths. Use `git merge-base origin/main HEAD` for `<merge-base>` when available. If it is unavailable, use `HEAD` for the committed comparison and state that branch divergence is unknown. Read task-relevant untracked source files directly because ordinary `git diff` omits them. In a large dirty checkout, bound the reviewed file set to the user's task/component and its mapped dependencies/tests; report counts and any omitted files as incomplete coverage rather than loading every untracked file or silently ignoring it. A branch with no divergence can still have a substantial reviewable working-tree change. Ask for scope only when all four sets are empty and the user gave no component or `--all` target.
+
+For a large dirty checkout, use `navgator review --path <task-prefix> --agent` to get a task-bounded inventory. State its `outside_scope` count; a focused review does not clear files outside that path.
 
 ## Prerequisites
 
 Before starting any phase:
 
-1. Check if `.navgator/architecture/index.json` exists. If not, stop and tell the user to run `navgator scan --agent` first. Claude users may also run `/navgator:scan`.
-2. Check the `generated_at` timestamp in `index.json`. If >24 hours old, warn: "Architecture data is N hours old — refresh it with `navgator scan --agent` before relying on the review."
+1. Check if `.navgator/architecture/index.json` exists. If not, run `navgator scan --agent`. If scanning fails, report an incomplete architecture review and continue only with a clearly labeled direct-file assessment.
+2. Check `last_scan` in `index.json` (Unix milliseconds). If absent or >24 hours old, run `navgator scan --agent` before relying on its component map. If refresh fails, report an incomplete architecture review and inspect the live changed files directly; do not treat missing graph edges as proof of safety.
 3. Load `.navgator/architecture/file_map.json` for file-to-component resolution.
 4. Load `.navgator/architecture/graph.json` for connection traversal.
 5. Check for `.navgator/lessons/lessons.json`. If missing, create it:
@@ -57,7 +60,7 @@ Before starting any phase:
    { "schema_version": "1.0.0", "lessons": [] }
    ```
 
-Do not proceed without architecture data. Proceeding on stale data is worse than pausing.
+Do not run graph-dependent phases without current architecture data. A direct review of live changed files can still identify what needs functional validation, but must be labeled incomplete.
 
 ---
 
@@ -65,7 +68,7 @@ Do not proceed without architecture data. Proceeding on stale data is worse than
 
 **Goal:** Identify which components and layers were touched.
 
-1. Run `git diff [scope] --stat` to get the list of changed files.
+1. Run `git diff [scope] --stat` for committed changes and inspect staged, unstaged, and untracked files from the default scope set above. State which of those four surfaces contributed files.
 2. For each changed file, look it up in `file_map.json` to resolve to its parent component ID.
 3. Look up that component ID in `index.json` to get its type and layer.
 4. Classify each change:
@@ -138,6 +141,10 @@ Output:
 ```
 
 If no violations: report "No connection integrity issues found" — do not omit the section.
+
+### Behavioral boundary handoff
+
+Architecture edges do not prove a query's answer is correct. When the changed flow includes a query router, shortcut, retrieval filter, ranker, or read-only store, trace `input → route → source selection → result` and name the behavioral checks a functional reviewer must run. Include a broad query and variants with a named entity, role, date, and different task verb; compare route and top evidence, not only success status. For a no-write claim, include directory metadata and sidecar files, pending WAL data, aliases, and concurrent updates. If those probes were not run, report `functional_validation_needed` with the exact missing probes. Do not describe a clean component graph as a passing behavioral review.
 
 ---
 
@@ -323,7 +330,7 @@ This skill explicitly does NOT review:
 
 - **Individual function logic** — off-by-one errors, business rule correctness, algorithm bugs. Use a debugger.
 - **Code style and formatting** — indentation, naming conventions, blank lines. Use a linter.
-- **Test coverage** — missing tests, untested branches. Use `navgator coverage`.
+- **Behavioral test coverage** — missing tests and untested branches. Request a functional test audit; `navgator coverage` reports architecture mapping coverage only.
 - **Performance** — slow queries, rendering bottlenecks, memory usage. Use profiling tools.
 - **Security vulnerabilities** — SQL injection, XSS, auth bypasses. Use dedicated security tools.
 - **TypeScript type errors** — the compiler catches those before review.

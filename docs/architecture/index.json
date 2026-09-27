@@ -70,14 +70,14 @@
     }
   ],
   "coverage": {
-    "analyzed_files": 397,
+    "analyzed_files": 399,
     "blind_spots": [
       "8 JavaScript file(s) were analyzed but produced zero internal edges. Either those files genuinely import nothing local, or the scanner missed them — this index cannot tell the two apart, so do not read the absence as low coupling.",
       "8 Shell file(s) are present but NOT analyzed. NavGator's import scanner covers JavaScript/Python/TypeScript only, so zero Shell edges here means \"not measured\", never \"not coupled\".",
       "Edges come from matching import syntax in raw file text, not from a compiler, so a specifier inside a comment or a string literal counts as an edge. The error runs in the safe direction — blast radius over-reports dependents rather than hiding them — but a listed dependent may be a commented-out import or a test fixture string.",
       "Only static import/require/re-export edges are indexed. Runtime wiring — dependency injection, string-keyed registries, HTTP calls, queue topics — is not."
     ],
-    "internal_edges": 1134,
+    "internal_edges": 1139,
     "languages": [
       {
         "analyzed": true,
@@ -99,8 +99,8 @@
       },
       {
         "analyzed": true,
-        "files": 378,
-        "internal_edges": 1133,
+        "files": 380,
+        "internal_edges": 1138,
         "language": "TypeScript"
       }
     ],
@@ -1028,6 +1028,16 @@
       "type_only_imports": [
         "src/types.ts"
       ]
+    },
+    "src/__tests__/review-scope.test.ts": {
+      "imported_by": [],
+      "imports": [
+        "src/config.ts",
+        "src/review-report.ts",
+        "src/review-scope.ts"
+      ],
+      "module": "src/__tests__",
+      "type_only_imports": []
     },
     "src/__tests__/rules.test.ts": {
       "imported_by": [],
@@ -2239,6 +2249,7 @@
         "src/__tests__/per-entity-files-gate.test.ts",
         "src/__tests__/portfolio-remote-filter.test.ts",
         "src/__tests__/portfolio/scan.test.ts",
+        "src/__tests__/review-scope.test.ts",
         "src/__tests__/scanner-incremental.test.ts",
         "src/agent-output.ts",
         "src/cli/commands/audit-report.ts",
@@ -2271,6 +2282,7 @@
         "src/metrics/pagerank-louvain.ts",
         "src/portfolio/scan.ts",
         "src/review-report.ts",
+        "src/review-scope.ts",
         "src/scanner.ts",
         "src/setup.ts",
         "src/storage.ts",
@@ -3190,6 +3202,7 @@
     "src/review-report.ts": {
       "imported_by": [
         "src/__tests__/explore-review.test.ts",
+        "src/__tests__/review-scope.test.ts",
         "src/cli/commands/review.ts",
         "src/mcp/tools.ts"
       ],
@@ -3198,6 +3211,7 @@
         "src/impact.ts",
         "src/llm-dedup.ts",
         "src/resolve.ts",
+        "src/review-scope.ts",
         "src/rules.ts",
         "src/storage.ts",
         "src/types.ts"
@@ -3206,6 +3220,17 @@
       "type_only_imports": [
         "src/types.ts"
       ]
+    },
+    "src/review-scope.ts": {
+      "imported_by": [
+        "src/__tests__/review-scope.test.ts",
+        "src/review-report.ts"
+      ],
+      "imports": [
+        "src/config.ts"
+      ],
+      "module": "src",
+      "type_only_imports": []
     },
     "src/rules.ts": {
       "imported_by": [
@@ -5528,7 +5553,7 @@
       "module": "web/lib"
     },
     {
-      "dependents": 46,
+      "dependents": 48,
       "file": "src/config.ts",
       "module": "src"
     },
@@ -5680,7 +5705,7 @@
       "to": "src/temporal"
     },
     {
-      "edges": 131,
+      "edges": 134,
       "from": "src/__tests__",
       "to": "src"
     },
@@ -5972,7 +5997,7 @@
       "curated": true,
       "dependents": [
         {
-          "edges": 131,
+          "edges": 134,
           "module": "src/__tests__"
         },
         {
@@ -6078,7 +6103,7 @@
           "module": "src/temporal"
         }
       ],
-      "files": 38,
+      "files": 39,
       "id": "src",
       "key_files": [
         "src/types.ts",
@@ -6093,7 +6118,7 @@
       "dependents": [],
       "depends_on": [
         {
-          "edges": 131,
+          "edges": 134,
           "module": "src"
         },
         {
@@ -6161,7 +6186,7 @@
           "module": "web"
         }
       ],
-      "files": 112,
+      "files": 113,
       "id": "src/__tests__",
       "key_files": [
         "src/__tests__/helpers.ts"

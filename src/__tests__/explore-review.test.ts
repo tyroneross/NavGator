@@ -5,10 +5,8 @@
  *  1. buildExploreReport / buildReviewReport return the structured fields a
  *     machine consumer needs (component identity, impact, connections,
  *     trace, rule violations, runtime topology, LLM use cases).
- *  2. formatExploreReport / formatReviewReport reproduce, byte-for-byte, the
- *     text the pre-refactor inline MCP handlers produced for the same
- *     inputs (derived independently from src/rules.ts / src/impact.ts /
- *     src/trace.ts, not from the new formatter itself).
+ *  2. formatExploreReport preserves the pre-refactor text. Review keeps its
+ *     architecture sections and adds live coverage disclosures.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -180,7 +178,7 @@ describe('explore/review shared report modules', () => {
       expect(report.llm).toBeUndefined();
     });
 
-    it('formatReviewReport matches the pre-refactor MCP text exactly', async () => {
+    it('formatReviewReport preserves architecture findings and discloses unavailable coverage', async () => {
       await seedFixture(root);
       const report = await buildReviewReport({ projectRoot: root, component: 'authsvc' });
       expect('error' in report).toBe(false);
@@ -195,6 +193,8 @@ describe('explore/review shared report modules', () => {
         '\nImpact for authsvc: HIGH',
         'HIGH: 0 direct dependents, 0 transitive, 0 files affected',
         '\nRuntime topology: database: 1',
+        '\nLive change scope: unavailable (not_git_repository); review coverage is incomplete',
+        'Architecture scan: missing; refresh before relying on graph edges',
       ].join('\n');
 
       expect(formatReviewReport(report)).toBe(expected);

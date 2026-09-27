@@ -4,10 +4,10 @@
  * Single shared implementation of the `review` composite, used by both the
  * `navgator review` CLI command and the MCP `review` tool handler. Builds a
  * structured report from the architecture graph, then formats it to the
- * human-readable text that predates this module (byte-identical to the prior
- * inline implementation in src/mcp/tools.ts).
+ * human-readable architecture text with additive live-coverage lines.
  */
 import { type RuleViolation } from "./rules.js";
+import { type ReviewScope } from "./review-scope.js";
 import type { ImpactSeverity } from "./types.js";
 export interface ReviewFocusSummary {
     component_name: string;
@@ -27,6 +27,8 @@ export interface ReviewReport {
     runtime_topology: Record<string, number>;
     /** Present only when at least one deduplicated LLM use case was found. */
     llm?: ReviewLLMSummary;
+    /** Live checkout coverage and age of the stored architecture scan. */
+    review_scope?: ReviewScope;
 }
 export interface ReviewReportError {
     error: string;
@@ -40,11 +42,11 @@ export interface ReviewReportError {
 export declare function buildReviewReport(opts?: {
     projectRoot?: string;
     component?: string;
+    pathPrefix?: string;
 }): Promise<ReviewReport | ReviewReportError>;
 /**
- * Render a ReviewReport to the human-readable text NavGator has always
- * produced for `review`. Kept byte-identical to the pre-refactor inline
- * implementation so existing tests and the release verifier keep matching.
+ * Render a ReviewReport with additive live coverage warnings for Git worktrees.
+ * Missing Git inventory remains visible as an incomplete-coverage warning.
  */
 export declare function formatReviewReport(report: ReviewReport): string;
 //# sourceMappingURL=review-report.d.ts.map
